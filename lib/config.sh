@@ -60,8 +60,15 @@ load_strut_config() {
   DEFAULT_ORG="${DEFAULT_ORG:-}"
   DEFAULT_BRANCH="${DEFAULT_BRANCH:-main}"
   BANNER_TEXT="${BANNER_TEXT:-strut}"
+  REVERSE_PROXY="${REVERSE_PROXY:-nginx}"
 
-  export REGISTRY_TYPE REGISTRY_HOST DEFAULT_ORG DEFAULT_BRANCH BANNER_TEXT
+  export REGISTRY_TYPE REGISTRY_HOST DEFAULT_ORG DEFAULT_BRANCH BANNER_TEXT REVERSE_PROXY
+
+  # Validate REVERSE_PROXY
+  case "$REVERSE_PROXY" in
+    nginx|caddy) ;;
+    *) fail "Invalid REVERSE_PROXY='$REVERSE_PROXY' in strut.conf (valid: nginx, caddy)" ;;
+  esac
 }
 
 # resolve_strut_home <script_path>

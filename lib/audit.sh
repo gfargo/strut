@@ -85,6 +85,35 @@ _audit_nginx() {
   log "  ✓ Nginx configuration collected"
 }
 
+# _audit_caddy <ssh_opts> <vps_user> <vps_host> <_sudo> <audit_dir>
+# Collects Caddy configuration from containers and system service
+_audit_caddy() {
+  local ssh_opts="$1" vps_user="$2" vps_host="$3" _sudo="$4" audit_dir="$5"
+
+  log "Collecting Caddy configuration..."
+  mkdir -p "$audit_dir/caddy"
+
+  ssh $ssh_opts "$vps_user@$vps_host" "${_sudo}docker ps --format '{{.Names}}' | grep -i caddy" > "$audit_dir/caddy/caddy-containers.txt" 2>/dev/null || true
+  ssh $ssh_opts "$vps_user@$vps_host" "systemctl is-active caddy 2>/dev/null || echo 'not-running'" > "$audit_dir/caddy/caddy-service-status.txt" 2>/dev/null || true
+
+  local caddy_containers
+  caddy_containers=$(cat "$audit_dir/caddy/caddy-containers.txt" 2>/dev/null)
+  if [ -n "$caddy_containers" ]; then
+    for caddy_container in $caddy_containers; do
+      log "  Extracting Caddy config from container: $caddy_container"
+      ssh $ssh_opts "$vps_user@$vps_host" "${_sudo}docker exec $caddy_container cat /etc/caddy/Caddyfile 2>/dev/null" > "$audit_dir/caddy/${caddy_container}-Caddyfile" 2>/dev/null || true
+      ssh $ssh_opts "$vps_user@$vps_host" "${_sudo}docker exec $caddy_container ls -la /data/caddy/certificates 2>/dev/null" > "$audit_dir/caddy/${caddy_container}-ssl-certs.txt" 2>/dev/null || true
+    done
+  fi
+
+  if grep -q "active" "$audit_dir/caddy/caddy-service-status.txt" 2>/dev/null; then
+    log "  Extracting system Caddy config"
+    ssh $ssh_opts "$vps_user@$vps_host" "sudo cat /etc/caddy/Caddyfile 2>/dev/null" > "$audit_dir/caddy/system-Caddyfile" 2>/dev/null || true
+    ssh $ssh_opts "$vps_user@$vps_host" "sudo ls -la /var/lib/caddy/.local/share/caddy/certificates 2>/dev/null" > "$audit_dir/caddy/system-ssl-certs.txt" 2>/dev/null || true
+  fi
+  log "  ✓ Caddy configuration collected"
+}
+
 # _audit_systemd <ssh_opts> <vps_user> <vps_host> <audit_dir>
 # Collects systemd service information
 _audit_systemd() {
@@ -331,6 +360,7 @@ audit_vps() {
   # Run each audit category
   _audit_docker   "$ssh_opts" "$vps_user" "$vps_host" "$_sudo" "$audit_dir"
   _audit_nginx    "$ssh_opts" "$vps_user" "$vps_host" "$_sudo" "$audit_dir"
+  _audit_caddy    "$ssh_opts" "$vps_user" "$vps_host" "$_sudo" "$audit_dir"
   _audit_systemd  "$ssh_opts" "$vps_user" "$vps_host" "$audit_dir"
   _audit_cron     "$ssh_opts" "$vps_user" "$vps_host" "$audit_dir"
   _audit_firewall "$ssh_opts" "$vps_user" "$vps_host" "$audit_dir"
@@ -510,6 +540,44 @@ EOF
 
   if [ ! -s "$audit_dir/nginx/nginx-containers.txt" ] && [ ! -f "$audit_dir/nginx/system-nginx.conf" ]; then
     echo "No nginx configuration found." >> "$report"
+    echo "" >> "$report"
+  fi
+
+  cat >> "$report" <<EOF
+
+---
+
+## Caddy Configuration
+
+EOF
+
+  # Caddy containers
+  if [ -s "$audit_dir/caddy/caddy-containers.txt" ]; then
+    echo "**Caddy Containers:**" >> "$report"
+    echo "" >> "$report"
+    while IFS= read -r caddy_container; do
+      echo "- \`$caddy_container\`" >> "$report"
+      if [ -f "$audit_dir/caddy/${caddy_container}-Caddyfile" ]; then
+        echo "  - Config: \`caddy/${caddy_container}-Caddyfile\`" >> "$report"
+      fi
+      if [ -f "$audit_dir/caddy/${caddy_container}-ssl-certs.txt" ]; then
+        echo "  - SSL Certs: \`caddy/${caddy_container}-ssl-certs.txt\`" >> "$report"
+      fi
+    done < "$audit_dir/caddy/caddy-containers.txt"
+    echo "" >> "$report"
+  fi
+
+  # System caddy
+  if [ -f "$audit_dir/caddy/system-Caddyfile" ]; then
+    echo "**System Caddy:**" >> "$report"
+    echo "" >> "$report"
+    echo "- Config: \`caddy/system-Caddyfile\`" >> "$report"
+    echo "- SSL: \`caddy/system-ssl-certs.txt\`" >> "$report"
+    echo "" >> "$report"
+  fi
+
+  if [ ! -s "$audit_dir/caddy/caddy-containers.txt" ] && [ ! -f "$audit_dir/caddy/system-Caddyfile" ]; then
+    echo "No Caddy configuration found." >> "$report"
     echo "" >> "$report"
   fi
 
