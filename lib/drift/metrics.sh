@@ -36,7 +36,11 @@ drift_metrics_export() {
 
   drift_load_ignore_patterns "$stack_dir"
 
-  for tracked_file in "${DRIFT_TRACKED_FILES[@]}"; do
+  # Get tracked files dynamically based on REVERSE_PROXY
+  local -a tracked_files
+  IFS=' ' read -ra tracked_files <<< "$(drift_get_tracked_files)"
+
+  for tracked_file in "${tracked_files[@]}"; do
     local git_file="$stack_dir/$tracked_file"
     local vps_file="$stack_dir/$tracked_file"
 

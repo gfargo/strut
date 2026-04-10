@@ -248,6 +248,43 @@ grep_lib() {
   fi
 }
 
+# ── Reverse proxy: no hardcoded nginx outside dispatch branches ──────
+# Feature: pluggable-reverse-proxy, Requirements 1.1, 2.1, 3.1
+# Verifies that engine dispatch files don't reference nginx outside of
+# case branches or REVERSE_PROXY default assignments.
+
+@test "no hardcoded nginx outside proxy dispatch in deploy.sh — Req 2.1" {
+  # Grep for 'nginx' but exclude:
+  #   - case branch labels: nginx) or nginx|caddy)
+  #   - REVERSE_PROXY default: ${REVERSE_PROXY:-nginx}
+  #   - comments (lines starting with #)
+  #   - ok/warn messages that reference the proxy by $proxy variable result
+  if matches=$(grep -nE 'nginx' "$CLI_ROOT"/lib/deploy.sh 2>/dev/null \
+    | grep -vE '(nginx\)|nginx\|caddy|REVERSE_PROXY:-nginx|^\s*#|"nginx reloaded"|"nginx reload failed")'); then
+    echo "Found hardcoded nginx outside dispatch in deploy.sh:" >&2
+    echo "$matches" >&2
+    return 1
+  fi
+}
+
+@test "no hardcoded nginx outside proxy dispatch in health.sh — Req 7.1" {
+  if matches=$(grep -nE 'nginx' "$CLI_ROOT"/lib/health.sh 2>/dev/null \
+    | grep -vE '(nginx\)|nginx\|caddy|REVERSE_PROXY:-nginx|^\s*#|^[0-9]+:\s*#)'); then
+    echo "Found hardcoded nginx outside dispatch in health.sh:" >&2
+    echo "$matches" >&2
+    return 1
+  fi
+}
+
+@test "no hardcoded nginx outside proxy dispatch in drift.sh — Req 5.1" {
+  if matches=$(grep -nE 'nginx' "$CLI_ROOT"/lib/drift.sh 2>/dev/null \
+    | grep -vE '(nginx\)|nginx\|caddy|REVERSE_PROXY:-nginx|^\s*#|^[0-9]+:\s*#|nginx\.conf|nginx -t|command -v nginx)'); then
+    echo "Found hardcoded nginx outside dispatch in drift.sh:" >&2
+    echo "$matches" >&2
+    return 1
+  fi
+}
+
 # ── Entrypoint: no old cli.sh references in user-facing output ───────
 
 @test "no './cli.sh' references in any lib module" {
