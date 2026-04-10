@@ -100,6 +100,7 @@ source "$LIB/cmd_keys.sh"
 source "$LIB/cmd_remote.sh"
 source "$LIB/cmd_init.sh"
 source "$LIB/cmd_stop.sh"
+source "$LIB/cmd_skills.sh"
 
 # ── Argument parsing ──────────────────────────────────────────────────────────
 
@@ -159,6 +160,7 @@ usage() {
   echo "  scaffold <new-stack-name>                                      New stack"
   echo "  init     [--registry <type>] [--org <name>]                    Initialize new project"
   echo "  upgrade                                                        Upgrade strut to latest version"
+  echo "  skills   [list|install] [--format kiro|claude|cursor|generic|all]  AI agent context"
   echo "  --version                                                      Show strut version"
   echo ""
   echo "Global flags:"
@@ -265,6 +267,11 @@ case "${1:-}" in
   init)
     shift
     cmd_init "$@"
+    exit 0
+    ;;
+  skills)
+    shift
+    cmd_skills "$@"
     exit 0
     ;;
   upgrade)
