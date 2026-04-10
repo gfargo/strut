@@ -24,5 +24,8 @@ drift-history/
 # Key material and discovery snapshots (managed by `keys` command)
 stacks/*/keys/
 
+# Runtime (user project content, not part of engine)
+stacks/
+
 # Archived generated docs/scripts
 .archive/
