@@ -3,7 +3,7 @@
 # tests/test_drift_helpers.bats — Tests for lib/drift.sh pure functions
 # ==================================================
 # Run:  bats tests/test_drift_helpers.bats
-# Covers: drift_load_ignore_patterns, drift_should_ignore, DRIFT_TRACKED_FILES
+# Covers: drift_load_ignore_patterns, drift_should_ignore, drift_get_tracked_files
 
 setup() {
   export CLI_ROOT="$(cd "$(dirname "$BATS_TEST_FILENAME")/.." && pwd)"
@@ -22,31 +22,39 @@ teardown() {
   rm -rf "$TEST_TMP"
 }
 
-# ── DRIFT_TRACKED_FILES ──────────────────────────────────────────────────────
+# ── drift_get_tracked_files ──────────────────────────────────────────────────
 
-@test "DRIFT_TRACKED_FILES: array is non-empty" {
-  [ "${#DRIFT_TRACKED_FILES[@]}" -gt 0 ]
+@test "drift_get_tracked_files: returns non-empty list" {
+  local -a tracked_files
+  IFS=' ' read -ra tracked_files <<< "$(drift_get_tracked_files)"
+  [ "${#tracked_files[@]}" -gt 0 ]
 }
 
-@test "DRIFT_TRACKED_FILES: contains docker-compose.yml" {
+@test "drift_get_tracked_files: contains docker-compose.yml" {
+  local -a tracked_files
+  IFS=' ' read -ra tracked_files <<< "$(drift_get_tracked_files)"
   local found=false
-  for f in "${DRIFT_TRACKED_FILES[@]}"; do
+  for f in "${tracked_files[@]}"; do
     [[ "$f" == "docker-compose.yml" ]] && found=true
   done
   [ "$found" = "true" ]
 }
 
-@test "DRIFT_TRACKED_FILES: contains .env.template" {
+@test "drift_get_tracked_files: contains .env.template" {
+  local -a tracked_files
+  IFS=' ' read -ra tracked_files <<< "$(drift_get_tracked_files)"
   local found=false
-  for f in "${DRIFT_TRACKED_FILES[@]}"; do
+  for f in "${tracked_files[@]}"; do
     [[ "$f" == ".env.template" ]] && found=true
   done
   [ "$found" = "true" ]
 }
 
-@test "DRIFT_TRACKED_FILES: contains backup.conf" {
+@test "drift_get_tracked_files: contains backup.conf" {
+  local -a tracked_files
+  IFS=' ' read -ra tracked_files <<< "$(drift_get_tracked_files)"
   local found=false
-  for f in "${DRIFT_TRACKED_FILES[@]}"; do
+  for f in "${tracked_files[@]}"; do
     [[ "$f" == "backup.conf" ]] && found=true
   done
   [ "$found" = "true" ]
