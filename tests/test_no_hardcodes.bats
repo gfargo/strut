@@ -247,3 +247,22 @@ grep_lib() {
     return 1
   fi
 }
+
+# ── Entrypoint: no old cli.sh references in user-facing output ───────
+
+@test "no './cli.sh' references in any lib module" {
+  if matches=$(grep_lib '\./cli\.sh'); then
+    echo "Found './cli.sh' references (should be 'strut'):" >&2
+    echo "$matches" >&2
+    return 1
+  fi
+}
+
+@test "no 'cli.sh' in user-facing strings in lib modules" {
+  # Exclude comments (lines starting with #) — only check code/strings
+  if matches=$(grep_lib 'cli\.sh' | grep -v '^\s*#'); then
+    echo "Found 'cli.sh' in non-comment lines:" >&2
+    echo "$matches" >&2
+    return 1
+  fi
+}
