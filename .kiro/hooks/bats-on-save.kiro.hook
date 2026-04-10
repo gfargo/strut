@@ -1,8 +1,7 @@
 {
-  "enabled": true,
   "name": "Run BATS Test on Save",
+  "version": "1.0.0",
   "description": "Runs the edited BATS test file automatically to give immediate feedback on test changes.",
-  "version": "1",
   "when": {
     "type": "fileEdited",
     "patterns": [
@@ -10,7 +9,7 @@
     ]
   },
   "then": {
-    "type": "runCommand",
-    "command": "bats ${filePath} 2>&1 | tail -5"
+    "type": "askAgent",
+    "prompt": "A BATS test file was just saved. Run it with `bats <filepath>` and report the results. If all tests pass, just say so briefly. If any fail, show the failures."
   }
 }
