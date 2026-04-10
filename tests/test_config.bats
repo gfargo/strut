@@ -89,8 +89,9 @@ _rand_str() {
 @test "Property 2: Config parsing loads present keys and defaults absent keys (100 iterations)" {
   _load_config
 
-  local keys=("REGISTRY_TYPE" "REGISTRY_HOST" "DEFAULT_ORG" "DEFAULT_BRANCH" "BANNER_TEXT")
-  local defaults=("none" "" "" "main" "strut")
+  local keys=("REGISTRY_TYPE" "REGISTRY_HOST" "DEFAULT_ORG" "DEFAULT_BRANCH" "BANNER_TEXT" "REVERSE_PROXY")
+  local defaults=("none" "" "" "main" "strut" "nginx")
+  local valid_proxies=("nginx" "caddy")
 
   for i in $(seq 1 100); do
     local project_dir="$TEST_TMP/parse_$i"
@@ -106,7 +107,13 @@ _rand_str() {
 
     for idx in "${!keys[@]}"; do
       if (( RANDOM % 2 )); then
-        local val="val_${RANDOM}_$(_rand_str 4)"
+        local val
+        if [ "${keys[$idx]}" = "REVERSE_PROXY" ]; then
+          # Pick a valid proxy value when present
+          val="${valid_proxies[$((RANDOM % 2))]}"
+        else
+          val="val_${RANDOM}_$(_rand_str 4)"
+        fi
         echo "${keys[$idx]}=$val" >> "$conf"
         present_keys+=("${keys[$idx]}")
         present_vals+=("$val")
@@ -119,7 +126,7 @@ _rand_str() {
     # Source config in a subshell to avoid polluting state
     (
       # Clear all config vars
-      unset REGISTRY_TYPE REGISTRY_HOST DEFAULT_ORG DEFAULT_BRANCH BANNER_TEXT PROJECT_ROOT
+      unset REGISTRY_TYPE REGISTRY_HOST DEFAULT_ORG DEFAULT_BRANCH BANNER_TEXT REVERSE_PROXY PROJECT_ROOT
 
       PROJECT_ROOT="$project_dir"
       export PROJECT_ROOT
@@ -150,7 +157,7 @@ _rand_str() {
   > "$project_dir/strut.conf"
 
   (
-    unset REGISTRY_TYPE REGISTRY_HOST DEFAULT_ORG DEFAULT_BRANCH BANNER_TEXT
+    unset REGISTRY_TYPE REGISTRY_HOST DEFAULT_ORG DEFAULT_BRANCH BANNER_TEXT REVERSE_PROXY
     PROJECT_ROOT="$project_dir"
     export PROJECT_ROOT
     load_strut_config
@@ -160,6 +167,7 @@ _rand_str() {
     [ "$DEFAULT_ORG" = "" ]
     [ "$DEFAULT_BRANCH" = "main" ]
     [ "$BANNER_TEXT" = "strut" ]
+    [ "$REVERSE_PROXY" = "nginx" ]
   )
 }
 
@@ -176,10 +184,11 @@ REGISTRY_HOST=ghcr.io
 DEFAULT_ORG=my-org
 DEFAULT_BRANCH=develop
 BANNER_TEXT=my-project
+REVERSE_PROXY=caddy
 EOF
 
   (
-    unset REGISTRY_TYPE REGISTRY_HOST DEFAULT_ORG DEFAULT_BRANCH BANNER_TEXT
+    unset REGISTRY_TYPE REGISTRY_HOST DEFAULT_ORG DEFAULT_BRANCH BANNER_TEXT REVERSE_PROXY
     PROJECT_ROOT="$project_dir"
     export PROJECT_ROOT
     load_strut_config
@@ -189,6 +198,7 @@ EOF
     [ "$DEFAULT_ORG" = "my-org" ]
     [ "$DEFAULT_BRANCH" = "develop" ]
     [ "$BANNER_TEXT" = "my-project" ]
+    [ "$REVERSE_PROXY" = "caddy" ]
   )
 }
 

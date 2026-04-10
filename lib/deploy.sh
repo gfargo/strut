@@ -77,6 +77,11 @@ deploy_stack() {
     run_cmd "Create data directories" mkdir -p "$stack_dir/data/..."
     run_cmd "Stop existing containers" $compose_cmd down --remove-orphans
     run_cmd "Start services" $compose_cmd up -d --remove-orphans
+    local proxy="${REVERSE_PROXY:-nginx}"
+    case "$proxy" in
+      nginx) run_cmd "Reload reverse proxy" $compose_cmd exec -T nginx nginx -s reload ;;
+      caddy) run_cmd "Reload reverse proxy" $compose_cmd exec -T caddy caddy reload --config /etc/caddy/Caddyfile ;;
+    esac
     echo ""
     echo -e "${YELLOW}[DRY-RUN] No changes made.${NC}"
     return 0
@@ -128,10 +133,16 @@ deploy_stack() {
   for i in $(seq 1 12); do sleep 5; echo -n "."; done
   echo ""
 
-  # Reload nginx to pick up any new container IPs
-  if $compose_cmd ps nginx &>/dev/null && $compose_cmd ps nginx | grep -q "Up"; then
-    log "Reloading nginx to refresh backend IPs..."
-    $compose_cmd exec -T nginx nginx -s reload 2>/dev/null && ok "Nginx reloaded" || warn "Nginx reload failed (may not be critical)"
+  # Reload reverse proxy to pick up any new container IPs
+  local proxy="${REVERSE_PROXY:-nginx}"
+  if $compose_cmd ps "$proxy" &>/dev/null && $compose_cmd ps "$proxy" | grep -q "Up"; then
+    log "Reloading $proxy to refresh backend IPs..."
+    case "$proxy" in
+      nginx) $compose_cmd exec -T nginx nginx -s reload 2>/dev/null && ok "nginx reloaded" || warn "nginx reload failed (may not be critical)" ;;
+      caddy) $compose_cmd exec -T caddy caddy reload --config /etc/caddy/Caddyfile 2>/dev/null && ok "Caddy reloaded" || warn "Caddy reload failed (may not be critical)" ;;
+    esac
+  else
+    warn "$proxy container not running — skipping reload"
   fi
 
   echo ""

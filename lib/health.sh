@@ -307,7 +307,8 @@ health_check_resources() {
 # health_check_network <stack_dir>
 #
 # Dynamically reads all *_PORT entries from services.conf and verifies each
-# declared port is listening. Always includes port 80 (reverse proxy).
+# declared port is listening. Includes reverse proxy ports based on REVERSE_PROXY
+# setting (nginx: 80, caddy: 80+443), overridable via PROXY_PORTS.
 # Also checks outbound internet connectivity.
 #
 # Args:
@@ -319,8 +320,18 @@ health_check_network() {
   local conf="${stack_dir:+$stack_dir/services.conf}"
   $HEALTH_JSON_OUTPUT || echo -e "${BLUE}Checking Network...${NC}"
 
-  # Collect ports: always start with 80
-  local -a ports=(80)
+  # Collect reverse proxy ports based on REVERSE_PROXY setting
+  local proxy="${REVERSE_PROXY:-nginx}"
+  local -a ports=()
+
+  if [ -n "${PROXY_PORTS:-}" ]; then
+    IFS=' ' read -ra ports <<< "$PROXY_PORTS"
+  else
+    case "$proxy" in
+      nginx) ports=(80) ;;
+      caddy) ports=(80 443) ;;
+    esac
+  fi
 
   if [ -n "$conf" ] && [ -f "$conf" ]; then
     while IFS='=' read -r key value; do
@@ -329,8 +340,12 @@ health_check_network() {
       value=$(echo "$value" | xargs)
       [[ "$key" == DB_* ]] && continue
       [[ "$key" != *_PORT ]] && continue
-      # Avoid duplicates with port 80
-      [[ "$value" == "80" ]] && continue
+      # Avoid duplicates with proxy ports
+      local is_proxy_port=false
+      for pp in "${ports[@]}"; do
+        [[ "$value" == "$pp" ]] && { is_proxy_port=true; break; }
+      done
+      $is_proxy_port && continue
       ports+=("$value")
     done < "$conf"
   fi

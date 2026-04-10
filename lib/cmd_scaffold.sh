@@ -46,9 +46,12 @@ cmd_scaffold() {
       > "$target/required_vars"
   fi
 
-  # Create nginx placeholder
-  mkdir -p "$target/nginx/conf.d"
-  cat > "$target/nginx/nginx.conf" <<'NGINX_EOF'
+  # Create reverse proxy placeholder based on REVERSE_PROXY config
+  local proxy="${REVERSE_PROXY:-nginx}"
+  case "$proxy" in
+    nginx)
+      mkdir -p "$target/nginx/conf.d"
+      cat > "$target/nginx/nginx.conf" <<'NGINX_EOF'
 user  nginx;
 worker_processes  auto;
 error_log  /var/log/nginx/error.log warn;
@@ -63,6 +66,22 @@ http {
     include /etc/nginx/conf.d/*.conf;
 }
 NGINX_EOF
+      ;;
+    caddy)
+      mkdir -p "$target/caddy"
+      cat > "$target/caddy/Caddyfile" <<'CADDY_EOF'
+# Caddyfile — reverse proxy configuration
+# See https://caddyserver.com/docs/caddyfile
+{
+    # Global options
+}
+
+# :80 {
+#     reverse_proxy app:8000
+# }
+CADDY_EOF
+      ;;
+  esac
 
   # Create sql/init placeholder
   mkdir -p "$target/sql/init"
@@ -96,7 +115,10 @@ BACKUP_EOF
   echo "  1. Edit $target/.env.template → copy to .prod.env and fill secrets"
   echo "  2. Edit $target/docker-compose.yml → add your services"
   echo "  3. Edit $target/services.conf → declare your service ports and DB flags"
-  echo "  4. Edit $target/nginx/conf.d/ → add your reverse proxy config"
+  case "$proxy" in
+    nginx) echo "  4. Edit $target/nginx/conf.d/ → add your reverse proxy config" ;;
+    caddy) echo "  4. Edit $target/caddy/Caddyfile → configure your reverse proxy" ;;
+  esac
   echo "  5. strut $new_name deploy --env prod"
   echo ""
 }

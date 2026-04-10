@@ -152,3 +152,38 @@ teardown() {
   run grep -r "climate_hub" "$target"
   [ "$status" -ne 0 ]
 }
+
+# ── Proxy-aware scaffold tests ────────────────────────────────────────────────
+# Feature: pluggable-reverse-proxy, Requirements 3.1, 3.2
+
+@test "scaffold: REVERSE_PROXY=nginx creates nginx directory with nginx.conf and conf.d" {
+  export REVERSE_PROXY="nginx"
+  cmd_scaffold "nginx-stack"
+
+  local target="$TEST_TMP/stacks/nginx-stack"
+  [ -d "$target/nginx" ]
+  [ -d "$target/nginx/conf.d" ]
+  [ -f "$target/nginx/nginx.conf" ]
+  [ ! -d "$target/caddy" ]
+}
+
+@test "scaffold: REVERSE_PROXY=caddy creates caddy directory with Caddyfile" {
+  export REVERSE_PROXY="caddy"
+  cmd_scaffold "caddy-stack"
+
+  local target="$TEST_TMP/stacks/caddy-stack"
+  [ -d "$target/caddy" ]
+  [ -f "$target/caddy/Caddyfile" ]
+  grep -q "reverse_proxy" "$target/caddy/Caddyfile"
+  [ ! -d "$target/nginx" ]
+}
+
+@test "scaffold: default REVERSE_PROXY (unset) creates nginx directory" {
+  unset REVERSE_PROXY
+  cmd_scaffold "default-proxy-stack"
+
+  local target="$TEST_TMP/stacks/default-proxy-stack"
+  [ -d "$target/nginx" ]
+  [ -f "$target/nginx/nginx.conf" ]
+  [ ! -d "$target/caddy" ]
+}

@@ -50,37 +50,68 @@ cmd_domain() {
   [ -n "$vps_port" ] && scp_opts="-P $vps_port $scp_opts"
   [ -n "$vps_ssh_key" ] && scp_opts="$scp_opts -i $vps_ssh_key"
 
-  log "Running configure-domain.sh on $vps_user@$vps_host..."
-  # shellcheck disable=SC2029
-  ssh $ssh_opts "$vps_user@$vps_host" \
-    "bash '$deploy_dir/scripts/configure-domain.sh' '$stack' '$domain' '$email' --env '${env_name:-prod}' $skip_ssl_flag"
+  local proxy="${REVERSE_PROXY:-nginx}"
+  local conf_local=""
+  local conf_remote=""
 
-  # Pull the updated nginx conf back locally
-  local nginx_conf_local="$CLI_ROOT/stacks/$stack/nginx/conf.d/${stack}.conf"
-  local nginx_conf_remote="$deploy_dir/stacks/$stack/nginx/conf.d/${stack}.conf"
-  log "Pulling updated nginx conf back to local repo..."
-  scp $scp_opts \
-    "$vps_user@$vps_host:$nginx_conf_remote" \
-    "$nginx_conf_local" \
-    && ok "nginx conf updated locally"
+  case "$proxy" in
+    nginx)
+      log "Running configure-domain.sh on $vps_user@$vps_host..."
+      # shellcheck disable=SC2029
+      ssh $ssh_opts "$vps_user@$vps_host" \
+        "bash '$deploy_dir/scripts/configure-domain.sh' '$stack' '$domain' '$email' --env '${env_name:-prod}' $skip_ssl_flag"
+
+      conf_local="$CLI_ROOT/stacks/$stack/nginx/conf.d/${stack}.conf"
+      conf_remote="$deploy_dir/stacks/$stack/nginx/conf.d/${stack}.conf"
+      log "Pulling updated nginx conf back to local repo..."
+      scp $scp_opts \
+        "$vps_user@$vps_host:$conf_remote" \
+        "$conf_local" \
+        && ok "nginx conf updated locally"
+      ;;
+    caddy)
+      conf_local="$CLI_ROOT/stacks/$stack/caddy/Caddyfile"
+      conf_remote="$deploy_dir/stacks/$stack/caddy/Caddyfile"
+
+      # Update Caddyfile on VPS with domain block — Caddy handles ACME automatically
+      log "Updating Caddyfile on VPS for domain $domain..."
+      # shellcheck disable=SC2029
+      ssh $ssh_opts "$vps_user@$vps_host" \
+        "cd '$deploy_dir/stacks/$stack' && sed -i 's/^# *:80 {/$domain {/' caddy/Caddyfile"
+
+      log "Reloading Caddy on VPS..."
+      # shellcheck disable=SC2029
+      ssh $ssh_opts "$vps_user@$vps_host" \
+        "cd '$deploy_dir' && docker compose --project-name ${env_name:-prod} exec -T caddy caddy reload --config /etc/caddy/Caddyfile" \
+        && ok "Caddy reloaded with domain $domain" \
+        || warn "Caddy reload failed — check Caddyfile syntax"
+
+      log "Pulling updated Caddyfile back to local repo..."
+      scp $scp_opts \
+        "$vps_user@$vps_host:$conf_remote" \
+        "$conf_local" \
+        && ok "Caddyfile updated locally"
+      ;;
+  esac
 
   # Auto-commit and push the SSL config unless --skip-ssl was used
+  # (For caddy, --skip-ssl skips the git commit/push, not certbot — Caddy handles ACME natively)
   if ! $skip_ssl; then
     log "Committing SSL configuration to git..."
-    if git -C "$CLI_ROOT" diff --quiet "$nginx_conf_local"; then
+    if git -C "$CLI_ROOT" diff --quiet "$conf_local"; then
       ok "No changes to commit (SSL config already in git)"
     else
-      git -C "$CLI_ROOT" add "$nginx_conf_local"
+      git -C "$CLI_ROOT" add "$conf_local"
       git -C "$CLI_ROOT" commit -m "[SSL] Configure HTTPS for $domain on $stack stack"
       if git -C "$CLI_ROOT" push; then
         ok "SSL config committed and pushed to git"
         log "Updating VPS repo to sync SSL config..."
         ssh $ssh_opts "$vps_user@$vps_host" \
           "cd '$deploy_dir' && git pull origin main"
-        log "Restarting nginx to load updated config..."
+        log "Restarting $proxy to load updated config..."
         ssh $ssh_opts "$vps_user@$vps_host" \
-          "cd '$deploy_dir' && docker compose --project-name ${env_name:-prod} restart nginx"
-        ok "VPS nginx restarted with SSL config"
+          "cd '$deploy_dir' && docker compose --project-name ${env_name:-prod} restart $proxy"
+        ok "VPS $proxy restarted with SSL config"
       else
         warn "Failed to push to git — you may need to manually push and update VPS"
       fi

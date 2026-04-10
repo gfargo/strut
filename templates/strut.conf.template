@@ -20,6 +20,10 @@
 # Default git branch for VPS repo sync
 # DEFAULT_BRANCH=main
 
+# ── Reverse Proxy ──────────────────────────────────
+# Supported types: nginx | caddy
+# REVERSE_PROXY=nginx
+
 # ── Branding ───────────────────────────────────────
 # Banner text shown in deploy/release output
 # BANNER_TEXT=strut

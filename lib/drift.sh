@@ -17,15 +17,24 @@ fi
 
 # ── Configuration ─────────────────────────────────────────────────────────────
 
-# Files to track for drift detection (relative to stack directory)
-DRIFT_TRACKED_FILES=(
-  "docker-compose.yml"
-  ".env.template"
-  "backup.conf"
-  "repos.conf"
-  "volume.conf"
-  "nginx/nginx.conf"
-)
+# drift_get_tracked_files
+# Returns the list of files to track for drift detection (relative to stack directory)
+# Dynamically includes the correct proxy config file based on REVERSE_PROXY
+drift_get_tracked_files() {
+  local base_files=(
+    "docker-compose.yml"
+    ".env.template"
+    "backup.conf"
+    "repos.conf"
+    "volume.conf"
+  )
+  local proxy="${REVERSE_PROXY:-nginx}"
+  case "$proxy" in
+    nginx) base_files+=("nginx/nginx.conf") ;;
+    caddy) base_files+=("caddy/Caddyfile") ;;
+  esac
+  echo "${base_files[@]}"
+}
 
 # ── Drift Detection Functions ─────────────────────────────────────────────────
 
@@ -140,6 +149,13 @@ drift_validate_syntax() {
         return $?
       fi
       ;;
+    Caddyfile)
+      # Validate Caddy config if caddy is available
+      if command -v caddy &>/dev/null; then
+        caddy validate --config "$file_path" >/dev/null 2>&1
+        return $?
+      fi
+      ;;
     *.json)
       # Validate JSON syntax
       if command -v jq &>/dev/null; then
@@ -210,8 +226,12 @@ drift_detect() {
   # Load ignore patterns
   drift_load_ignore_patterns "$stack_dir"
 
+  # Get tracked files dynamically based on REVERSE_PROXY
+  local -a tracked_files
+  IFS=' ' read -ra tracked_files <<< "$(drift_get_tracked_files)"
+
   # Check each tracked file
-  for tracked_file in "${DRIFT_TRACKED_FILES[@]}"; do
+  for tracked_file in "${tracked_files[@]}"; do
     local git_file="$stack_dir/$tracked_file"
     local vps_file="$stack_dir/$tracked_file"
 
@@ -374,7 +394,11 @@ drift_fix() {
 
   drift_load_ignore_patterns "$stack_dir"
 
-  for tracked_file in "${DRIFT_TRACKED_FILES[@]}"; do
+  # Get tracked files dynamically based on REVERSE_PROXY
+  local -a tracked_files
+  IFS=' ' read -ra tracked_files <<< "$(drift_get_tracked_files)"
+
+  for tracked_file in "${tracked_files[@]}"; do
     local git_file="$stack_dir/$tracked_file"
     local vps_file="$stack_dir/$tracked_file"
 
@@ -515,7 +539,11 @@ drift_report() {
 
   drift_load_ignore_patterns "$stack_dir"
 
-  for tracked_file in "${DRIFT_TRACKED_FILES[@]}"; do
+  # Get tracked files dynamically based on REVERSE_PROXY
+  local -a tracked_files
+  IFS=' ' read -ra tracked_files <<< "$(drift_get_tracked_files)"
+
+  for tracked_file in "${tracked_files[@]}"; do
     local git_file="$stack_dir/$tracked_file"
     local vps_file="$stack_dir/$tracked_file"
 
@@ -567,7 +595,7 @@ drift_report() {
       echo ""
 
       # Show each drifted file with its diff
-      for tracked_file in "${DRIFT_TRACKED_FILES[@]}"; do
+      for tracked_file in "${tracked_files[@]}"; do
         local git_file="$stack_dir/$tracked_file"
         local vps_file="$stack_dir/$tracked_file"
 
@@ -732,7 +760,11 @@ drift_monitor() {
   local drifted_files=()
   drift_load_ignore_patterns "$stack_dir"
 
-  for tracked_file in "${DRIFT_TRACKED_FILES[@]}"; do
+  # Get tracked files dynamically based on REVERSE_PROXY
+  local -a tracked_files
+  IFS=' ' read -ra tracked_files <<< "$(drift_get_tracked_files)"
+
+  for tracked_file in "${tracked_files[@]}"; do
     local git_file="$stack_dir/$tracked_file"
     local vps_file="$stack_dir/$tracked_file"
 
