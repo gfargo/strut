@@ -11,26 +11,26 @@ setup() {
 
 # ── Help & usage ──────────────────────────────────────────────────────────────
 
-@test "cli.sh --help exits 0 and shows usage" {
+@test "strut --help exits 0 and shows usage" {
   run bash "$CLI" --help
   [ "$status" -eq 0 ]
   [[ "$output" == *"strut CLI"* ]]
   [[ "$output" == *"Usage:"* ]]
 }
 
-@test "cli.sh -h exits 0" {
+@test "strut -h exits 0" {
   run bash "$CLI" -h
   [ "$status" -eq 0 ]
   [[ "$output" == *"Usage:"* ]]
 }
 
-@test "cli.sh help exits 0" {
+@test "strut help exits 0" {
   run bash "$CLI" help
   [ "$status" -eq 0 ]
   [[ "$output" == *"Usage:"* ]]
 }
 
-@test "cli.sh with no args exits 1 and shows usage" {
+@test "strut with no args exits 1 and shows usage" {
   run bash "$CLI"
   [ "$status" -eq 1 ]
   [[ "$output" == *"Usage:"* ]]
@@ -38,19 +38,19 @@ setup() {
 
 # ── list command ──────────────────────────────────────────────────────────────
 
-@test "cli.sh list shows available stacks header" {
+@test "strut list shows available stacks header" {
   run bash "$CLI" list
   [ "$status" -eq 0 ]
   [[ "$output" == *"Available stacks"* ]]
 }
 
-@test "cli.sh --list works as alias" {
+@test "strut --list works as alias" {
   run bash "$CLI" --list
   [ "$status" -eq 0 ]
   [[ "$output" == *"Available stacks"* ]]
 }
 
-@test "cli.sh -l works as alias" {
+@test "strut -l works as alias" {
   run bash "$CLI" -l
   [ "$status" -eq 0 ]
   [[ "$output" == *"Available stacks"* ]]
@@ -58,13 +58,13 @@ setup() {
 
 # ── Stack validation ──────────────────────────────────────────────────────────
 
-@test "cli.sh with nonexistent stack fails" {
+@test "strut with nonexistent stack fails" {
   run bash "$CLI" nonexistent-stack deploy
   [ "$status" -ne 0 ]
   [[ "$output" == *"Stack not found"* ]]
 }
 
-@test "cli.sh with valid stack but no command fails" {
+@test "strut with valid stack but no command fails" {
   # Create a temporary stack so we can test command dispatch
   local cli_root="$(dirname "$CLI")"
   mkdir -p "$cli_root/stacks/test-stack"
@@ -75,7 +75,7 @@ setup() {
   [[ "$output" == *"Missing command"* ]]
 }
 
-@test "cli.sh with valid stack and unknown command fails" {
+@test "strut with valid stack and unknown command fails" {
   local cli_root="$(dirname "$CLI")"
   mkdir -p "$cli_root/stacks/test-stack"
   touch "$cli_root/stacks/test-stack/docker-compose.yml"
@@ -87,13 +87,13 @@ setup() {
 
 # ── Scaffold validation ──────────────────────────────────────────────────────
 
-@test "cli.sh scaffold with no name fails" {
+@test "strut scaffold with no name fails" {
   run bash "$CLI" scaffold
   [ "$status" -ne 0 ]
   [[ "$output" == *"Usage:"* ]]
 }
 
-@test "cli.sh scaffold with existing stack fails" {
+@test "strut scaffold with existing stack fails" {
   local cli_root="$(dirname "$CLI")"
   mkdir -p "$cli_root/stacks/existing-stack"
   run bash "$CLI" scaffold existing-stack
