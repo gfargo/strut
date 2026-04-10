@@ -1,0 +1,16 @@
+{
+  "name": "ShellCheck Lint",
+  "version": "1.0.0",
+  "description": "Runs ShellCheck on shell scripts when edited to catch common errors, undefined variables, and style issues.",
+  "when": {
+    "type": "fileEdited",
+    "patterns": [
+      "lib/**/*.sh",
+      "strut"
+    ]
+  },
+  "then": {
+    "type": "runCommand",
+    "command": "shellcheck -x -S warning ${filePath} 2>&1 || true"
+  }
+}

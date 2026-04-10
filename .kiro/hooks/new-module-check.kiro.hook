@@ -1,0 +1,17 @@
+{
+  "enabled": true,
+  "name": "New Module Convention Check",
+  "description": "When a new shell module is created in lib/, checks that it follows strut conventions (header, strict mode, dependency docs).",
+  "version": "1",
+  "when": {
+    "type": "fileCreated",
+    "patterns": [
+      "lib/*.sh",
+      "lib/**/*.sh"
+    ]
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "A new lib module was just created. Check that it: 1) Starts with the standard header comment block identifying the module 2) Has `set -euo pipefail` 3) Documents its required sourced dependencies (e.g., 'Requires: lib/utils.sh sourced first') 4) If it's a cmd_*.sh file, verify it's sourced in the strut entrypoint"
+  }
+}

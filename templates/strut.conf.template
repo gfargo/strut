@@ -1,0 +1,25 @@
+# ==================================================
+# strut.conf — Project-level configuration
+# ==================================================
+# Place this file at the root of your project directory.
+# strut discovers it by walking up from the current directory.
+#
+# All keys are optional. Defaults are shown below.
+
+# ── Container Registry ─────────────────────────────
+# Supported types: ghcr | dockerhub | ecr | none
+# REGISTRY_TYPE=none
+
+# Registry host (required for ecr, optional for others)
+# REGISTRY_HOST=123456789.dkr.ecr.us-east-1.amazonaws.com
+
+# ── Organization & Branch ──────────────────────────
+# Default GitHub/registry organization
+# DEFAULT_ORG=my-org
+
+# Default git branch for VPS repo sync
+# DEFAULT_BRANCH=main
+
+# ── Branding ───────────────────────────────────────
+# Banner text shown in deploy/release output
+# BANNER_TEXT=strut

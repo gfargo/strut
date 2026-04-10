@@ -1,0 +1,16 @@
+{
+  "enabled": true,
+  "name": "Run BATS Test on Save",
+  "description": "Runs the edited BATS test file automatically to give immediate feedback on test changes.",
+  "version": "1",
+  "when": {
+    "type": "fileEdited",
+    "patterns": [
+      "tests/*.bats"
+    ]
+  },
+  "then": {
+    "type": "runCommand",
+    "command": "bats ${filePath} 2>&1 | tail -5"
+  }
+}

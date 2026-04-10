@@ -1,0 +1,30 @@
+# ==================================================
+# services.conf — Stack service declarations
+# ==================================================
+# Place this file in your stack directory (stacks/<name>/services.conf).
+# The health engine reads this to discover services and databases.
+#
+# ── Application Services ───────────────────────────
+# Declare each service with <NAME>_PORT and an optional <NAME>_HEALTH_PATH.
+#
+# With a health path → HTTP probe at http://localhost:<port><path>
+# Without a health path → TCP connectivity check on <port>
+#
+# Examples:
+# API_PORT=8000
+# API_HEALTH_PATH=/health
+#
+# WORKER_PORT=8001
+#
+# FRONTEND_PORT=3000
+# FRONTEND_HEALTH_PATH=/
+#
+# ── Database Flags ─────────────────────────────────
+# Enable database health checks with DB_<TYPE>=true.
+# Supported: DB_POSTGRES, DB_NEO4J, DB_MYSQL, DB_REDIS
+#
+# Examples:
+# DB_POSTGRES=true
+# DB_REDIS=true
+# DB_NEO4J=true
+# DB_MYSQL=true

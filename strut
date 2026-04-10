@@ -1,0 +1,457 @@
+#!/usr/bin/env bash
+# ==================================================
+# strut — unified entry point for VPS stack management
+# ==================================================
+#
+# Usage:
+#   strut <stack> <command> [options]
+#   strut list
+#   strut init [--registry <type>] [--org <name>]
+#   strut upgrade
+#   strut --version
+#
+# Commands:
+#   deploy  [--env <name>] [--services <profile>] [--pull-only]
+#   health  [--env <name>] [--services <profile>] [--json]
+#   logs    [--env <name>] <service> [--since <duration>] [--follow]
+#   migrate [--env <name>] [neo4j|postgres] [--status|--up|--down N]
+#   backup  [--env <name>] [neo4j|postgres|mysql|sqlite|all|verify|list|health|schedule|retention]
+#   drift   [--env <name>] [detect|report|fix|monitor|history|auto-fix]
+#   db:schema [--env <name>] [apply|verify|all]
+#   restore [--env <name>] <file>
+#   db:pull [--env <name>] [postgres|neo4j|mysql|sqlite|all] [--download-only] [--file <name>]
+#   db:push [--env <name>] [postgres|neo4j|mysql|sqlite|all] [--upload-only] [--file <name>]
+#   local   start|stop|reset|sync-env|sync-db|logs|test
+#   shell   [--env <name>]
+#   status  [--env <name>]
+#   domain  <domain> <email> [--skip-ssl]
+#   list
+#   scaffold <new-stack-name>
+#
+# Examples:
+#   strut my-stack deploy --env prod
+#   strut my-stack deploy --env prod --services full
+#   strut my-stack health --env prod --json
+#   strut my-stack logs my-service --follow
+#   strut my-stack migrate neo4j --status --env prod
+#   strut my-stack backup postgres
+#   strut my-stack db:schema all --env prod
+#   strut my-stack db:pull --env prod
+#   strut list
+#   strut scaffold my-new-stack
+
+set -euo pipefail
+
+# ── Resolve STRUT_HOME via real path (follows symlinks) ───────────────────────
+_resolve_script_dir() {
+  local script="${BASH_SOURCE[0]}"
+  while [ -L "$script" ]; do
+    local link_target
+    link_target="$(readlink "$script")"
+    if [[ "$link_target" != /* ]]; then
+      link_target="$(dirname "$script")/$link_target"
+    fi
+    script="$link_target"
+  done
+  cd "$(dirname "$script")" && pwd
+}
+
+STRUT_HOME="$(_resolve_script_dir)"
+export STRUT_HOME
+
+# CLI_ROOT kept for backward compatibility within lib modules
+CLI_ROOT="$STRUT_HOME"
+export CLI_ROOT
+
+LIB="$STRUT_HOME/lib"
+
+# Source config first, then load project config
+source "$LIB/config.sh"
+find_project_root || true  # OK if not in a project (init, --version, etc.)
+load_strut_config
+
+source "$LIB/utils.sh"
+source "$LIB/docker.sh"
+source "$LIB/deploy.sh"
+source "$LIB/health.sh"
+source "$LIB/logs.sh"
+source "$LIB/backup.sh"
+source "$LIB/schema.sh"
+source "$LIB/volumes.sh"
+source "$LIB/keys.sh"
+source "$LIB/audit.sh"
+source "$LIB/migrate.sh"
+source "$LIB/github-token.sh"
+source "$LIB/cmd_scaffold.sh"
+source "$LIB/local.sh"
+source "$LIB/debug.sh"
+
+# Command handlers
+source "$LIB/cmd_deploy.sh"
+source "$LIB/cmd_backup.sh"
+source "$LIB/cmd_drift.sh"
+source "$LIB/cmd_db.sh"
+source "$LIB/cmd_logs.sh"
+source "$LIB/cmd_debug.sh"
+source "$LIB/cmd_local.sh"
+source "$LIB/cmd_domain.sh"
+source "$LIB/cmd_volumes.sh"
+source "$LIB/cmd_keys.sh"
+source "$LIB/cmd_remote.sh"
+source "$LIB/cmd_init.sh"
+source "$LIB/cmd_stop.sh"
+
+# ── Argument parsing ──────────────────────────────────────────────────────────
+
+usage() {
+  echo ""
+  echo -e "${BLUE}strut CLI${NC}"
+  echo ""
+  echo "Usage: strut <stack> <command> [options]"
+  echo "       strut list"
+  echo "       strut init [--registry <type>] [--org <name>]"
+  echo "       strut upgrade"
+  echo "       strut --version"
+  echo "       strut audit <vps-host> [vps-user] [ssh-key]"
+  echo ""
+  echo "Commands:"
+  echo "  update   [--env <name>]                                        Pull latest strut on VPS"
+  echo "  release  [--env <name>] [--services <profile>]                 Full VPS release (update + migrate + deploy)"
+  echo "  deploy   [--env <name>] [--services <profile>] [--pull-only]  Deploy stack"
+  echo "  stop     [--env <name>] [--services <profile>] [--volumes]   Stop running containers"
+  echo "  health   [--env <name>] [--services <profile>] [--json]       Health checks"
+  echo "  logs     [--env <name>] [service] [--since <dur>] [--follow]  View logs"
+  echo "  migrate  [--env <name>] [neo4j|postgres] [--status|--up|--down N]  Run schema migrations"
+  echo "  backup   [--env <name>] [neo4j|postgres|mysql|sqlite|gdrive-transcripts|all|verify|list|health|schedule|retention]"
+  echo "                                                                 Backup management (create, verify, schedule, health)"
+  echo "  drift    [--env <name>] [detect|report|fix|monitor|history|auto-fix]"
+  echo "                                                                 Configuration drift detection and auto-fix"
+  echo "  db:schema [--env <name>] [apply|verify|all]                  Apply/verify stack Postgres schema SQL"
+  echo "  restore  [--env <name>] <file>                                Restore backup"
+  echo "  db:pull  [--env <name>] [postgres|neo4j|mysql|sqlite|all] [--download-only] [--file <name>]"
+  echo "                                                                 Pull latest backup from VPS and restore locally"
+  echo "  db:push  [--env <name>] [postgres|neo4j|mysql|sqlite|all] [--upload-only] [--file <name>]"
+  echo "                                                                 Upload local backup to VPS and restore remotely"
+  echo "  shell    [--env <name>]                                        SSH to VPS"
+  echo "  exec     [--env <name>] <command>                              Execute command on VPS"
+  echo "  status   [--env <name>]                                        Stack status"
+  echo "  volumes  [--env <name>] [status|init|config]                   Volume management"
+  echo "  local    start [--services <profile>]                          Start stack locally"
+  echo "  local    stop                                                  Stop local stack"
+  echo "  local    reset                                                 Reset local environment"
+  echo "  local    sync-env --from <env>                                 Sync env vars from production"
+  echo "  local    sync-db --from <env> [target] [--anonymize]           Sync database from production"
+  echo "  local    logs [--follow]                                       Tail local logs"
+  echo "  local    test                                                  Run local smoke tests"
+  echo "  local    debug <command> <service> [options]                   Debug local containers"
+  echo "  prod     debug <command> <service> [options]                   Debug production containers"
+  echo "  staging  debug <command> <service> [options]                   Debug staging containers"
+  echo "  debug    exec <service> <command>                              Execute command in container"
+  echo "  debug    shell <service>                                       Open interactive shell"
+  echo "  debug    port-forward <service> <local>:<remote>               Forward port from container"
+  echo "  debug    copy <service> <source> <dest>                        Copy files to/from container"
+  echo "  debug    snapshot <service>                                    Create container snapshot"
+  echo "  debug    inspect-env <service>                                 Show environment variables"
+  echo "  debug    stats <service>                                       Show real-time resource usage"
+  echo "  keys     <subcommand> [options]                                Key management (SSH, API, env, GitHub)"
+  echo "  domain   <domain> <email> [--skip-ssl]                         Configure domain/SSL"
+  echo "  list                                                           List stacks"
+  echo "  scaffold <new-stack-name>                                      New stack"
+  echo "  init     [--registry <type>] [--org <name>]                    Initialize new project"
+  echo "  upgrade                                                        Upgrade strut to latest version"
+  echo "  --version                                                      Show strut version"
+  echo ""
+  echo "Global flags:"
+  echo "  --env <name>       Environment name (reads .<name>.env)"
+  echo "  --services <prof>  Service profile (messaging|ui|full)"
+  echo "  --json             JSON output (where supported)"
+  echo "  --dry-run          Preview destructive operations without executing"
+  echo ""
+  echo "Audit Commands:"
+  echo "  audit <vps-host> [vps-user] [ssh-key] [ssh-port]                 Audit VPS and generate report"
+  echo "  audit:list                                                     List all audits"
+  echo "  audit:generate <stack-name> --from <audit-dir>                 Generate stack from audit"
+  echo ""
+  echo "Monitoring Commands:"
+  echo "  monitoring deploy                                              Deploy monitoring stack"
+  echo "  monitoring add-target <stack> [env]                            Add stack to monitoring"
+  echo "  monitoring remove-target <stack>                               Remove stack from monitoring"
+  echo "  monitoring alert-channel add <type> [options]                  Configure alert channel"
+  echo "  monitoring alert-channel test [type]                           Test alert delivery"
+  echo "  monitoring status [--json]                                     Show monitoring status"
+  echo ""
+  echo "Migration Commands:"
+  echo "  migrate <vps-host> [vps-user] [ssh-port] [ssh-key] [--yes]    Run migration wizard"
+  echo "          --yes, -y                                              Auto-answer yes to all prompts"
+  echo "  migrate:status                                                 Show migration status"
+  echo ""
+  echo "Service profiles (--services):"
+  echo "  (none)      Core services (as defined in docker-compose.yml)"
+  echo "  gdrive      Core + gdrive ingestion (needs GOOGLE_* env vars)"
+  echo "  messaging   Core + messaging service"
+  echo "  ui          Core + UI service"
+  echo "  full        All services"
+  echo ""
+  echo "Examples:"
+  echo "  strut my-stack release --env prod                    # Full production release"
+  echo "  strut my-stack deploy --env prod"
+  echo "  strut my-stack deploy --env prod --services full"
+  echo "  strut my-stack health --env prod --json"
+  echo "  strut my-stack logs my-service --follow"
+  echo "  strut my-stack migrate neo4j --status --env prod"
+  echo "  strut my-stack backup postgres"
+  echo "  strut my-stack db:schema all --env prod"
+  echo "  strut my-stack db:pull --env prod"
+  echo "  strut list"
+  echo ""
+}
+
+# ── list command ──────────────────────────────────────────────────────────────
+cmd_list() {
+  echo ""
+  echo -e "${BLUE}Available stacks:${NC}"
+  echo ""
+  if [ -d "$CLI_ROOT/stacks" ]; then
+    local found=false
+    for stack_dir in "$CLI_ROOT/stacks"/*/; do
+      [ -d "$stack_dir" ] || continue
+      local name
+      name=$(basename "$stack_dir")
+      [ "$name" = "shared" ] && continue
+      found=true
+      if [ -f "$stack_dir/docker-compose.yml" ]; then
+        echo -e "  ${GREEN}✓${NC} $name   ($stack_dir)"
+      else
+        echo -e "  ${YELLOW}?${NC} $name   (no docker-compose.yml)"
+      fi
+    done
+    if ! $found; then
+      echo "  (none — run 'strut scaffold <name>' to create one)"
+    fi
+  else
+    warn "No stacks/ directory found — run 'strut init' to get started"
+  fi
+  echo ""
+}
+
+# ── Resolve stack + env ───────────────────────────────────────────────────────
+
+# resolve_env_file <stack> [env_name]
+# Returns the path to the env file.
+# If env_name is empty, defaults to .env in CLI_ROOT.
+resolve_env_file() {
+  local stack="$1"
+  local env_name="${2:-}"
+  if [ -n "$env_name" ]; then
+    echo "$CLI_ROOT/.$env_name.env"
+  else
+    echo "$CLI_ROOT/.env"
+  fi
+}
+
+# ── Main ──────────────────────────────────────────────────────────────────────
+
+# Special top-level commands that don't need a stack
+case "${1:-}" in
+  --version|-v|version)
+    _version_file="$STRUT_HOME/VERSION"
+    if [ -f "$_version_file" ]; then
+      cat "$_version_file"
+    else
+      echo "unknown"
+    fi
+    exit 0
+    ;;
+  init)
+    shift
+    cmd_init "$@"
+    exit 0
+    ;;
+  upgrade)
+    if [ ! -d "$STRUT_HOME/.git" ]; then
+      fail "Strut_Home is not a git repository: $STRUT_HOME"
+    fi
+    _branch="${DEFAULT_BRANCH:-main}"
+    log "Upgrading strut from origin/$_branch..."
+    git -C "$STRUT_HOME" pull origin "$_branch"
+    _version_file="$STRUT_HOME/VERSION"
+    if [ -f "$_version_file" ]; then
+      ok "strut upgraded to $(cat "$_version_file")"
+    else
+      ok "strut upgraded (version unknown)"
+    fi
+    exit 0
+    ;;
+  list|--list|-l) cmd_list; exit 0 ;;
+  scaffold)       cmd_scaffold "${2:-}"; exit 0 ;;
+
+  # Monitoring commands
+  monitoring)
+    source "$LIB/monitor.sh"
+    MONITORING_CMD="${2:-}"
+    shift 2 || true
+
+    case "$MONITORING_CMD" in
+      deploy)
+        monitoring_deploy "$@"
+        ;;
+      add-target)
+        monitoring_add_target "$@"
+        ;;
+      remove-target)
+        monitoring_remove_target "$@"
+        ;;
+      alert-channel)
+        ALERT_SUBCMD="${1:-}"
+        shift || true
+        case "$ALERT_SUBCMD" in
+          add)
+            monitoring_alert_channel_add "$@"
+            ;;
+          test)
+            monitoring_alert_channel_test "$@"
+            ;;
+          *)
+            fail "Unknown alert-channel subcommand: $ALERT_SUBCMD (add|test)"
+            ;;
+        esac
+        ;;
+      status)
+        monitoring_status "$@"
+        ;;
+      *)
+        echo "Usage: strut monitoring <command> [options]"
+        echo ""
+        echo "Commands:"
+        echo "  deploy                                Deploy monitoring stack"
+        echo "  add-target <stack> [env]              Add stack to monitoring"
+        echo "  remove-target <stack>                 Remove stack from monitoring"
+        echo "  alert-channel add <type> [options]    Configure alert channel (email|slack|webhook)"
+        echo "  alert-channel test [type]             Test alert delivery"
+        echo "  status [--json]                       Show monitoring status"
+        echo ""
+        echo "Examples:"
+        echo "  strut monitoring deploy"
+        echo "  strut monitoring add-target my-stack"
+        echo "  strut monitoring alert-channel add email --to alerts@example.com"
+        echo "  strut monitoring alert-channel test email"
+        echo "  strut monitoring status --json"
+        exit 1
+        ;;
+    esac
+    exit 0
+    ;;
+
+  audit)
+    # audit <vps-host> [vps-user] [ssh-key] [ssh-port] [--sudo]
+    VPS_HOST="${2:-}"
+    VPS_USER="${3:-ubuntu}"
+    SSH_KEY="${4:-}"
+    SSH_PORT="${5:-}"
+    # Check for --sudo flag in any position
+    for arg in "$@"; do
+      [ "$arg" = "--sudo" ] && export VPS_SUDO=true
+    done
+    [ -n "$VPS_HOST" ] || { usage; fail "Usage: strut audit <vps-host> [vps-user] [ssh-key] [ssh-port] [--sudo]"; }
+    audit_vps "$VPS_HOST" "$VPS_USER" "$SSH_KEY" "$SSH_PORT"
+    exit 0
+    ;;
+  audit:list)
+    audit_list
+    exit 0
+    ;;
+  audit:generate)
+    # audit:generate <stack-name> --from <audit-dir>
+    STACK_NAME="${2:-}"
+    [ -n "$STACK_NAME" ] || { usage; fail "Usage: strut audit:generate <stack-name> --from <audit-dir>"; }
+    shift 2
+    AUDIT_DIR=""
+    while [[ $# -gt 0 ]]; do
+      case $1 in
+        --from=*) AUDIT_DIR="${1#*=}"; shift ;;
+        --from)   AUDIT_DIR="$2"; shift 2 ;;
+        *) shift ;;
+      esac
+    done
+    [ -n "$AUDIT_DIR" ] || { usage; fail "Usage: strut audit:generate <stack-name> --from <audit-dir>"; }
+    audit_generate_stack "$STACK_NAME" "$AUDIT_DIR"
+    exit 0
+    ;;
+  migrate)
+    # migrate <vps-host> [vps-user] [ssh-port] [ssh-key] [--yes] [--start-phase N]
+    shift  # Remove 'migrate' command
+    migrate_wizard "$@"
+    exit 0
+    ;;
+  migrate:status)
+    migrate_status
+    exit 0
+    ;;
+  --help|-h|help) usage; exit 0 ;;
+  "")             usage; exit 1 ;;
+esac
+
+STACK="${1:-}"
+COMMAND="${2:-}"
+
+[ -n "$STACK" ]   || { usage; fail "Missing stack argument"; }
+[ -n "$COMMAND" ] || { usage; fail "Missing command argument"; }
+
+# Validate stack exists
+STACK_DIR="$CLI_ROOT/stacks/$STACK"
+[ -d "$STACK_DIR" ] || fail "Stack not found: '$STACK'  (run 'strut list' to see available stacks)"
+
+shift 2  # consume stack and command; remaining args are command-specific
+
+# ── Parse universal options ───────────────────────────────────────────────────
+# Only --env, --services, and --json are parsed globally.
+# All other flags and positional args are passed through to command handlers.
+ENV_NAME=""
+SERVICES=""
+JSON_FLAG=""
+CMD_ARGS=()
+
+while [[ $# -gt 0 ]]; do
+  case $1 in
+    --env=*)       ENV_NAME="${1#*=}"; shift ;;
+    --env)         ENV_NAME="$2"; shift 2 ;;
+    --services=*)  SERVICES="${1#*=}"; shift ;;
+    --services)    SERVICES="$2"; shift 2 ;;
+    --json)        JSON_FLAG="--json"; shift ;;
+    --dry-run)     DRY_RUN="true"; export DRY_RUN; shift ;;
+    *)             CMD_ARGS+=("$1"); shift ;;
+  esac
+done
+
+ENV_FILE=$(resolve_env_file "$STACK" "$ENV_NAME")
+
+# ── Dispatch ──────────────────────────────────────────────────────────────────
+# Each cmd_* handler receives (stack, stack_dir, env_file, env_name, services,
+# json_flag) as context, then its own positional args via CMD_ARGS.
+case "$COMMAND" in
+  update)              cmd_update "$STACK" "$ENV_FILE" ;;
+  release)             cmd_release "$STACK" "$ENV_FILE" "$SERVICES" ;;
+  deploy)              cmd_deploy "$STACK" "$ENV_FILE" "$ENV_NAME" "$SERVICES" "${CMD_ARGS[@]}" ;;
+  stop)                cmd_stop "$STACK" "$ENV_FILE" "$ENV_NAME" "$SERVICES" "${CMD_ARGS[@]}" ;;
+  health)              cmd_health "$STACK" "$STACK_DIR" "$ENV_FILE" "$SERVICES" "$JSON_FLAG" ;;
+  logs)                cmd_logs "$STACK" "$ENV_FILE" "$SERVICES" "${CMD_ARGS[@]}" ;;
+  logs:download)       cmd_logs_download "$STACK" "$ENV_FILE" "$SERVICES" "${CMD_ARGS[@]}" ;;
+  logs:rotate)         cmd_logs_rotate "${CMD_ARGS[@]}" ;;
+  backup)              cmd_backup "$STACK" "$STACK_DIR" "$ENV_FILE" "$ENV_NAME" "$SERVICES" "$JSON_FLAG" "${CMD_ARGS[@]}" ;;
+  drift)               cmd_drift "$STACK" "$ENV_FILE" "$ENV_NAME" "$JSON_FLAG" "${CMD_ARGS[@]}" ;;
+  db:schema)           cmd_db_schema "$STACK" "$STACK_DIR" "$ENV_FILE" "$SERVICES" "${CMD_ARGS[@]}" ;;
+  migrate)             cmd_migrate_schema "$STACK" "$ENV_FILE" "$ENV_NAME" "${CMD_ARGS[@]}" ;;
+  restore)             cmd_restore "$STACK" "$ENV_FILE" "$SERVICES" "${CMD_ARGS[@]}" ;;
+  db:pull)             cmd_db_pull "$STACK" "$ENV_FILE" "${CMD_ARGS[@]}" ;;
+  db:push)             cmd_db_push "$STACK" "$ENV_FILE" "${CMD_ARGS[@]}" ;;
+  shell)               cmd_shell "$STACK" "$ENV_FILE" "$ENV_NAME" ;;
+  exec)                cmd_exec "$STACK" "$ENV_FILE" "$ENV_NAME" "${CMD_ARGS[@]}" ;;
+  status)              cmd_status "$STACK" "$ENV_FILE" "$SERVICES" ;;
+  prune)               cmd_prune "${CMD_ARGS[@]}" ;;
+  volumes)             cmd_volumes "$STACK" "$STACK_DIR" "$ENV_FILE" "${CMD_ARGS[@]}" ;;
+  local|prod|staging|dev) cmd_local_env "$STACK" "$COMMAND" "${CMD_ARGS[@]}" ;;
+  debug)               cmd_debug "$STACK" "$ENV_FILE" "${CMD_ARGS[@]}" ;;
+  keys)                cmd_keys "$STACK" "$ENV_FILE" "${CMD_ARGS[@]}" ;;
+  domain)              cmd_domain "$STACK" "$ENV_FILE" "$ENV_NAME" "${CMD_ARGS[@]}" ;;
+  *)                   usage; fail "Unknown command: '$COMMAND'" ;;
+esac

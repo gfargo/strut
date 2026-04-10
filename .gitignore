@@ -1,0 +1,28 @@
+# Secrets
+.env
+.env.local*
+*.env
+config/.vps.env
+secrets/
+
+# OS
+.DS_Store
+
+# Logs
+*.log
+logs/
+# Allow .gitkeep placeholders to track per-stack log dirs
+# !stacks/*/logs/
+# !stacks/*/logs/**/.gitkeep
+
+# Runtime data directories (created by deploy, must survive git clean)
+stacks/*/data/
+backups/
+audits/
+drift-history/
+
+# Key material and discovery snapshots (managed by `keys` command)
+stacks/*/keys/
+
+# Archived generated docs/scripts
+.archive/

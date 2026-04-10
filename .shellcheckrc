@@ -1,0 +1,75 @@
+# ==================================================
+# .shellcheckrc — ShellCheck configuration for strut
+# ==================================================
+# See https://www.shellcheck.net/wiki/ for rule documentation.
+
+# Default shell dialect
+shell=bash
+
+# ── Global exclusions ─────────────────────────────────────────────────────────
+# These are excluded project-wide because they produce false positives
+# in our sourced-library architecture or are intentional patterns.
+
+# SC1091 / SC1090 — "Not following: <file> was not specified as input"
+# Our lib/*.sh files are sourced at runtime via $LIB variable paths.
+# ShellCheck can't resolve these dynamically; -x doesn't help here.
+disable=SC1091
+disable=SC1090
+
+# SC2086 — "Double quote to prevent globbing and word splitting"
+# Many intentional unquoted expansions: $ssh_opts must word-split for
+# SSH option passing, $cmd must word-split for compose command building.
+disable=SC2086
+
+# SC2029 — "Note that, unescaped, this expands on the client side"
+# Intentional: we build SSH command strings that expand locally.
+disable=SC2029
+
+# SC2034 — "variable appears unused"
+# False positives: variables defined in sourced libs are used by callers.
+disable=SC2034
+
+# SC2155 — "Declare and assign separately to avoid masking return values"
+# Pervasive `local var=$(cmd)` pattern throughout the codebase. The return
+# value masking is not a real concern here — we use `set -e` and explicit
+# error handling rather than checking $? after local assignments.
+disable=SC2155
+
+# ── Info-level exclusions (style) ─────────────────────────────────────────────
+# These are informational suggestions that don't indicate bugs.
+
+# SC2015 — "Note that A && B || C is not if-then-else"
+# We use this pattern intentionally for concise success/fail logging.
+disable=SC2015
+
+# SC2012 — "Use find instead of ls to better handle non-alphanumeric filenames"
+# Our backup/audit filenames are always alphanumeric with dashes/dots.
+disable=SC2012
+
+# SC2129 — "Consider using { cmd1; cmd2; } >> file instead of individual redirects"
+# Style preference — individual redirects are clearer in our report generators.
+disable=SC2129
+
+# SC2162 — "read without -r will mangle backslashes"
+# Valid but low-risk in our interactive prompts (no backslash input expected).
+disable=SC2162
+
+# SC2001 — "See if you can use ${variable//search/replace} instead"
+# Style preference — sed is sometimes clearer for complex substitutions.
+disable=SC2001
+
+# SC2295 — "Expansions inside ${..} need to be quoted separately"
+# Low-risk in our usage patterns.
+disable=SC2295
+
+# SC2181 — "Check exit code directly with if mycmd"
+# Style preference — explicit $? checks are sometimes clearer.
+disable=SC2181
+
+# SC2126 — "Consider using grep -c instead of grep | wc"
+# Style preference.
+disable=SC2126
+
+# SC2005 — "Useless echo?"
+# Sometimes used for clarity in command pipelines.
+disable=SC2005
