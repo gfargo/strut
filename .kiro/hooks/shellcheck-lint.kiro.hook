@@ -10,7 +10,7 @@
     ]
   },
   "then": {
-    "type": "runCommand",
-    "command": "shellcheck -x -S warning ${filePath} 2>&1 || true"
+    "type": "askAgent",
+    "prompt": "Run shellcheck -x -S warning on the edited file and report any issues found. If there are no issues, say nothing."
   }
 }

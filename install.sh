@@ -17,7 +17,7 @@ set -euo pipefail
 
 # ── Configuration ─────────────────────────────────────────────────────────────
 STRUT_HOME="${STRUT_HOME:-$HOME/.strut}"
-STRUT_REPO="${STRUT_REPO:-}"
+STRUT_REPO="${STRUT_REPO:-https://github.com/gfargo/strut.git}"
 STRUT_BRANCH="${STRUT_BRANCH:-main}"
 
 # ── Colors ────────────────────────────────────────────────────────────────────
@@ -39,9 +39,6 @@ if [ -d "$STRUT_HOME/.git" ]; then
   git -C "$STRUT_HOME" fetch origin "$STRUT_BRANCH" --quiet
   git -C "$STRUT_HOME" reset --hard "origin/$STRUT_BRANCH" --quiet
 else
-  if [ -z "$STRUT_REPO" ]; then
-    fail "STRUT_REPO must be set (e.g., https://github.com/your-org/strut.git)"
-  fi
   log "Installing strut to $STRUT_HOME..."
   git clone --branch "$STRUT_BRANCH" --single-branch --quiet "$STRUT_REPO" "$STRUT_HOME"
 fi

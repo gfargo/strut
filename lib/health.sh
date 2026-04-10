@@ -138,6 +138,10 @@ health_check_application() {
 
   local found_service=false
 
+  # Cache conf content to avoid reading the same file in the loop and grep (SC2094)
+  local conf_content
+  conf_content=$(cat "$conf")
+
   # Discover all *_PORT variables (excluding DB_* prefixed)
   while IFS='=' read -r key value; do
     # Skip comments and empty lines
@@ -157,9 +161,9 @@ health_check_application() {
     svc_name=$(echo "$svc_prefix" | tr '[:upper:]_' '[:lower:]-')
     local health_path_key="${svc_prefix}_HEALTH_PATH"
 
-    # Look up the health path from services.conf
+    # Look up the health path from cached conf content
     local health_path=""
-    health_path=$(grep -E "^${health_path_key}=" "$conf" 2>/dev/null | head -1 | cut -d'=' -f2- | xargs) || true
+    health_path=$(echo "$conf_content" | grep -E "^${health_path_key}=" 2>/dev/null | head -1 | cut -d'=' -f2- | xargs) || true
 
     if [ -n "$health_path" ]; then
       # HTTP probe
@@ -178,7 +182,7 @@ health_check_application() {
         _health_record fail "${svc_name}:${port}" "not listening"
       fi
     fi
-  done < "$conf"
+  done <<< "$conf_content"
 
   if ! $found_service; then
     _health_record warn "Services" "No *_PORT entries found in services.conf"

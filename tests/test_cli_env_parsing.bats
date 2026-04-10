@@ -22,7 +22,7 @@ teardown() {
 # These tests verify that --env is parsed correctly at the global level
 # and that commands that need env files fail gracefully when the file is missing.
 
-@test "cli.sh: --env prod resolves to .prod.env (fails gracefully if missing vars)" {
+@test "strut: --env prod resolves to .prod.env (fails gracefully if missing vars)" {
   # The deploy command should attempt to use .prod.env
   # It will fail because it needs VPS_HOST, but the error should reference the env file
   run bash "$CLI" $TEST_STACK status --env nonexistent-env-name
@@ -30,13 +30,13 @@ teardown() {
   [[ "$output" == *"Env file not found"* ]] || [[ "$output" == *"not found"* ]]
 }
 
-@test "cli.sh: --env=prod (equals syntax) works" {
+@test "strut: --env=prod (equals syntax) works" {
   run bash "$CLI" $TEST_STACK status --env=nonexistent-env-name
   [ "$status" -ne 0 ]
   [[ "$output" == *"not found"* ]]
 }
 
-@test "cli.sh: commands without --env use default .env" {
+@test "strut: commands without --env use default .env" {
   # Without --env, should try to use .env in CLI_ROOT
   # This tests that the default path resolution works
   run bash "$CLI" $TEST_STACK status
@@ -46,31 +46,31 @@ teardown() {
 
 # ── Verify --env is passed through to commands ────────────────────────────────
 
-@test "cli.sh: deploy with bad --env fails with env file error" {
+@test "strut: deploy with bad --env fails with env file error" {
   run bash "$CLI" $TEST_STACK deploy --env does-not-exist
   [ "$status" -ne 0 ]
   [[ "$output" == *"not found"* ]]
 }
 
-@test "cli.sh: update with bad --env fails with env file error" {
+@test "strut: update with bad --env fails with env file error" {
   run bash "$CLI" $TEST_STACK update --env does-not-exist
   [ "$status" -ne 0 ]
   [[ "$output" == *"not found"* ]]
 }
 
-@test "cli.sh: shell with bad --env fails with env file error" {
+@test "strut: shell with bad --env fails with env file error" {
   run bash "$CLI" $TEST_STACK shell --env does-not-exist
   [ "$status" -ne 0 ]
   [[ "$output" == *"not found"* ]]
 }
 
-@test "cli.sh: db:pull with bad --env fails with env file error" {
+@test "strut: db:pull with bad --env fails with env file error" {
   run bash "$CLI" $TEST_STACK db:pull --env does-not-exist
   [ "$status" -ne 0 ]
   [[ "$output" == *"not found"* ]]
 }
 
-@test "cli.sh: db:push with bad --env fails with env file error" {
+@test "strut: db:push with bad --env fails with env file error" {
   run bash "$CLI" $TEST_STACK db:push --env does-not-exist
   [ "$status" -ne 0 ]
   [[ "$output" == *"not found"* ]]

@@ -202,7 +202,7 @@ export_volume_paths() {
       var="${var// /}"
       [[ -z "$var" ]] && continue
       case "$var" in
-        *_DATA_PATH|*_PATH|DATA_VOLUME_*) export "$var" ;;
+        *_DATA_PATH|*_PATH|DATA_VOLUME_*) export "${var?}" ;;
       esac
     done < "$volume_conf"
   fi

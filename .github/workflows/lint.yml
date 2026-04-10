@@ -19,13 +19,5 @@ jobs:
       - name: Run ShellCheck on strut entrypoint
         run: shellcheck -s bash strut
 
-      - name: Run ShellCheck on lib/*.sh
-        run: shellcheck -s bash lib/*.sh
-
-      - name: Run ShellCheck on lib/**/*.sh
-        run: |
-          shopt -s globstar nullglob
-          files=(lib/**/*.sh)
-          if [ ${#files[@]} -gt 0 ]; then
-            shellcheck -s bash "${files[@]}"
-          fi
+      - name: Run ShellCheck on all lib shell files
+        run: find lib -name '*.sh' -print0 | xargs -0 shellcheck -s bash
