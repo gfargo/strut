@@ -5,6 +5,23 @@
 
 set -euo pipefail
 
+_usage_domain() {
+  echo ""
+  echo "Usage: strut <stack> domain [--env <name>] <domain> <email> [--skip-ssl]"
+  echo ""
+  echo "Configure domain and SSL for a stack on VPS."
+  echo "  nginx: runs configure-domain.sh + certbot"
+  echo "  caddy: updates Caddyfile (Caddy handles ACME automatically)"
+  echo ""
+  echo "Flags:"
+  echo "  --skip-ssl           Skip SSL certificate setup and git commit"
+  echo ""
+  echo "Examples:"
+  echo "  strut my-stack domain example.com admin@example.com --env prod"
+  echo "  strut my-stack domain example.com admin@example.com --env prod --skip-ssl"
+  echo ""
+}
+
 # cmd_domain <stack> <env_file> <env_name> [domain] [email] [--skip-ssl]
 cmd_domain() {
   local stack="$1"
