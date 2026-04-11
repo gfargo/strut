@@ -52,12 +52,12 @@ _usage_keys() {
   echo ""
 }
 
-# cmd_keys <stack> <env_file> [subcommand] [username] [args...]
+# cmd_keys [subcommand] [username] [args...] (reads CMD_*)
 cmd_keys() {
-  local stack="$1"
-  local env_file="$2"
-  local subcmd="${3:-}"
-  local username="${4:-}"
-  shift 4 || shift $#
+  local stack="$CMD_STACK"
+  local env_file="$CMD_ENV_FILE"
+  local subcmd="${1:-}"
+  local username="${2:-}"
+  shift 2 || shift $#
   keys_command "$stack" "$subcmd" "$username" --env-file "$env_file" "$@"
 }
