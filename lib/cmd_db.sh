@@ -234,6 +234,20 @@ cmd_db_pull() {
 
   validate_env_file "$env_file"
   validate_subcommand "$target" postgres neo4j mysql sqlite all || exit 1
+
+  if [ "$DRY_RUN" = "true" ]; then
+    echo ""
+    echo -e "${YELLOW}[DRY-RUN] Execution plan for db:pull:${NC}"
+    run_cmd "Connect to VPS via SSH" echo "ssh → find latest $target backup"
+    run_cmd "Download backup from VPS" echo "rsync → local backups directory"
+    if [ "$download_only" != "true" ]; then
+      run_cmd "Restore $target database locally" echo "restore $target from downloaded backup"
+    fi
+    echo ""
+    echo -e "${YELLOW}[DRY-RUN] No changes made.${NC}"
+    return 0
+  fi
+
   db_pull "$stack" "$target" "$env_file" "$download_only" "$specific_file"
 }
 
