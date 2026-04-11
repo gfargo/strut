@@ -331,8 +331,29 @@ local_sync_db() {
 
   # Anonymize if requested
   if [ "$anonymize" = true ]; then
-    warn "Data anonymization not yet implemented"
-    # TODO: Implement anonymization logic
+    local anon_conf="$stack_dir/anonymize.conf"
+    if [ ! -f "$anon_conf" ]; then
+      warn "No anonymize.conf found at $anon_conf — skipping anonymization"
+      warn "Create one with: TABLE.COLUMN=strategy (e.g. users.email=fake_email)"
+    else
+      source "$CLI_ROOT/lib/anonymize.sh"
+
+      if [ "$DRY_RUN" = "true" ]; then
+        anon_dry_run "$anon_conf" "postgres"
+      else
+        log "Applying anonymization rules from anonymize.conf..."
+        if [[ "$target" == "postgres" || "$target" == "all" ]]; then
+          anon_apply_postgres "$stack" "$compose_cmd" "$anon_conf"
+        fi
+      fi
+    fi
+  else
+    # Warn if anonymize.conf exists but --anonymize wasn't passed
+    local anon_conf="$stack_dir/anonymize.conf"
+    if [ -f "$anon_conf" ]; then
+      warn "anonymize.conf exists but --anonymize was not passed"
+      warn "Run with --anonymize to apply PII anonymization rules"
+    fi
   fi
 
   ok "Database synced successfully"
