@@ -458,7 +458,6 @@ if _has_help_flag; then
     domain)   _usage_domain ;;
     keys)     _usage_keys ;;
     local|prod|staging|dev) _usage_local ;;
-    stop)     _usage_stop ;;
     scaffold) _usage_scaffold ;;
     volumes)  _usage_volumes ;;
     *)        usage ;;
