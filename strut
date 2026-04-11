@@ -101,6 +101,7 @@ source "$LIB/cmd_remote.sh"
 source "$LIB/cmd_init.sh"
 source "$LIB/cmd_stop.sh"
 source "$LIB/cmd_skills.sh"
+source "$LIB/cmd_validate.sh"
 
 # ── Argument parsing ──────────────────────────────────────────────────────────
 
@@ -460,6 +461,7 @@ if _has_help_flag; then
     local|prod|staging|dev) _usage_local ;;
     scaffold) _usage_scaffold ;;
     volumes)  _usage_volumes ;;
+    validate) _usage_validate ;;
     *)        usage ;;
   esac
   exit 0
@@ -489,6 +491,7 @@ case "$COMMAND" in
   local|prod|staging|dev) cmd_local_env "$STACK" "$COMMAND" "${CMD_ARGS[@]}" ;;
   debug)               cmd_debug "$STACK" "$ENV_FILE" "${CMD_ARGS[@]}" ;;
   keys)                cmd_keys "$STACK" "$ENV_FILE" "${CMD_ARGS[@]}" ;;
+  validate)            cmd_validate "$STACK" "$STACK_DIR" "$ENV_FILE" "$ENV_NAME" ;;
   domain)              cmd_domain "$STACK" "$ENV_FILE" "$ENV_NAME" "${CMD_ARGS[@]}" ;;
   *)                   usage; fail "Unknown command: '$COMMAND'" ;;
 esac
