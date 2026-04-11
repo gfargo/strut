@@ -71,6 +71,32 @@ cmd_domain() {
   local conf_local=""
   local conf_remote=""
 
+  # Dry-run: show execution plan and exit early
+  if [ "$DRY_RUN" = "true" ]; then
+    echo ""
+    echo -e "${YELLOW}[DRY-RUN] Execution plan for domain:${NC}"
+    case "$proxy" in
+      nginx)
+        run_cmd "Run configure-domain.sh on VPS" ssh "$vps_user@$vps_host" "configure-domain.sh $stack $domain $email"
+        run_cmd "Pull updated nginx conf from VPS" scp "$vps_user@$vps_host:.../${stack}.conf" "stacks/$stack/nginx/conf.d/"
+        ;;
+      caddy)
+        run_cmd "Update Caddyfile on VPS with domain $domain" ssh "$vps_user@$vps_host" "sed Caddyfile"
+        run_cmd "Reload Caddy on VPS" ssh "$vps_user@$vps_host" "caddy reload"
+        run_cmd "Pull updated Caddyfile from VPS" scp "$vps_user@$vps_host:.../Caddyfile" "stacks/$stack/caddy/"
+        ;;
+    esac
+    if ! $skip_ssl; then
+      run_cmd "Commit SSL config to git" git commit -m "[SSL] Configure HTTPS for $domain"
+      run_cmd "Push to git" git push origin main
+      run_cmd "Update VPS repo" ssh "$vps_user@$vps_host" "git pull origin main"
+      run_cmd "Restart $proxy on VPS" ssh "$vps_user@$vps_host" "docker compose restart $proxy"
+    fi
+    echo ""
+    echo -e "${YELLOW}[DRY-RUN] No changes made.${NC}"
+    return 0
+  fi
+
   case "$proxy" in
     nginx)
       log "Running configure-domain.sh on $vps_user@$vps_host..."
