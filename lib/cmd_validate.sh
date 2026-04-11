@@ -6,7 +6,7 @@
 # and required_vars for a stack.
 #
 # Provides:
-#   cmd_validate <stack> <stack_dir> <env_file> <env_name>
+#   cmd_validate (reads CMD_* context variables)
 #   _validate_strut_conf
 #   _validate_services_conf <stack_dir>
 #   _validate_volume_conf <stack_dir>
@@ -308,10 +308,10 @@ _validate_required_vars() {
 # ── Main command ──────────────────────────────────────────────────────────────
 
 cmd_validate() {
-  local stack="$1"
-  local stack_dir="$2"
-  local env_file="$3"
-  local env_name="$4"
+  local stack="$CMD_STACK"
+  local stack_dir="$CMD_STACK_DIR"
+  local env_file="$CMD_ENV_FILE"
+  local env_name="$CMD_ENV_NAME"
 
   _VALIDATE_ERRORS=0
   _VALIDATE_WARNINGS=0

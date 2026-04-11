@@ -158,7 +158,14 @@ _load_utils() {
 VPS_HOST=10.0.0.1
 EOF
 
-  run cmd_restore "knowledge-graph" "$TEST_TMP/.test.env" "" "fake-backup.sql"
+  export CMD_STACK="knowledge-graph"
+  export CMD_STACK_DIR="$TEST_TMP"
+  export CMD_ENV_FILE="$TEST_TMP/.test.env"
+  export CMD_ENV_NAME="test"
+  export CMD_SERVICES=""
+  export CMD_JSON=""
+
+  run cmd_restore "fake-backup.sql"
   [ "$status" -eq 0 ]
   [[ "$output" == *"[DRY-RUN]"* ]]
   [[ "$output" == *"Restore from backup file"* ]]
@@ -178,7 +185,14 @@ EOF
 VPS_HOST=10.0.0.1
 EOF
 
-  run cmd_db_push "knowledge-graph" "$TEST_TMP/.test.env" "postgres"
+  export CMD_STACK="knowledge-graph"
+  export CMD_STACK_DIR="$TEST_TMP"
+  export CMD_ENV_FILE="$TEST_TMP/.test.env"
+  export CMD_ENV_NAME="test"
+  export CMD_SERVICES=""
+  export CMD_JSON=""
+
+  run cmd_db_push "postgres"
   [ "$status" -eq 0 ]
   [[ "$output" == *"[DRY-RUN]"* ]]
   [[ "$output" == *"No changes made"* ]]

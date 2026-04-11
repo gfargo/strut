@@ -29,13 +29,12 @@ _usage_drift() {
   echo ""
 }
 
-# cmd_drift <stack> <env_file> <env_name> <json_flag> [subcommand] [args...]
+# cmd_drift [subcommand] [args...] (reads CMD_*)
 cmd_drift() {
-  local stack="$1"
-  local env_file="$2"
-  local env_name="$3"
-  local json_flag="$4"
-  shift 4
+  local stack="$CMD_STACK"
+  local env_file="$CMD_ENV_FILE"
+  local env_name="$CMD_ENV_NAME"
+  local json_flag="$CMD_JSON"
 
   # Parse: first positional is the subcommand, rest are subcommand-specific
   local target="${1:-detect}"

@@ -22,12 +22,12 @@ _usage_volumes() {
   echo ""
 }
 
-# cmd_volumes <stack> <stack_dir> <env_file> [action]
+# cmd_volumes [action] (reads CMD_*)
 cmd_volumes() {
-  local stack="$1"
-  local stack_dir="$2"
-  local env_file="$3"
-  local volume_action="${4:-status}"
+  local stack="$CMD_STACK"
+  local stack_dir="$CMD_STACK_DIR"
+  local env_file="$CMD_ENV_FILE"
+  local volume_action="${1:-status}"
 
   validate_env_file "$env_file"
 
