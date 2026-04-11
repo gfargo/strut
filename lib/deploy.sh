@@ -91,6 +91,10 @@ deploy_stack() {
   log "[2/5] Authenticating with registry..."
   registry_login
 
+  # Save rollback snapshot before pulling new images
+  source "$cli_root/lib/rollback.sh"
+  rollback_save_snapshot "$stack" "$compose_cmd" "$env_name"
+
   # Pull images
   log "[3/5] Pulling latest images..."
   docker_pull_stack "$compose_cmd"
