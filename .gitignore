@@ -29,3 +29,6 @@ stacks/
 
 # Archived generated docs/scripts
 .archive/
+
+# Wiki (cloned separately as git submodule)
+wiki/
