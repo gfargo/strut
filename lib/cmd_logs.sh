@@ -5,6 +5,28 @@
 
 set -euo pipefail
 
+_usage_logs() {
+  echo ""
+  echo "Usage: strut <stack> logs [--env <name>] [service] [--follow|-f] [--since <duration>]"
+  echo ""
+  echo "View service logs from a running stack."
+  echo ""
+  echo "Flags:"
+  echo "  --env <name>         Environment (reads .<name>.env)"
+  echo "  --follow, -f         Follow log output (tail -f)"
+  echo "  --since <duration>   Show logs since duration (e.g. 1h, 30m)"
+  echo ""
+  echo "Related commands:"
+  echo "  logs:download        Download logs to file"
+  echo "  logs:rotate          Rotate old log files"
+  echo ""
+  echo "Examples:"
+  echo "  strut my-stack logs --env prod"
+  echo "  strut my-stack logs --env prod my-service --follow"
+  echo "  strut my-stack logs:download --env prod --since 24h"
+  echo ""
+}
+
 # cmd_logs <stack> <env_file> <services> [service] [--follow|-f]
 cmd_logs() {
   local stack="$1"

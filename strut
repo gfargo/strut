@@ -435,6 +435,36 @@ ENV_FILE=$(resolve_env_file "$STACK" "$ENV_NAME")
 # ── Dispatch ──────────────────────────────────────────────────────────────────
 # Each cmd_* handler receives (stack, stack_dir, env_file, env_name, services,
 # json_flag) as context, then its own positional args via CMD_ARGS.
+
+# Check for --help in CMD_ARGS or as the command itself
+_has_help_flag() {
+  for arg in "${CMD_ARGS[@]+"${CMD_ARGS[@]}"}"; do
+    [[ "$arg" == "--help" || "$arg" == "-h" ]] && return 0
+  done
+  return 1
+}
+
+if _has_help_flag; then
+  case "$COMMAND" in
+    deploy)   _usage_deploy ;;
+    stop)     _usage_stop ;;
+    health)   _usage_health ;;
+    logs)     _usage_logs ;;
+    backup)   _usage_backup ;;
+    drift)    _usage_drift ;;
+    restore)  _usage_restore ;;
+    db:pull)  _usage_db_pull ;;
+    db:push)  _usage_db_push ;;
+    domain)   _usage_domain ;;
+    keys)     _usage_keys ;;
+    local|prod|staging|dev) _usage_local ;;
+    scaffold) _usage_scaffold ;;
+    volumes)  _usage_volumes ;;
+    *)        usage ;;
+  esac
+  exit 0
+fi
+
 case "$COMMAND" in
   update)              cmd_update "$STACK" "$ENV_FILE" ;;
   release)             cmd_release "$STACK" "$ENV_FILE" "$SERVICES" ;;

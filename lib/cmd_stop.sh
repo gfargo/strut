@@ -9,6 +9,26 @@
 
 set -euo pipefail
 
+_usage_stop() {
+  echo ""
+  echo "Usage: strut <stack> stop [--env <name>] [--services <profile>] [--volumes] [--timeout <seconds>]"
+  echo ""
+  echo "Stop running stack containers."
+  echo ""
+  echo "Flags:"
+  echo "  --env <name>         Environment (reads .<name>.env)"
+  echo "  --services <profile> Service profile"
+  echo "  --volumes, -v        Remove volumes when stopping"
+  echo "  --timeout, -t <sec>  Timeout for graceful shutdown (default: Docker default)"
+  echo "  --dry-run            Show execution plan without making changes"
+  echo ""
+  echo "Examples:"
+  echo "  strut my-stack stop --env prod"
+  echo "  strut my-stack stop --env prod --volumes"
+  echo "  strut my-stack stop --env prod --timeout 30"
+  echo ""
+}
+
 cmd_stop() {
   local stack="$1"
   local env_file="$2"

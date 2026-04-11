@@ -5,6 +5,23 @@
 
 set -euo pipefail
 
+_usage_volumes() {
+  echo ""
+  echo "Usage: strut <stack> volumes [--env <name>] <subcommand>"
+  echo ""
+  echo "Manage data volumes for a stack."
+  echo ""
+  echo "Subcommands:"
+  echo "  status               Show volume paths and ownership"
+  echo "  init                 Create volume directories with correct ownership"
+  echo "  config               Show volume.conf contents"
+  echo ""
+  echo "Examples:"
+  echo "  strut my-stack volumes status --env prod"
+  echo "  strut my-stack volumes init --env prod"
+  echo ""
+}
+
 # cmd_volumes <stack> <stack_dir> <env_file> [action]
 cmd_volumes() {
   local stack="$1"
