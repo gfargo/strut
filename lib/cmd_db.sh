@@ -7,6 +7,64 @@
 
 set -euo pipefail
 
+_usage_restore() {
+  echo ""
+  echo "Usage: strut <stack> restore [--env <name>] <file> [--target-env <env>]"
+  echo ""
+  echo "Restore a database from a backup file. File type is auto-detected:"
+  echo "  .sql       → PostgreSQL (or MySQL if filename starts with mysql-)"
+  echo "  .dump      → Neo4j"
+  echo "  .tar.gz    → Neo4j (legacy format)"
+  echo "  .db        → SQLite"
+  echo ""
+  echo "Flags:"
+  echo "  --target-env <env>   Restore to a different environment"
+  echo "  --dry-run            Show execution plan without making changes"
+  echo ""
+  echo "Examples:"
+  echo "  strut my-stack restore backups/postgres-20240101.sql --env prod"
+  echo "  strut my-stack restore backups/neo4j-20240101.dump --env prod"
+  echo ""
+}
+
+_usage_db_pull() {
+  echo ""
+  echo "Usage: strut <stack> db:pull [--env <name>] [target] [--download-only] [--file <name>]"
+  echo ""
+  echo "Pull latest backup from VPS and optionally restore to local dev environment."
+  echo ""
+  echo "Targets: postgres | neo4j | mysql | sqlite | all (default: all)"
+  echo ""
+  echo "Flags:"
+  echo "  --download-only      Download backup without restoring"
+  echo "  --file <name>        Pull a specific backup file by name"
+  echo ""
+  echo "Examples:"
+  echo "  strut my-stack db:pull --env prod"
+  echo "  strut my-stack db:pull --env prod postgres --download-only"
+  echo "  strut my-stack db:pull --env prod --file postgres-20240101.sql"
+  echo ""
+}
+
+_usage_db_push() {
+  echo ""
+  echo "Usage: strut <stack> db:push [--env <name>] [target] [--upload-only] [--file <name>]"
+  echo ""
+  echo "Upload local backup to VPS and optionally restore remotely."
+  echo ""
+  echo "Targets: postgres | neo4j | mysql | sqlite | all (default: all)"
+  echo ""
+  echo "Flags:"
+  echo "  --upload-only        Upload backup without restoring on VPS"
+  echo "  --file <name>        Push a specific backup file"
+  echo "  --dry-run            Show execution plan without making changes"
+  echo ""
+  echo "Examples:"
+  echo "  strut my-stack db:push --env prod postgres"
+  echo "  strut my-stack db:push --env prod --upload-only"
+  echo ""
+}
+
 # cmd_db_schema <stack> <stack_dir> <env_file> <services> [action]
 cmd_db_schema() {
   local stack="$1"
