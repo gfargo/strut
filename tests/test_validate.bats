@@ -271,9 +271,12 @@ DB_POSTGRES=true
 EOF
 
   export PROJECT_ROOT="$TEST_TMP"
-  # No strut.conf → uses defaults (valid)
+  export CMD_STACK="$stack"
+  export CMD_STACK_DIR="$stack_dir"
+  export CMD_ENV_FILE="$TEST_TMP/nonexistent.env"
+  export CMD_ENV_NAME=""
 
-  run cmd_validate "$stack" "$stack_dir" "$TEST_TMP/nonexistent.env" ""
+  run cmd_validate
   [ "$status" -eq 0 ]
   [[ "$output" == *"valid"* ]] || [[ "$output" == *"Valid"* ]]
 
@@ -290,8 +293,12 @@ DB_POSTGRES=maybe
 EOF
 
   export PROJECT_ROOT="$TEST_TMP"
+  export CMD_STACK="$stack"
+  export CMD_STACK_DIR="$stack_dir"
+  export CMD_ENV_FILE="$TEST_TMP/nonexistent.env"
+  export CMD_ENV_NAME=""
 
-  run cmd_validate "$stack" "$stack_dir" "$TEST_TMP/nonexistent.env" ""
+  run cmd_validate
   [ "$status" -eq 1 ]
   [[ "$output" == *"error"* ]]
 

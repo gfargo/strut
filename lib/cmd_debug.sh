@@ -6,11 +6,10 @@
 
 set -euo pipefail
 
-# cmd_debug <stack> <env_file> [subcmd] [service] [args...]
+# cmd_debug [subcmd] [service] [args...] (reads CMD_*)
 cmd_debug() {
-  local stack="$1"
-  local env_file="$2"
-  shift 2
+  local stack="$CMD_STACK"
+  local env_file="$CMD_ENV_FILE"
 
   validate_env_file "$env_file"
 

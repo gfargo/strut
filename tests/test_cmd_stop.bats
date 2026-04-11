@@ -34,17 +34,26 @@ teardown() {
   common_teardown
 }
 
+# Helper: set CMD_* context for cmd_stop
+_set_stop_ctx() {
+  local env_file="$1"
+  export CMD_STACK="test-stack"
+  export CMD_STACK_DIR="$TEST_TMP/stacks/test-stack"
+  export CMD_ENV_FILE="$env_file"
+  export CMD_ENV_NAME="test"
+  export CMD_SERVICES=""
+  export CMD_JSON=""
+}
+
 @test "cmd_stop: calls compose down with --remove-orphans" {
-  # Create a minimal env file
   cat > "$TEST_TMP/.test.env" <<'EOF'
 VPS_HOST=
 EOF
-
-  # Stub resolve_compose_cmd
   resolve_compose_cmd() { echo "echo COMPOSE"; }
   export -f resolve_compose_cmd
+  _set_stop_ctx "$TEST_TMP/.test.env"
 
-  run cmd_stop "test-stack" "$TEST_TMP/.test.env" "test" "" 
+  run cmd_stop
   [ "$status" -eq 0 ]
   [[ "$output" == *"stopped"* ]]
 }
@@ -53,11 +62,11 @@ EOF
   cat > "$TEST_TMP/.test.env" <<'EOF'
 VPS_HOST=
 EOF
-
   resolve_compose_cmd() { echo "echo COMPOSE"; }
   export -f resolve_compose_cmd
+  _set_stop_ctx "$TEST_TMP/.test.env"
 
-  run cmd_stop "test-stack" "$TEST_TMP/.test.env" "test" "" --volumes
+  run cmd_stop --volumes
   [ "$status" -eq 0 ]
 }
 
@@ -65,11 +74,11 @@ EOF
   cat > "$TEST_TMP/.test.env" <<'EOF'
 VPS_HOST=
 EOF
-
   resolve_compose_cmd() { echo "echo COMPOSE"; }
   export -f resolve_compose_cmd
+  _set_stop_ctx "$TEST_TMP/.test.env"
 
-  run cmd_stop "test-stack" "$TEST_TMP/.test.env" "test" "" --timeout 30
+  run cmd_stop --timeout 30
   [ "$status" -eq 0 ]
 }
 
@@ -78,16 +87,17 @@ EOF
 VPS_HOST=
 EOF
   export DRY_RUN=true
-
   resolve_compose_cmd() { echo "echo COMPOSE"; }
   export -f resolve_compose_cmd
+  _set_stop_ctx "$TEST_TMP/.test.env"
 
-  run cmd_stop "test-stack" "$TEST_TMP/.test.env" "test" ""
+  run cmd_stop
   [ "$status" -eq 0 ]
   [[ "$output" == *"DRY-RUN"* ]]
 }
 
 @test "cmd_stop: fails when env file missing" {
-  run cmd_stop "test-stack" "$TEST_TMP/nonexistent.env" "test" ""
+  _set_stop_ctx "$TEST_TMP/nonexistent.env"
+  run cmd_stop
   [ "$status" -ne 0 ] || [[ "$output" == *"not found"* ]]
 }

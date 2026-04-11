@@ -49,6 +49,31 @@ find lib -name '*.sh' -print0 | xargs -0 shellcheck -s bash
 - `ok "msg"` — success with checkmark
 - Never bare `|| return 1` without a message
 
+### Command Handler Signatures
+
+All `cmd_*` handlers read context from exported `CMD_*` variables (set by the strut entrypoint before dispatch). Handlers receive only their command-specific args via `$@`.
+
+Available context variables:
+- `CMD_STACK` — stack name
+- `CMD_STACK_DIR` — full path to `stacks/<name>/`
+- `CMD_ENV_FILE` — resolved env file path
+- `CMD_ENV_NAME` — environment name (prod, staging, etc.)
+- `CMD_SERVICES` — service profile (messaging, ui, full, or empty)
+- `CMD_JSON` — `--json` flag value
+
+Pattern:
+```bash
+cmd_example() {
+  local stack="$CMD_STACK"
+  local env_file="$CMD_ENV_FILE"
+  # $@ contains only command-specific args
+  local target="${1:-default}"
+  # ...
+}
+```
+
+Each handler file should also define a `_usage_<command>()` function for `--help` support.
+
 ### Configuration
 
 - Never hardcode org names, registry types, branch names, or service names

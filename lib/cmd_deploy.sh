@@ -48,30 +48,29 @@ _usage_health() {
   echo ""
 }
 
-# cmd_update <stack> <env_file>
+# cmd_update (no args — reads CMD_*)
 cmd_update() {
-  local stack="$1"
-  local env_file="$2"
+  local stack="$CMD_STACK"
+  local env_file="$CMD_ENV_FILE"
   validate_env_file "$env_file" VPS_HOST GH_PAT
   vps_update_repo "$stack" "$env_file"
 }
 
-# cmd_release <stack> <env_file> <services>
+# cmd_release (no args — reads CMD_*)
 cmd_release() {
-  local stack="$1"
-  local env_file="$2"
-  local services="$3"
+  local stack="$CMD_STACK"
+  local env_file="$CMD_ENV_FILE"
+  local services="$CMD_SERVICES"
   validate_env_file "$env_file" VPS_HOST
   vps_release "$stack" "$env_file" "$services"
 }
 
-# cmd_deploy <stack> <env_file> <env_name> <services> [--pull-only] [positional...]
+# cmd_deploy [--pull-only] [positional...] (reads CMD_*)
 cmd_deploy() {
-  local stack="$1"
-  local env_file="$2"
-  local env_name="$3"
-  local services="$4"
-  shift 4
+  local stack="$CMD_STACK"
+  local env_file="$CMD_ENV_FILE"
+  local env_name="$CMD_ENV_NAME"
+  local services="$CMD_SERVICES"
 
   # Parse deploy-specific flags
   local pull_only=false
@@ -108,13 +107,13 @@ cmd_deploy() {
   fi
 }
 
-# cmd_health <stack> <stack_dir> <env_file> <services> <json_flag>
+# cmd_health (no args — reads CMD_*)
 cmd_health() {
-  local stack="$1"
-  local stack_dir="$2"
-  local env_file="$3"
-  local services="$4"
-  local json_flag="$5"
+  local stack="$CMD_STACK"
+  local stack_dir="$CMD_STACK_DIR"
+  local env_file="$CMD_ENV_FILE"
+  local services="$CMD_SERVICES"
+  local json_flag="$CMD_JSON"
 
   [ -f "$env_file" ] && { set -a; source "$env_file"; set +a; } 2>/dev/null || true  # env file may not exist for local-only health checks
   local compose_file="$stack_dir/docker-compose.yml"
@@ -123,11 +122,11 @@ cmd_health() {
   health_run_all "$stack" "$compose_cmd" "$compose_file" "$json_flag"
 }
 
-# cmd_status <stack> <env_file> <services>
+# cmd_status (no args — reads CMD_*)
 cmd_status() {
-  local stack="$1"
-  local env_file="$2"
-  local services="$3"
+  local stack="$CMD_STACK"
+  local env_file="$CMD_ENV_FILE"
+  local services="$CMD_SERVICES"
   validate_env_file "$env_file"
   local compose_cmd
   compose_cmd=$(resolve_compose_cmd "$stack" "$env_file" "$services")

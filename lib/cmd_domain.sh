@@ -22,12 +22,11 @@ _usage_domain() {
   echo ""
 }
 
-# cmd_domain <stack> <env_file> <env_name> [domain] [email] [--skip-ssl]
+# cmd_domain [domain] [email] [--skip-ssl] (reads CMD_*)
 cmd_domain() {
-  local stack="$1"
-  local env_file="$2"
-  local env_name="$3"
-  shift 3
+  local stack="$CMD_STACK"
+  local env_file="$CMD_ENV_FILE"
+  local env_name="$CMD_ENV_NAME"
 
   # Parse domain-specific args
   local domain=""

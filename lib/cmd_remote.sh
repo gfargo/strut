@@ -5,11 +5,11 @@
 
 set -euo pipefail
 
-# cmd_shell <stack> <env_file> <env_name>
+# cmd_shell (no args — reads CMD_*)
 cmd_shell() {
-  local stack="$1"
-  local env_file="$2"
-  local env_name="$3"
+  local stack="$CMD_STACK"
+  local env_file="$CMD_ENV_FILE"
+  local env_name="$CMD_ENV_NAME"
 
   validate_env_file "$env_file" VPS_HOST
   local vps_user="${VPS_USER:-ubuntu}"
@@ -21,12 +21,11 @@ cmd_shell() {
   exec ssh $ssh_opts "$vps_user@$VPS_HOST"
 }
 
-# cmd_exec <stack> <env_file> <env_name> [command...]
+# cmd_exec [command...] (reads CMD_*)
 cmd_exec() {
-  local stack="$1"
-  local env_file="$2"
-  local env_name="$3"
-  shift 3
+  local stack="$CMD_STACK"
+  local env_file="$CMD_ENV_FILE"
+  local env_name="$CMD_ENV_NAME"
 
   local command="${*}"
   validate_env_file "$env_file" VPS_HOST

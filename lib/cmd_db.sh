@@ -65,13 +65,13 @@ _usage_db_push() {
   echo ""
 }
 
-# cmd_db_schema <stack> <stack_dir> <env_file> <services> [action]
+# cmd_db_schema [action] (reads CMD_*)
 cmd_db_schema() {
-  local stack="$1"
-  local stack_dir="$2"
-  local env_file="$3"
-  local services="$4"
-  local schema_action="${5:-all}"
+  local stack="$CMD_STACK"
+  local stack_dir="$CMD_STACK_DIR"
+  local env_file="$CMD_ENV_FILE"
+  local services="$CMD_SERVICES"
+  local schema_action="${1:-all}"
 
   validate_env_file "$env_file"
   local compose_cmd
@@ -88,12 +88,11 @@ cmd_db_schema() {
   esac
 }
 
-# cmd_migrate_schema <stack> <env_file> <env_name> [target] [--status|--up|--down [N]]
+# cmd_migrate_schema [target] [--status|--up|--down [N]] (reads CMD_*)
 cmd_migrate_schema() {
-  local stack="$1"
-  local env_file="$2"
-  local env_name="$3"
-  shift 3
+  local stack="$CMD_STACK"
+  local env_file="$CMD_ENV_FILE"
+  local env_name="$CMD_ENV_NAME"
 
   # Parse migrate-specific args
   local migrate_target="neo4j"
@@ -165,12 +164,11 @@ cmd_migrate_schema() {
   esac
 }
 
-# cmd_restore <stack> <env_file> <services> [file] [--target-env <env>]
+# cmd_restore [file] [--target-env <env>] (reads CMD_*)
 cmd_restore() {
-  local stack="$1"
-  local env_file="$2"
-  local services="$3"
-  shift 3
+  local stack="$CMD_STACK"
+  local env_file="$CMD_ENV_FILE"
+  local services="$CMD_SERVICES"
 
   # Parse restore-specific args
   local file=""
@@ -213,11 +211,10 @@ cmd_restore() {
   esac
 }
 
-# cmd_db_pull <stack> <env_file> [target] [--download-only] [--file <name>]
+# cmd_db_pull [target] [--download-only] [--file <name>] (reads CMD_*)
 cmd_db_pull() {
-  local stack="$1"
-  local env_file="$2"
-  shift 2
+  local stack="$CMD_STACK"
+  local env_file="$CMD_ENV_FILE"
 
   local target="all"
   local download_only=false
@@ -251,11 +248,10 @@ cmd_db_pull() {
   db_pull "$stack" "$target" "$env_file" "$download_only" "$specific_file"
 }
 
-# cmd_db_push <stack> <env_file> [target] [--upload-only] [--file <name>]
+# cmd_db_push [target] [--upload-only] [--file <name>] (reads CMD_*)
 cmd_db_push() {
-  local stack="$1"
-  local env_file="$2"
-  shift 2
+  local stack="$CMD_STACK"
+  local env_file="$CMD_ENV_FILE"
 
   local target="all"
   local upload_only=false

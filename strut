@@ -435,8 +435,14 @@ done
 ENV_FILE=$(resolve_env_file "$STACK" "$ENV_NAME")
 
 # ── Dispatch ──────────────────────────────────────────────────────────────────
-# Each cmd_* handler receives (stack, stack_dir, env_file, env_name, services,
-# json_flag) as context, then its own positional args via CMD_ARGS.
+# Export standard context variables so all cmd_* handlers can access them
+# without positional args. Handlers receive only CMD_ARGS (command-specific).
+export CMD_STACK="$STACK"
+export CMD_STACK_DIR="$STACK_DIR"
+export CMD_ENV_FILE="$ENV_FILE"
+export CMD_ENV_NAME="$ENV_NAME"
+export CMD_SERVICES="$SERVICES"
+export CMD_JSON="$JSON_FLAG"
 
 # Check for --help in CMD_ARGS or as the command itself
 _has_help_flag() {
@@ -470,31 +476,31 @@ if _has_help_flag; then
 fi
 
 case "$COMMAND" in
-  update)              cmd_update "$STACK" "$ENV_FILE" ;;
-  release)             cmd_release "$STACK" "$ENV_FILE" "$SERVICES" ;;
-  deploy)              cmd_deploy "$STACK" "$ENV_FILE" "$ENV_NAME" "$SERVICES" "${CMD_ARGS[@]}" ;;
-  stop)                cmd_stop "$STACK" "$ENV_FILE" "$ENV_NAME" "$SERVICES" "${CMD_ARGS[@]}" ;;
-  health)              cmd_health "$STACK" "$STACK_DIR" "$ENV_FILE" "$SERVICES" "$JSON_FLAG" ;;
-  logs)                cmd_logs "$STACK" "$ENV_FILE" "$SERVICES" "${CMD_ARGS[@]}" ;;
-  logs:download)       cmd_logs_download "$STACK" "$ENV_FILE" "$SERVICES" "${CMD_ARGS[@]}" ;;
-  logs:rotate)         cmd_logs_rotate "${CMD_ARGS[@]}" ;;
-  backup)              cmd_backup "$STACK" "$STACK_DIR" "$ENV_FILE" "$ENV_NAME" "$SERVICES" "$JSON_FLAG" "${CMD_ARGS[@]}" ;;
-  drift)               cmd_drift "$STACK" "$ENV_FILE" "$ENV_NAME" "$JSON_FLAG" "${CMD_ARGS[@]}" ;;
-  db:schema)           cmd_db_schema "$STACK" "$STACK_DIR" "$ENV_FILE" "$SERVICES" "${CMD_ARGS[@]}" ;;
-  migrate)             cmd_migrate_schema "$STACK" "$ENV_FILE" "$ENV_NAME" "${CMD_ARGS[@]}" ;;
-  restore)             cmd_restore "$STACK" "$ENV_FILE" "$SERVICES" "${CMD_ARGS[@]}" ;;
-  db:pull)             cmd_db_pull "$STACK" "$ENV_FILE" "${CMD_ARGS[@]}" ;;
-  db:push)             cmd_db_push "$STACK" "$ENV_FILE" "${CMD_ARGS[@]}" ;;
-  shell)               cmd_shell "$STACK" "$ENV_FILE" "$ENV_NAME" ;;
-  exec)                cmd_exec "$STACK" "$ENV_FILE" "$ENV_NAME" "${CMD_ARGS[@]}" ;;
-  status)              cmd_status "$STACK" "$ENV_FILE" "$SERVICES" ;;
-  prune)               cmd_prune "${CMD_ARGS[@]}" ;;
-  volumes)             cmd_volumes "$STACK" "$STACK_DIR" "$ENV_FILE" "${CMD_ARGS[@]}" ;;
-  local|prod|staging|dev) cmd_local_env "$STACK" "$COMMAND" "${CMD_ARGS[@]}" ;;
-  debug)               cmd_debug "$STACK" "$ENV_FILE" "${CMD_ARGS[@]}" ;;
-  keys)                cmd_keys "$STACK" "$ENV_FILE" "${CMD_ARGS[@]}" ;;
-  validate)            cmd_validate "$STACK" "$STACK_DIR" "$ENV_FILE" "$ENV_NAME" ;;
-  rollback)            cmd_rollback "$STACK" "$STACK_DIR" "$ENV_FILE" "$ENV_NAME" "$SERVICES" "${CMD_ARGS[@]}" ;;
-  domain)              cmd_domain "$STACK" "$ENV_FILE" "$ENV_NAME" "${CMD_ARGS[@]}" ;;
+  update)              cmd_update "${CMD_ARGS[@]+"${CMD_ARGS[@]}"}" ;;
+  release)             cmd_release "${CMD_ARGS[@]+"${CMD_ARGS[@]}"}" ;;
+  deploy)              cmd_deploy "${CMD_ARGS[@]+"${CMD_ARGS[@]}"}" ;;
+  stop)                cmd_stop "${CMD_ARGS[@]+"${CMD_ARGS[@]}"}" ;;
+  health)              cmd_health ;;
+  logs)                cmd_logs "${CMD_ARGS[@]+"${CMD_ARGS[@]}"}" ;;
+  logs:download)       cmd_logs_download "${CMD_ARGS[@]+"${CMD_ARGS[@]}"}" ;;
+  logs:rotate)         cmd_logs_rotate "${CMD_ARGS[@]+"${CMD_ARGS[@]}"}" ;;
+  backup)              cmd_backup "${CMD_ARGS[@]+"${CMD_ARGS[@]}"}" ;;
+  drift)               cmd_drift "${CMD_ARGS[@]+"${CMD_ARGS[@]}"}" ;;
+  db:schema)           cmd_db_schema "${CMD_ARGS[@]+"${CMD_ARGS[@]}"}" ;;
+  migrate)             cmd_migrate_schema "${CMD_ARGS[@]+"${CMD_ARGS[@]}"}" ;;
+  restore)             cmd_restore "${CMD_ARGS[@]+"${CMD_ARGS[@]}"}" ;;
+  db:pull)             cmd_db_pull "${CMD_ARGS[@]+"${CMD_ARGS[@]}"}" ;;
+  db:push)             cmd_db_push "${CMD_ARGS[@]+"${CMD_ARGS[@]}"}" ;;
+  shell)               cmd_shell ;;
+  exec)                cmd_exec "${CMD_ARGS[@]+"${CMD_ARGS[@]}"}" ;;
+  status)              cmd_status ;;
+  prune)               cmd_prune "${CMD_ARGS[@]+"${CMD_ARGS[@]}"}" ;;
+  volumes)             cmd_volumes "${CMD_ARGS[@]+"${CMD_ARGS[@]}"}" ;;
+  local|prod|staging|dev) cmd_local_env "$COMMAND" "${CMD_ARGS[@]+"${CMD_ARGS[@]}"}" ;;
+  debug)               cmd_debug "${CMD_ARGS[@]+"${CMD_ARGS[@]}"}" ;;
+  keys)                cmd_keys "${CMD_ARGS[@]+"${CMD_ARGS[@]}"}" ;;
+  validate)            cmd_validate ;;
+  rollback)            cmd_rollback "${CMD_ARGS[@]+"${CMD_ARGS[@]}"}" ;;
+  domain)              cmd_domain "${CMD_ARGS[@]+"${CMD_ARGS[@]}"}" ;;
   *)                   usage; fail "Unknown command: '$COMMAND'" ;;
 esac

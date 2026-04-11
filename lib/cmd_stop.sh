@@ -5,7 +5,7 @@
 # Requires: lib/utils.sh, lib/docker.sh sourced first
 #
 # Provides:
-#   cmd_stop <stack> <env_file> <env_name> <services> [--remove-orphans] [--volumes]
+#   cmd_stop [--remove-orphans] [--volumes] (reads CMD_* context variables)
 
 set -euo pipefail
 
@@ -30,11 +30,10 @@ _usage_stop() {
 }
 
 cmd_stop() {
-  local stack="$1"
-  local env_file="$2"
-  local env_name="$3"
-  local services="$4"
-  shift 4
+  local stack="$CMD_STACK"
+  local env_file="$CMD_ENV_FILE"
+  local env_name="$CMD_ENV_NAME"
+  local services="$CMD_SERVICES"
 
   # Parse stop-specific flags
   local remove_volumes=false

@@ -5,7 +5,7 @@
 # Dispatches all backup subcommands. Parses its own positional args.
 #
 # Usage (from strut entrypoint):
-#   cmd_backup <stack> <stack_dir> <env_file> <env_name> <services> <json_flag> [positional...]
+#   cmd_backup [positional...] (reads CMD_* context variables)
 
 set -euo pipefail
 
@@ -38,13 +38,12 @@ _usage_backup() {
 }
 
 cmd_backup() {
-  local stack="$1"
-  local stack_dir="$2"
-  local env_file="$3"
-  local env_name="$4"
-  local services="$5"
-  local json_flag="$6"
-  shift 6
+  local stack="$CMD_STACK"
+  local stack_dir="$CMD_STACK_DIR"
+  local env_file="$CMD_ENV_FILE"
+  local env_name="$CMD_ENV_NAME"
+  local services="$CMD_SERVICES"
+  local json_flag="$CMD_JSON"
 
   # Parse backup-specific positional args
   local positional=()
