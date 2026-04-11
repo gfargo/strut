@@ -27,12 +27,11 @@ _usage_logs() {
   echo ""
 }
 
-# cmd_logs <stack> <env_file> <services> [service] [--follow|-f]
+# cmd_logs [service] [--follow|-f] (reads CMD_*)
 cmd_logs() {
-  local stack="$1"
-  local env_file="$2"
-  local services="$3"
-  shift 3
+  local stack="$CMD_STACK"
+  local env_file="$CMD_ENV_FILE"
+  local services="$CMD_SERVICES"
 
   local service_arg=""
   local follow_flag=""
@@ -50,12 +49,11 @@ cmd_logs() {
   logs_tail "$compose_cmd" "$service_arg" "$follow_flag"
 }
 
-# cmd_logs_download <stack> <env_file> <services> [service] [--since <dur>]
+# cmd_logs_download [service] [--since <dur>] (reads CMD_*)
 cmd_logs_download() {
-  local stack="$1"
-  local env_file="$2"
-  local services="$3"
-  shift 3
+  local stack="$CMD_STACK"
+  local env_file="$CMD_ENV_FILE"
+  local services="$CMD_SERVICES"
 
   local service_arg=""
   local since="24h"

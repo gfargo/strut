@@ -3,7 +3,7 @@
 # cmd_rollback.sh — Rollback command handler
 # ==================================================
 # Provides:
-#   cmd_rollback <stack> <stack_dir> <env_file> <env_name> <services> [--list] [--dry-run]
+#   cmd_rollback [--list] [--dry-run] (reads CMD_* context variables)
 
 set -euo pipefail
 
@@ -28,12 +28,11 @@ _usage_rollback() {
 }
 
 cmd_rollback() {
-  local stack="$1"
-  local stack_dir="$2"
-  local env_file="$3"
-  local env_name="$4"
-  local services="$5"
-  shift 5
+  local stack="$CMD_STACK"
+  local stack_dir="$CMD_STACK_DIR"
+  local env_file="$CMD_ENV_FILE"
+  local env_name="$CMD_ENV_NAME"
+  local services="$CMD_SERVICES"
 
   # Parse rollback-specific flags
   local list_mode=false

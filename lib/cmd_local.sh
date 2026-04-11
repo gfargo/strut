@@ -31,11 +31,11 @@ _usage_local() {
   echo ""
 }
 
-# cmd_local_env <stack> <env_prefix> [actual_command] [args...]
+# cmd_local_env <env_prefix> [actual_command] [args...] (reads CMD_STACK)
 cmd_local_env() {
-  local stack="$1"
-  local env_prefix="$2"
-  shift 2
+  local stack="$CMD_STACK"
+  local env_prefix="$1"
+  shift
 
   local actual_command="${1:-start}"
   shift || true
