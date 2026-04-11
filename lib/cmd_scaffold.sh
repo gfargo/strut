@@ -9,6 +9,21 @@
 
 set -euo pipefail
 
+_usage_scaffold() {
+  echo ""
+  echo "Usage: strut scaffold <new-stack-name>"
+  echo ""
+  echo "Create a new stack with default configuration files:"
+  echo "  docker-compose.prod.yml, docker-compose.dev.yml, Dockerfile,"
+  echo "  .env.template, services.conf, required_vars, and proxy config"
+  echo "  (nginx/ or caddy/ based on REVERSE_PROXY setting)."
+  echo ""
+  echo "Examples:"
+  echo "  strut scaffold my-app"
+  echo "  strut scaffold api-service"
+  echo ""
+}
+
 cmd_scaffold() {
   local new_name="${1:-}"
   [ -n "$new_name" ] || fail "Usage: strut scaffold <new-stack-name>"

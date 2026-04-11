@@ -6,6 +6,31 @@
 
 set -euo pipefail
 
+_usage_local() {
+  echo ""
+  echo "Usage: strut <stack> local <command> [options]"
+  echo ""
+  echo "Local development environment commands."
+  echo ""
+  echo "Commands:"
+  echo "  start [--services <profile>]       Start stack locally"
+  echo "  stop                               Stop local stack"
+  echo "  reset                              Reset local environment"
+  echo "  sync-env --from <env>              Sync env vars from remote"
+  echo "  sync-db --from <env> [target]      Sync database from remote"
+  echo "  logs [--follow]                    Tail local logs"
+  echo "  test                               Run local smoke tests"
+  echo "  debug <cmd> <service> [options]    Debug local containers"
+  echo ""
+  echo "Examples:"
+  echo "  strut my-stack local start"
+  echo "  strut my-stack local start --services full"
+  echo "  strut my-stack local stop"
+  echo "  strut my-stack local sync-db --from prod postgres"
+  echo "  strut my-stack local logs --follow"
+  echo ""
+}
+
 # cmd_local_env <stack> <env_prefix> [actual_command] [args...]
 cmd_local_env() {
   local stack="$1"

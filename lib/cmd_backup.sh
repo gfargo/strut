@@ -9,6 +9,34 @@
 
 set -euo pipefail
 
+_usage_backup() {
+  echo ""
+  echo "Usage: strut <stack> backup [--env <name>] <subcommand> [options]"
+  echo ""
+  echo "Backup management: create, verify, schedule, and monitor backups."
+  echo ""
+  echo "Subcommands:"
+  echo "  postgres|neo4j|mysql|sqlite|all   Create backup for service(s)"
+  echo "  verify <file> [--full]            Verify backup integrity"
+  echo "  verify-all                        Verify all backups"
+  echo "  list [service]                    List available backups"
+  echo "  health                            Check backup health scores"
+  echo "  schedule on|off|status|install    Manage backup schedules"
+  echo "  retention check|enforce           Manage retention policy"
+  echo "  compare <env1> <env2> [service]   Compare backups across environments"
+  echo "  compare-labels <env1> <env2>      Compare backup labels"
+  echo ""
+  echo "Examples:"
+  echo "  strut my-stack backup postgres --env prod"
+  echo "  strut my-stack backup all --env prod"
+  echo "  strut my-stack backup verify backups/postgres-20240101.sql"
+  echo "  strut my-stack backup list postgres"
+  echo "  strut my-stack backup health"
+  echo "  strut my-stack backup schedule status"
+  echo "  strut my-stack backup retention enforce"
+  echo ""
+}
+
 cmd_backup() {
   local stack="$1"
   local stack_dir="$2"

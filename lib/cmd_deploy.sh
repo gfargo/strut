@@ -5,6 +5,49 @@
 
 set -euo pipefail
 
+_usage_deploy() {
+  echo ""
+  echo "Usage: strut <stack> deploy [--env <name>] [--services <profile>] [--pull-only] [--dry-run]"
+  echo ""
+  echo "Deploy stack containers locally. Pulls images, creates data directories,"
+  echo "stops existing containers, and starts services."
+  echo ""
+  echo "Flags:"
+  echo "  --env <name>         Environment (reads .<name>.env)"
+  echo "  --services <profile> Service profile (messaging|ui|full)"
+  echo "  --pull-only          Pull images without restarting containers"
+  echo "  --dry-run            Show execution plan without making changes"
+  echo ""
+  echo "Related commands:"
+  echo "  release              Full VPS release (update + migrate + deploy)"
+  echo "  stop                 Stop running containers"
+  echo "  health               Run health checks after deploy"
+  echo ""
+  echo "Examples:"
+  echo "  strut my-stack deploy --env prod"
+  echo "  strut my-stack deploy --env prod --services full"
+  echo "  strut my-stack deploy --env prod --pull-only"
+  echo "  strut my-stack deploy --env prod --dry-run"
+  echo ""
+}
+
+_usage_health() {
+  echo ""
+  echo "Usage: strut <stack> health [--env <name>] [--services <profile>] [--json]"
+  echo ""
+  echo "Run health checks: Docker daemon, containers, services, network, databases."
+  echo ""
+  echo "Flags:"
+  echo "  --env <name>         Environment (reads .<name>.env)"
+  echo "  --services <profile> Service profile"
+  echo "  --json               Output results as JSON"
+  echo ""
+  echo "Examples:"
+  echo "  strut my-stack health --env prod"
+  echo "  strut my-stack health --env prod --json"
+  echo ""
+}
+
 # cmd_update <stack> <env_file>
 cmd_update() {
   local stack="$1"
