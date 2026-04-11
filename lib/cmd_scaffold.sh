@@ -61,6 +61,31 @@ cmd_scaffold() {
       > "$target/required_vars"
   fi
 
+  # Generate anonymize.conf template
+  cat > "$target/anonymize.conf" <<'ANON_EOF'
+# ==================================================
+# anonymize.conf — PII anonymization rules
+# ==================================================
+# Applied when syncing production data locally with --anonymize.
+# Format: TABLE.COLUMN=strategy
+#
+# Strategies:
+#   fake_email    Replace with user_<id>@example.com
+#   fake_name     Replace with "User <id>"
+#   null          Set to NULL
+#   mask          Keep first/last char, mask middle with ***
+#   hash          SHA256 hash (preserves uniqueness)
+#   fake_address  Replace with generic address
+#   preserve      Keep original value (explicit opt-in for non-PII)
+#
+# Examples:
+# users.email=fake_email
+# users.name=fake_name
+# users.phone=null
+# orders.address=fake_address
+# payments.card_number=mask
+ANON_EOF
+
   # Create reverse proxy placeholder based on REVERSE_PROXY config
   local proxy="${REVERSE_PROXY:-nginx}"
   case "$proxy" in
