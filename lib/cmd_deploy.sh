@@ -7,7 +7,7 @@ set -euo pipefail
 
 _usage_deploy() {
   echo ""
-  echo "Usage: strut <stack> deploy [--env <name>] [--services <profile>] [--pull-only] [--dry-run]"
+  echo "Usage: strut <stack> deploy [--env <name>] [--services <profile>] [--pull-only] [--skip-validation] [--dry-run]"
   echo ""
   echo "Deploy stack containers locally. Pulls images, creates data directories,"
   echo "stops existing containers, and starts services."
@@ -16,6 +16,7 @@ _usage_deploy() {
   echo "  --env <name>         Environment (reads .<name>.env)"
   echo "  --services <profile> Service profile (messaging|ui|full)"
   echo "  --pull-only          Pull images without restarting containers"
+  echo "  --skip-validation    Skip pre-deploy config validation and hooks"
   echo "  --dry-run            Show execution plan without making changes"
   echo ""
   echo "Related commands:"
@@ -65,7 +66,7 @@ cmd_release() {
   vps_release "$stack" "$env_file" "$services"
 }
 
-# cmd_deploy [--pull-only] [positional...] (reads CMD_*)
+# cmd_deploy [--pull-only] [--skip-validation] [positional...] (reads CMD_*)
 cmd_deploy() {
   local stack="$CMD_STACK"
   local env_file="$CMD_ENV_FILE"
@@ -74,12 +75,17 @@ cmd_deploy() {
 
   # Parse deploy-specific flags
   local pull_only=false
+  local skip_validation=false
   while [[ $# -gt 0 ]]; do
     case $1 in
       --pull-only) pull_only=true; shift ;;
+      --skip-validation) skip_validation=true; shift ;;
       *) shift ;;
     esac
   done
+
+  # Export for deploy_stack to read
+  export SKIP_VALIDATION="$skip_validation"
 
   # Check if this is a VPS environment and warn user (skip if we're ON the VPS)
   if [ -f "$env_file" ]; then
