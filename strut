@@ -114,6 +114,7 @@ usage() {
   echo "       strut list"
   echo "       strut init [--registry <type>] [--org <name>]"
   echo "       strut upgrade"
+  echo "       strut doctor [--check-vps] [--json] [--fix]"
   echo "       strut --version"
   echo "       strut audit <vps-host> [vps-user] [ssh-key]"
   echo ""
@@ -293,6 +294,12 @@ case "${1:-}" in
     ;;
   list|--list|-l) cmd_list; exit 0 ;;
   scaffold)       cmd_scaffold "${2:-}"; exit 0 ;;
+  doctor)
+    shift
+    source "$LIB/cmd_doctor.sh"
+    cmd_doctor "$@"
+    exit $?
+    ;;
 
   # Monitoring commands
   monitoring)
