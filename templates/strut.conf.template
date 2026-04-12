@@ -24,6 +24,12 @@
 # Supported types: nginx | caddy
 # REVERSE_PROXY=nginx
 
+# ── Pre-Deploy Validation ──────────────────────────
+# Run config validation before every deploy (default: true)
+# PRE_DEPLOY_VALIDATE=true
+# Run custom hooks from stacks/<stack>/hooks/pre-deploy.sh (default: true)
+# PRE_DEPLOY_HOOKS=true
+
 # ── Branding ───────────────────────────────────────
 # Banner text shown in deploy/release output
 # BANNER_TEXT=strut

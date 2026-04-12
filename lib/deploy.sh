@@ -60,6 +60,46 @@ deploy_stack() {
   docker compose version &>/dev/null || fail "Docker Compose plugin not found"
   ok "Pre-flight checks passed"
 
+  # Pre-deploy validation (unless skipped)
+  if [ "${SKIP_VALIDATION:-false}" != "true" ] && [ "${PRE_DEPLOY_VALIDATE:-true}" = "true" ]; then
+    log "[2/7] Pre-deploy validation..."
+
+    # Run config schema validation
+    source "$cli_root/lib/cmd_validate.sh"
+    export CMD_STACK="$stack"
+    export CMD_STACK_DIR="$stack_dir"
+    export CMD_ENV_FILE="$env_file"
+    export CMD_ENV_NAME="$env_name"
+    if ! cmd_validate 2>/dev/null; then
+      echo ""
+      fail "Pre-deploy validation failed — fix errors and retry: strut $stack validate --env $env_name"
+    fi
+
+    # Validate compose file syntax
+    if $compose_cmd config --quiet 2>/dev/null; then
+      ok "docker-compose.yml: syntax valid"
+    else
+      warn "docker-compose.yml: syntax check failed (may still work)"
+    fi
+
+    # Run custom pre-deploy hooks
+    if [ "${PRE_DEPLOY_HOOKS:-true}" = "true" ]; then
+      local hook_file="$stack_dir/hooks/pre-deploy.sh"
+      if [ -f "$hook_file" ]; then
+        log "Running custom pre-deploy hook..."
+        if bash "$hook_file"; then
+          ok "Custom pre-deploy hook passed"
+        else
+          fail "Custom pre-deploy hook failed: $hook_file"
+        fi
+      fi
+    fi
+
+    ok "Pre-deploy validation passed"
+  elif [ "${SKIP_VALIDATION:-false}" = "true" ]; then
+    warn "Pre-deploy validation skipped (--skip-validation)"
+  fi
+
   # Dry-run: show execution plan and exit early
   if [ "$DRY_RUN" = "true" ]; then
     echo ""
