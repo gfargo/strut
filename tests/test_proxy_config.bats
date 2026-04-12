@@ -430,16 +430,17 @@ _load_health_stubbed() {
 
     # Verify default proxy ports are NOT present (unless they happen to be in override_ports)
     # For caddy, port 443 should not appear unless it's in override_ports
+    # Use word-boundary check to avoid false matches (e.g. "Port 4437" matching "Port 443")
     if [[ "$proxy" == "caddy" ]]; then
       local has_443=false
       for port in "${override_ports[@]}"; do
         [[ "$port" == "443" ]] && { has_443=true; break; }
       done
       if ! $has_443; then
-        [[ "$output" != *"Port 443"* ]] || {
+        if echo "$output" | grep -qw "Port 443"; then
           echo "FAIL iteration $i (caddy): default port 443 should not appear when PROXY_PORTS is set: $output" >&2
           return 1
-        }
+        fi
       fi
     fi
   done
