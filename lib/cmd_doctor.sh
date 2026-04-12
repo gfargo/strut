@@ -35,7 +35,9 @@ _doc_warn() {
     _DOC_JSON_RESULTS=$(echo "$_DOC_JSON_RESULTS" | jq -c ". += [{\"name\":\"$name\",\"status\":\"warn\",\"message\":\"$msg\",\"fix\":\"$fix\"}]")
   else
     echo -e "  ${YELLOW}⚠${NC} $name: $msg"
-    [ -n "$fix" ] && $_DOC_FIX && echo "    Fix: $fix"
+    if [ -n "$fix" ] && $_DOC_FIX; then
+      echo "    Fix: $fix"
+    fi
   fi
 }
 
@@ -46,7 +48,9 @@ _doc_fail() {
     _DOC_JSON_RESULTS=$(echo "$_DOC_JSON_RESULTS" | jq -c ". += [{\"name\":\"$name\",\"status\":\"fail\",\"message\":\"$msg\",\"fix\":\"$fix\"}]")
   else
     echo -e "  ${RED}✗${NC} $name: $msg"
-    [ -n "$fix" ] && $_DOC_FIX && echo "    Fix: $fix"
+    if [ -n "$fix" ] && $_DOC_FIX; then
+      echo "    Fix: $fix"
+    fi
   fi
 }
 
@@ -56,7 +60,7 @@ _doc_check_strut_version() {
   local version_file="${STRUT_HOME:-$CLI_ROOT}/VERSION"
   if [ -f "$version_file" ]; then
     local ver
-    ver=$(cat "$version_file" | tr -d '[:space:]')
+    ver=$(tr -d '[:space:]' < "$version_file")
     _doc_pass "strut" "version $ver"
   else
     _doc_warn "strut" "VERSION file not found" ""

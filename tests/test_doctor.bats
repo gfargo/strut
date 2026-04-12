@@ -51,6 +51,7 @@ teardown() {
   _DOC_FIX=false
   run _doc_check_git
   [ "$status" -eq 0 ]
+  # Should mention Git regardless of whether user.name is configured
   [[ "$output" == *"Git"* ]]
 }
 
@@ -144,7 +145,7 @@ teardown() {
   _DOC_WARNED=0
   _DOC_JSON=false
   _DOC_FIX=false
-  _doc_warn "test" "warning" >/dev/null 2>&1 || true
+  _doc_warn "test" "warning" >/dev/null
   [ "$_DOC_WARNED" -eq 1 ]
 }
 
@@ -152,7 +153,7 @@ teardown() {
   _DOC_FAILED=0
   _DOC_JSON=false
   _DOC_FIX=false
-  _doc_fail "test" "error" >/dev/null 2>&1 || true
+  _doc_fail "test" "error" >/dev/null
   [ "$_DOC_FAILED" -eq 1 ]
 }
 
