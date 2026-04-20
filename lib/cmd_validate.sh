@@ -353,8 +353,7 @@ _is_weak_password() {
 # _validate_secrets <stack_dir> <env_file>
 # Scans for accidentally committed secrets and weak passwords.
 _validate_secrets() {
-  local stack_dir="$1"
-  local env_file="$2"
+  local env_file="$1"
   local cli_root="${CLI_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 
   # Check if env files are git-tracked (they shouldn't be)
@@ -377,7 +376,7 @@ _validate_secrets() {
       val=$(echo "$val" | xargs | tr -d '"' | tr -d "'")
       [ -z "$val" ] && continue
 
-      # Check for known secret patterns in tracked config files
+      # Check for known secret patterns in env file values
       local pattern_name=""
       if pattern_name=$(_is_secret_pattern "$val"); then
         _val_warn "secrets" "$key matches $pattern_name — ensure $(basename "$env_file") is gitignored"
@@ -419,7 +418,7 @@ cmd_validate() {
   _validate_volume_conf "$stack_dir"
   _validate_backup_conf "$stack_dir"
   _validate_required_vars "$stack_dir" "$env_file"
-  _validate_secrets "$stack_dir" "$env_file"
+  _validate_secrets "$env_file"
 
   echo ""
   if [ $_VALIDATE_ERRORS -gt 0 ]; then

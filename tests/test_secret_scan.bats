@@ -116,7 +116,7 @@ EOF
   _VALIDATE_WARNINGS=0
   _DOC_JSON=false 2>/dev/null || true
 
-  run _validate_secrets "$TEST_TMP" "$TEST_TMP/test.env"
+  run _validate_secrets "$TEST_TMP/test.env"
   [[ "$output" == *"weak"* ]] || [[ "$output" == *"placeholder"* ]]
 }
 
@@ -130,7 +130,7 @@ EOF
   _VALIDATE_ERRORS=0
   _VALIDATE_WARNINGS=0
 
-  run _validate_secrets "$TEST_TMP" "$TEST_TMP/test.env"
+  run _validate_secrets "$TEST_TMP/test.env"
   [[ "$output" == *"no issues"* ]]
 }
 
