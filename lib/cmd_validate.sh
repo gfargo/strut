@@ -187,11 +187,13 @@ _validate_volume_conf() {
 
     # Path validation — check *_DATA_PATH and *_PATH keys
     if [[ "$key" == *_DATA_PATH || "$key" == *_PATH ]]; then
-      # Expand variables in val
-      local expanded
-      expanded=$(eval echo "$val" 2>/dev/null || echo "$val")
-      if [[ "$expanded" != /* ]]; then
-        _val_warn "volume.conf" "$key='$val' (should be an absolute path)"
+      # Check if value is an absolute path or a safe variable reference
+      # Reject command substitutions $(…) and backticks as dangerous
+      # shellcheck disable=SC2016
+      if [[ "$val" == *'$('* ]] || [[ "$val" == *'`'* ]]; then
+        _val_error "volume.conf" "$key='$val' contains command substitution (dangerous)"
+      elif [[ "$val" != /* ]] && [[ "$val" != \$* ]]; then
+        _val_warn "volume.conf" "$key='$val' (should be an absolute path or variable reference)"
       fi
     fi
 
@@ -287,7 +289,8 @@ _validate_required_vars() {
     [[ "$var" =~ ^# ]] && continue
 
     local val
-    val=$(eval echo "\${${var}:-}" 2>/dev/null || echo "")
+    # Safe: use printenv instead of eval to read variable values
+    val=$(printenv "$var" 2>/dev/null || echo "")
     if [ -z "$val" ]; then
       missing+=("$var")
       valid=false

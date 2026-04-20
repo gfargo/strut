@@ -259,6 +259,46 @@ EOF
   [ "$_VALIDATE_ERRORS" -gt 0 ]
 }
 
+# ── Security: eval hardening ─────────────────────────────────────────────────
+
+@test "volume.conf: malicious value does not execute commands" {
+  local stack_dir="$TEST_TMP/stack"
+  mkdir -p "$stack_dir"
+  local marker="$TEST_TMP/pwned"
+
+  # This would create a file if eval were used
+  cat > "$stack_dir/volume.conf" <<EOF
+POSTGRES_DATA_PATH=\$(touch $marker)
+EOF
+
+  _VALIDATE_ERRORS=0
+  _VALIDATE_WARNINGS=0
+  run _validate_volume_conf "$stack_dir"
+
+  # The marker file must NOT exist — eval was not called
+  [ ! -f "$marker" ]
+  # Should report an error for command substitution
+  [[ "$output" == *"command substitution"* ]]
+}
+
+@test "volume.conf: variable references accepted without eval" {
+  local stack_dir="$TEST_TMP/stack"
+  mkdir -p "$stack_dir"
+  cat > "$stack_dir/volume.conf" <<'EOF'
+POSTGRES_DATA_PATH=${DATA_DIR}/postgres
+BACKUP_PATH=/mnt/backups
+EOF
+
+  _VALIDATE_ERRORS=0
+  _VALIDATE_WARNINGS=0
+  _validate_volume_conf "$stack_dir" 2>/dev/null || true
+
+  # ${DATA_DIR}/postgres starts with $ — should not warn
+  # /mnt/backups starts with / — should not warn
+  [ "$_VALIDATE_ERRORS" -eq 0 ]
+  [ "$_VALIDATE_WARNINGS" -eq 0 ]
+}
+
 # ── cmd_validate integration ─────────────────────────────────────────────────
 
 @test "cmd_validate: returns 0 for valid stack" {
