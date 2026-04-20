@@ -130,7 +130,7 @@ _doc_check_ssh_key() {
       case "$perms" in
         600|400) _doc_pass "SSH key permissions" "$(basename "$key") is $perms" ;;
         unknown) ;; # stat failed, skip
-        *) _doc_warn "SSH key permissions" "$(basename "$key") is $perms (should be 600)" "chmod 600 $key" ;;
+        *) _doc_warn "SSH key permissions" "$(basename "$key") is $perms (should be 600 or 400)" "chmod 600 \"$key\"" ;;
       esac
 
       break
@@ -145,7 +145,7 @@ _doc_check_ssh_key() {
     case "$dir_perms" in
       700) ;; # OK, don't clutter output
       unknown) ;; # stat failed, skip
-      *) _doc_warn "SSH directory permissions" "$HOME/.ssh is $dir_perms (should be 700)" "chmod 700 $HOME/.ssh" ;;
+      *) _doc_warn "SSH directory permissions" "$HOME/.ssh is $dir_perms (should be 700)" "chmod 700 \"$HOME/.ssh\"" ;;
     esac
   fi
 }
