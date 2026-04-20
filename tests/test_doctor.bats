@@ -182,3 +182,33 @@ teardown() {
   [ "$status" -eq 0 ]
   [[ "$output" == *"Usage"* ]]
 }
+
+# ── SSH permission checks ─────────────────────────────────────────────────────
+
+@test "cmd_doctor --json: includes SSH key permissions check for secure key perms" {
+  export STRUT_HOME="$CLI_ROOT"
+  export HOME="$TEST_TMP/home-pass"
+  mkdir -p "$HOME/.ssh"
+  touch "$HOME/.ssh/id_rsa"
+  chmod 700 "$HOME/.ssh"
+  chmod 600 "$HOME/.ssh/id_rsa"
+
+  run cmd_doctor --json
+  # May return 1 due to Docker/other checks failing with fake HOME — that's OK
+  echo "$output" | jq -e '.checks[] | select(.name == "SSH key permissions")' >/dev/null
+}
+
+@test "cmd_doctor --json: reports SSH key permissions fix for insecure key perms" {
+  export STRUT_HOME="$CLI_ROOT"
+  export HOME="$TEST_TMP/home-fail"
+  mkdir -p "$HOME/.ssh"
+  touch "$HOME/.ssh/id_rsa"
+  chmod 755 "$HOME/.ssh"
+  chmod 644 "$HOME/.ssh/id_rsa"
+
+  # Run in text mode — easier to assert on output
+  _DOC_PASSED=0; _DOC_WARNED=0; _DOC_FAILED=0; _DOC_JSON=false; _DOC_FIX=true
+  run _doc_check_ssh_key
+  [[ "$output" == *"should be 600 or 400"* ]]
+  [[ "$output" == *"chmod"* ]]
+}
