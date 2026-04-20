@@ -273,10 +273,12 @@ EOF
 
   _VALIDATE_ERRORS=0
   _VALIDATE_WARNINGS=0
-  _validate_volume_conf "$stack_dir" 2>/dev/null || true
+  run _validate_volume_conf "$stack_dir"
 
   # The marker file must NOT exist — eval was not called
   [ ! -f "$marker" ]
+  # Should report an error for command substitution
+  [[ "$output" == *"command substitution"* ]]
 }
 
 @test "volume.conf: variable references accepted without eval" {
@@ -294,6 +296,7 @@ EOF
   # ${DATA_DIR}/postgres starts with $ — should not warn
   # /mnt/backups starts with / — should not warn
   [ "$_VALIDATE_ERRORS" -eq 0 ]
+  [ "$_VALIDATE_WARNINGS" -eq 0 ]
 }
 
 # ── cmd_validate integration ─────────────────────────────────────────────────

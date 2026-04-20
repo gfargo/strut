@@ -187,9 +187,12 @@ _validate_volume_conf() {
 
     # Path validation — check *_DATA_PATH and *_PATH keys
     if [[ "$key" == *_DATA_PATH || "$key" == *_PATH ]]; then
-      # Check if value is an absolute path or a variable reference
-      # Safe: no eval — just check the literal value pattern
-      if [[ "$val" != /* ]] && [[ "$val" != \$* ]]; then
+      # Check if value is an absolute path or a safe variable reference
+      # Reject command substitutions $(…) and backticks as dangerous
+      # shellcheck disable=SC2016
+      if [[ "$val" == *'$('* ]] || [[ "$val" == *'`'* ]]; then
+        _val_error "volume.conf" "$key='$val' contains command substitution (dangerous)"
+      elif [[ "$val" != /* ]] && [[ "$val" != \$* ]]; then
         _val_warn "volume.conf" "$key='$val' (should be an absolute path or variable reference)"
       fi
     fi
