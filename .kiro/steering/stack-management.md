@@ -27,6 +27,8 @@ Each stack can have:
 - `volume.conf` — volume path mappings and ownership
 - `repos.conf` — GitHub repos for key management
 - `backup.conf` — backup schedule configuration
+- `anonymize.conf` — PII anonymization rules for sync-db
+- `hooks/pre-deploy.sh` — custom pre-deploy validation script
 
 ### Environments
 
@@ -41,6 +43,10 @@ Project-level settings live in `strut.conf` at the project root:
 - `REGISTRY_TYPE` — container registry (ghcr, dockerhub, ecr, none)
 - `DEFAULT_ORG` — GitHub/registry organization
 - `DEFAULT_BRANCH` — git branch for VPS sync
+- `REVERSE_PROXY` — reverse proxy type (nginx, caddy)
+- `ROLLBACK_RETENTION` — number of deploy snapshots to keep (default: 5)
+- `PRE_DEPLOY_VALIDATE` — run config validation before deploy (default: true)
+- `PRE_DEPLOY_HOOKS` — run custom hooks before deploy (default: true)
 - `BANNER_TEXT` — branding in CLI output
 
 ## Essential Commands
@@ -49,15 +55,27 @@ Project-level settings live in `strut.conf` at the project root:
 # Deploy / Release
 strut <stack> release --env prod              # Full VPS release (recommended)
 strut <stack> deploy --env prod               # Local deploy
+strut <stack> deploy --env prod --skip-validation  # Emergency deploy (skip checks)
 strut <stack> update --env prod               # Update strut scripts on VPS only
 strut <stack> stop --env prod                 # Stop running containers
-strut <stack> stop --env prod --volumes       # Stop and remove volumes
+strut <stack> rollback --env prod             # Roll back to previous deploy
+
+# Validation & Diagnostics
+strut <stack> validate --env prod             # Validate all config files
+strut doctor                                  # Check environment health
+strut doctor --check-vps --fix                # Include VPS checks, show fixes
 
 # Monitoring
 strut <stack> health --env prod
 strut <stack> health --env prod --json
 strut <stack> logs <service> --tail 100 --env prod
 strut <stack> status --env prod
+
+# Database
+strut <stack> backup all --env prod
+strut <stack> backup postgres --env prod --dry-run
+strut <stack> db:pull --env prod
+strut <stack> local sync-db --from prod --anonymize
 
 # VPS Access
 strut <stack> shell --env prod                # Interactive SSH
@@ -66,6 +84,8 @@ strut <stack> exec "docker ps" --env prod     # Single command
 # Dry-run (preview destructive commands)
 strut <stack> release --env prod --dry-run
 strut <stack> stop --env prod --dry-run
+strut <stack> backup postgres --env prod --dry-run
+strut <stack> rollback --env prod --dry-run
 ```
 
 ## Local vs VPS Execution
