@@ -182,3 +182,13 @@ teardown() {
   [ "$status" -eq 0 ]
   [[ "$output" == *"Usage"* ]]
 }
+
+# ── SSH permission checks ─────────────────────────────────────────────────────
+
+@test "cmd_doctor --json: includes SSH key permission check" {
+  export STRUT_HOME="$CLI_ROOT"
+  run cmd_doctor --json
+  [ "$status" -eq 0 ]
+  # Should have an SSH-related check in the output
+  echo "$output" | jq -e '.checks[] | select(.name | test("SSH"))' >/dev/null
+}

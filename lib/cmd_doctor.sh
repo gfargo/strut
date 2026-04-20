@@ -123,10 +123,31 @@ _doc_check_ssh_key() {
     if [ -f "$key" ]; then
       _doc_pass "SSH key" "found ($(basename "$key"))"
       found=true
+
+      # Check private key permissions (should be 600 or 400)
+      local perms
+      perms=$(stat -f "%Lp" "$key" 2>/dev/null || stat -c "%a" "$key" 2>/dev/null || echo "unknown")
+      case "$perms" in
+        600|400) _doc_pass "SSH key permissions" "$(basename "$key") is $perms" ;;
+        unknown) ;; # stat failed, skip
+        *) _doc_warn "SSH key permissions" "$(basename "$key") is $perms (should be 600)" "chmod 600 $key" ;;
+      esac
+
       break
     fi
   done
   $found || _doc_warn "SSH key" "no default SSH key found in ~/.ssh/" "ssh-keygen -t ed25519"
+
+  # Check ~/.ssh directory permissions (should be 700)
+  if [ -d "$HOME/.ssh" ]; then
+    local dir_perms
+    dir_perms=$(stat -f "%Lp" "$HOME/.ssh" 2>/dev/null || stat -c "%a" "$HOME/.ssh" 2>/dev/null || echo "unknown")
+    case "$dir_perms" in
+      700) ;; # OK, don't clutter output
+      unknown) ;; # stat failed, skip
+      *) _doc_warn "SSH directory permissions" "$HOME/.ssh is $dir_perms (should be 700)" "chmod 700 $HOME/.ssh" ;;
+    esac
+  fi
 }
 
 _doc_check_tool() {
