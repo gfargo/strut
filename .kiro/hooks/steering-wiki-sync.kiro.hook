@@ -1,0 +1,16 @@
+{
+  "enabled": true,
+  "name": "Steering-Wiki Sync Check",
+  "description": "When steering files are edited, reminds to check if the corresponding wiki page needs the same update for consistency.",
+  "version": "1",
+  "when": {
+    "type": "fileEdited",
+    "patterns": [
+      ".kiro/steering/*.md"
+    ]
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "A steering file was just edited. Check if the corresponding wiki page (in the wiki/ directory) covers the same information and is consistent. If the wiki page is outdated or missing the new content, remind the user to update it. Key mappings: code-conventions.md → wiki/Code-Conventions.md, stack-management.md → wiki/CLI-Reference.md + wiki/Configuration.md, development-workflow.md → wiki/Contributing.md."
+  }
+}

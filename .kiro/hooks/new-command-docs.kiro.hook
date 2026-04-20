@@ -1,0 +1,16 @@
+{
+  "enabled": true,
+  "name": "New Command Docs Reminder",
+  "description": "When a new command handler is created, reminds to add --help support, update CLI Reference wiki, and add to the strut entrypoint dispatch.",
+  "version": "1",
+  "when": {
+    "type": "fileCreated",
+    "patterns": [
+      "lib/cmd_*.sh"
+    ]
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "A new command handler was created. Check that it has: 1) A _usage_<name>() function for --help support 2) Is sourced in the strut entrypoint 3) Is added to both the help dispatch and command dispatch case statements 4) Remind the user to update the wiki CLI Reference page and the stack-management steering file with the new command."
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "enabled": true,
+  "name": "Config Template Docs Sync",
+  "description": "When strut.conf.template is edited, reminds to update the Configuration wiki page and the stack-management steering file with any new config keys.",
+  "version": "1",
+  "when": {
+    "type": "fileEdited",
+    "patterns": [
+      "templates/strut.conf.template"
+    ]
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "The strut.conf template was just edited. Check if any new config keys were added. If so, remind the user to: 1) Add defaults in lib/config.sh load_strut_config() 2) Add validation in lib/cmd_validate.sh if needed 3) Update the wiki Configuration page 4) Update the stack-management steering file"
+  }
+}
