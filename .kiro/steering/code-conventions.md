@@ -54,5 +54,15 @@ Every lib module must:
 - Use `setup()` / `teardown()` with `TEST_TMP` for temp dirs
 - Source `test_helper/common.bash` for shared helpers
 - Override `fail()` in tests: `fail() { echo "$1" >&2; return 1; }`
-- Property tests: 100 iterations with randomized inputs, tagged with `Feature: ch-deploy-modularization, Property N`
+- Property tests: 100 iterations with randomized inputs
 - Static analysis tests: grep-based checks for hardcoded references
+- Tests calling handlers must export `CMD_*` variables (CMD_STACK, CMD_STACK_DIR, CMD_ENV_FILE, CMD_ENV_NAME, CMD_SERVICES, CMD_JSON)
+- Use `if` blocks instead of `&&` chains for conditional logic (avoids `set -e` failures)
+- Support both macOS and Linux `stat` syntax in tests
+
+## Security
+
+- Never use `eval` with values from config files or env vars
+- Use `envsubst` or pattern matching for variable expansion
+- Validate all user input before passing to shell commands
+- Env files must be gitignored — `strut validate` should warn if tracked
