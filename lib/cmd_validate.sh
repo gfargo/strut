@@ -305,6 +305,99 @@ _validate_required_vars() {
   fi
 }
 
+# ── Secret scanning ───────────────────────────────────────────────────────────
+
+# _is_secret_pattern <value>
+# Returns 0 if value matches a known secret pattern, echoes the pattern name.
+_is_secret_pattern() {
+  local val="$1"
+
+  # GitHub PAT
+  if [[ "$val" =~ ^ghp_[A-Za-z0-9]{36}$ ]]; then
+    echo "GitHub Personal Access Token (ghp_)"; return 0
+  fi
+  # GitHub fine-grained PAT
+  if [[ "$val" =~ ^github_pat_ ]]; then
+    echo "GitHub Fine-Grained PAT (github_pat_)"; return 0
+  fi
+  # AWS Access Key
+  if [[ "$val" =~ ^AKIA[0-9A-Z]{16}$ ]]; then
+    echo "AWS Access Key (AKIA...)"; return 0
+  fi
+  # OpenAI / Stripe sk- prefix
+  if [[ "$val" =~ ^sk-[A-Za-z0-9]{20,}$ ]]; then
+    echo "API secret key (sk-)"; return 0
+  fi
+  # Slack webhook
+  if [[ "$val" =~ ^https://hooks\.slack\.com/ ]]; then
+    echo "Slack webhook URL"; return 0
+  fi
+
+  return 1
+}
+
+# _is_weak_password <value>
+# Returns 0 if value is a common weak/placeholder password.
+_is_weak_password() {
+  local val="$1"
+  local lower
+  lower=$(echo "$val" | tr '[:upper:]' '[:lower:]')
+
+  case "$lower" in
+    password|password1|changeme|change-me|secret|secret123|admin|test|12345*|qwerty|letmein|placeholder|todo|fixme)
+      return 0 ;;
+  esac
+  return 1
+}
+
+# _validate_secrets <stack_dir> <env_file>
+# Scans for accidentally committed secrets and weak passwords.
+_validate_secrets() {
+  local env_file="$1"
+  local cli_root="${CLI_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+
+  # Check if env files are git-tracked (they shouldn't be)
+  if [ -f "$env_file" ] && command -v git &>/dev/null; then
+    local relative_env
+    relative_env="${env_file#$cli_root/}"
+    if git -C "$cli_root" ls-files --error-unmatch "$relative_env" &>/dev/null 2>&1; then
+      _val_error "secrets" "$(basename "$env_file") is tracked by git (should be in .gitignore)"
+    fi
+  fi
+
+  # Scan env file values for known secret patterns and weak passwords
+  if [ -f "$env_file" ]; then
+    # Scan env file values for known secret patterns and weak passwords
+    local secret_found=false
+    # shellcheck disable=SC2094
+    while IFS='=' read -r key val; do
+      [[ -z "$key" || "$key" =~ ^[[:space:]]*# ]] && continue
+      key=$(echo "$key" | xargs)
+      val=$(echo "$val" | xargs | tr -d '"' | tr -d "'")
+      [ -z "$val" ] && continue
+
+      # Check for known secret patterns in env file values
+      local pattern_name=""
+      if pattern_name=$(_is_secret_pattern "$val"); then
+        _val_warn "secrets" "$key matches $pattern_name — ensure $(basename "$env_file") is gitignored"
+        secret_found=true
+      fi
+
+      # Check for weak passwords in password-like keys
+      if [[ "$key" == *PASSWORD* || "$key" == *SECRET* || "$key" == *TOKEN* || "$key" == *KEY* ]]; then
+        if _is_weak_password "$val"; then
+          _val_warn "secrets" "$key='$val' is a weak/placeholder password"
+          secret_found=true
+        fi
+      fi
+    done < "$env_file"
+
+    if ! $secret_found; then
+      _val_ok "secrets" "no issues detected"
+    fi
+  fi
+}
+
 # ── Main command ──────────────────────────────────────────────────────────────
 
 cmd_validate() {
@@ -325,6 +418,7 @@ cmd_validate() {
   _validate_volume_conf "$stack_dir"
   _validate_backup_conf "$stack_dir"
   _validate_required_vars "$stack_dir" "$env_file"
+  _validate_secrets "$env_file"
 
   echo ""
   if [ $_VALIDATE_ERRORS -gt 0 ]; then
