@@ -1,0 +1,16 @@
+{
+  "enabled": true,
+  "name": "Version Bump Docs Reminder",
+  "description": "When the VERSION file is edited, reminds to update the wiki Home page version and consider creating a GitHub release.",
+  "version": "1",
+  "when": {
+    "type": "fileEdited",
+    "patterns": [
+      "VERSION"
+    ]
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "The VERSION file was just edited. Remind the user to: 1) Update the version in wiki/Home.md to match 2) Create a git tag (git tag -a vX.Y.Z) 3) Create a GitHub release with release notes 4) Push both main and tags (git push origin main --tags)"
+  }
+}
