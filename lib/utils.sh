@@ -271,6 +271,49 @@ confirm() {
 
 # ── SSH helpers ───────────────────────────────────────────────────────────────
 
+# ssh_mux_control_path — emit the ssh ControlPath template used by this process
+#
+# Returns a per-pid, per-user, per-host template path in TMPDIR (or /tmp). ssh
+# substitutes %r/%h/%p at connect time, so one template covers every host
+# reached during a single strut invocation.
+#
+# Respects STRUT_SSH_CONTROL_DIR to override the directory for tests.
+ssh_mux_control_path() {
+  local dir="${STRUT_SSH_CONTROL_DIR:-${TMPDIR:-/tmp}}"
+  # Strip trailing slash for clean concatenation
+  dir="${dir%/}"
+  echo "$dir/strut-ssh-$$-%r@%h:%p"
+}
+
+# ssh_mux_enabled — 0 (true) if SSH connection multiplexing is enabled
+#
+# Opt out via STRUT_SSH_NO_MUX=1 (useful for debugging auth failures or for
+# environments where the control socket path would be too long).
+ssh_mux_enabled() {
+  [ "${STRUT_SSH_NO_MUX:-0}" = "1" ] && return 1
+  return 0
+}
+
+# ssh_mux_cleanup — close any master connections opened by this process
+#
+# Best-effort: we don't know which hosts were contacted, so we scan for control
+# sockets matching our pid prefix and ask ssh to exit each master. Called from
+# the strut entrypoint's EXIT trap.
+ssh_mux_cleanup() {
+  ssh_mux_enabled || return 0
+  local dir="${STRUT_SSH_CONTROL_DIR:-${TMPDIR:-/tmp}}"
+  dir="${dir%/}"
+  local sock
+  # Sockets are named strut-ssh-<pid>-<user>@<host>:<port>
+  for sock in "$dir"/strut-ssh-$$-*; do
+    [ -S "$sock" ] || continue
+    # Extract user@host:port from filename suffix
+    local suffix="${sock##*/strut-ssh-$$-}"
+    ssh -O exit -o ControlPath="$sock" "$suffix" >/dev/null 2>&1 || true
+    rm -f "$sock" 2>/dev/null || true
+  done
+}
+
 # build_ssh_opts [options]
 #
 # Builds a standard SSH options string. All parameters are optional flags:
@@ -280,10 +323,15 @@ confirm() {
 #   --batch         Add -o BatchMode=yes (default: off)
 #   --tty           Add -t for interactive sessions
 #   --keepalive     Add ServerAliveInterval=5, ServerAliveCountMax=2
+#   --no-mux        Suppress ControlMaster options for this call
+#
+# ControlMaster/ControlPersist are appended by default so repeated SSH calls
+# within a single strut command reuse one authenticated session. Opt out
+# globally with STRUT_SSH_NO_MUX=1 or per-call with --no-mux.
 #
 # Echoes the options string. Caller captures via: ssh_opts=$(build_ssh_opts ...)
 build_ssh_opts() {
-  local port="" ssh_key="" timeout=10 batch=false tty=false keepalive=false
+  local port="" ssh_key="" timeout=10 batch=false tty=false keepalive=false no_mux=false
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -293,6 +341,7 @@ build_ssh_opts() {
       --batch) batch=true; shift ;;
       --tty) tty=true; shift ;;
       --keepalive) keepalive=true; shift ;;
+      --no-mux) no_mux=true; shift ;;
       *) shift ;;
     esac
   done
@@ -303,6 +352,12 @@ build_ssh_opts() {
   [[ "$tty" == true ]] && opts="-t $opts"
   [[ "$keepalive" == true ]] && opts="$opts -o ServerAliveInterval=5 -o ServerAliveCountMax=2"
   [[ -n "$ssh_key" ]] && opts="$opts -i $ssh_key"
+
+  if [[ "$no_mux" != true ]] && ssh_mux_enabled; then
+    local ctl_path
+    ctl_path=$(ssh_mux_control_path)
+    opts="$opts -o ControlMaster=auto -o ControlPath=$ctl_path -o ControlPersist=60s"
+  fi
 
   echo "$opts"
 }
