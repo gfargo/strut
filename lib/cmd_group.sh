@@ -251,6 +251,7 @@ _group_logs() {
   local idx=0
   local stack
 
+  # shellcheck disable=SC2317,SC2329 # invoked via trap handlers below
   _group_logs_cleanup() {
     local p
     for p in "${child_pids[@]+"${child_pids[@]}"}"; do

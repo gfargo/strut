@@ -91,7 +91,7 @@ out_table_row() {
   for v in "$@"; do
     plain=$(_out_strip_ansi "$v")
     if [ "$i" -lt "${#_OUT_TABLE_WIDTHS[@]}" ]; then
-      [ "${#plain}" -gt "${_OUT_TABLE_WIDTHS[$i]}" ] && _OUT_TABLE_WIDTHS[$i]=${#plain}
+      [ "${#plain}" -gt "${_OUT_TABLE_WIDTHS[i]}" ] && _OUT_TABLE_WIDTHS[i]=${#plain}
     else
       _OUT_TABLE_WIDTHS+=("${#plain}")
     fi
@@ -203,7 +203,7 @@ _out_json_comma_if_needed() {
   if [ "${#_OUT_JSON_STACK[@]}" -gt 0 ]; then
     local depth=$((${#_OUT_JSON_STACK[@]} - 1))
     if [ "${_OUT_JSON_FIRST[$depth]}" = "1" ]; then
-      _OUT_JSON_FIRST[$depth]=0
+      _OUT_JSON_FIRST[depth]=0
     else
       printf ','
     fi

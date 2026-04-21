@@ -126,7 +126,7 @@ _doc_check_ssh_key() {
 
       # Check private key permissions (should be 600 or 400)
       local perms
-      perms=$(stat -f "%Lp" "$key" 2>/dev/null || stat -c "%a" "$key" 2>/dev/null || echo "unknown")
+      perms=$(stat -c "%a" "$key" 2>/dev/null || stat -f "%Lp" "$key" 2>/dev/null || echo "unknown")
       case "$perms" in
         600|400) _doc_pass "SSH key permissions" "$(basename "$key") is $perms" ;;
         unknown) ;; # stat failed, skip
@@ -141,7 +141,7 @@ _doc_check_ssh_key() {
   # Check ~/.ssh directory permissions (should be 700)
   if [ -d "$HOME/.ssh" ]; then
     local dir_perms
-    dir_perms=$(stat -f "%Lp" "$HOME/.ssh" 2>/dev/null || stat -c "%a" "$HOME/.ssh" 2>/dev/null || echo "unknown")
+    dir_perms=$(stat -c "%a" "$HOME/.ssh" 2>/dev/null || stat -f "%Lp" "$HOME/.ssh" 2>/dev/null || echo "unknown")
     case "$dir_perms" in
       700) ;; # OK, don't clutter output
       unknown) ;; # stat failed, skip
