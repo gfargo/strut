@@ -145,7 +145,7 @@ usage() {
   echo ""
   echo "Usage: strut <stack> <command> [options]"
   echo "       strut list"
-  echo "       strut init [--registry <type>] [--org <name>]"
+  echo "       strut init [--registry <type>] [--org <name>] [--completions]"
   echo "       strut upgrade"
   echo "       strut doctor [--check-vps] [--json] [--fix]"
   echo "       strut --version"
@@ -203,6 +203,7 @@ usage() {
   echo "  init     [--registry <type>] [--org <name>]                    Initialize new project"
   echo "  upgrade                                                        Upgrade strut to latest version"
   echo "  skills   [list|install] [--format kiro|claude|cursor|generic|all]  AI agent context"
+  echo "  completions <bash|zsh|fish>                                    Print shell completion script"
   echo "  --version                                                      Show strut version"
   echo ""
   echo "Global flags:"
@@ -388,6 +389,12 @@ case "${1:-}" in
     exit 0
     ;;
   scaffold)       cmd_scaffold "${2:-}"; exit 0 ;;
+  completions)
+    shift
+    source "$LIB/cmd_completions.sh"
+    cmd_completions "$@"
+    exit 0
+    ;;
   doctor)
     shift
     source "$LIB/cmd_doctor.sh"

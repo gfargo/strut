@@ -13,6 +13,7 @@ cmd_init() {
   # ── Parse flags ───────────────────────────────────
   local registry_flag=""
   local org_flag=""
+  local install_completions="false"
 
   while [[ $# -gt 0 ]]; do
     case $1 in
@@ -20,7 +21,8 @@ cmd_init() {
       --registry)   registry_flag="$2"; shift 2 ;;
       --org=*)      org_flag="${1#*=}"; shift ;;
       --org)        org_flag="$2"; shift 2 ;;
-      *)            fail "Unknown flag: $1  (usage: strut init [--registry <type>] [--org <name>])" ;;
+      --completions) install_completions="true"; shift ;;
+      *)            fail "Unknown flag: $1  (usage: strut init [--registry <type>] [--org <name>] [--completions])" ;;
     esac
   done
 
@@ -88,6 +90,13 @@ backups/
 data/
 GITIGNORE_EOF
   log "Generated .gitignore"
+
+  # ── Optional: install shell completions ──────────
+  if [ "$install_completions" = "true" ]; then
+    # shellcheck disable=SC1091
+    source "${STRUT_HOME:-$CLI_ROOT}/lib/cmd_completions.sh"
+    install_completions
+  fi
 
   # ── Next steps ────────────────────────────────────
   echo ""
