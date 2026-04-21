@@ -305,7 +305,7 @@ ssh_mux_cleanup() {
   dir="${dir%/}"
   local sock
   # Sockets are named strut-ssh-<pid>-<user>@<host>:<port>
-  for sock in "$dir"/strut-ssh-$$-*; do
+  for sock in "$dir"/strut-ssh-"$$"-*; do
     [ -S "$sock" ] || continue
     # Extract user@host:port from filename suffix
     local suffix="${sock##*/strut-ssh-$$-}"

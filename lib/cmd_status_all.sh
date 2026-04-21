@@ -15,11 +15,9 @@ set -euo pipefail
 _status_mtime() {
   local p="$1"
   [ -e "$p" ] || return 0
-  if stat -f %m "$p" 2>/dev/null; then
-    :
-  else
-    stat -c %Y "$p" 2>/dev/null || true
-  fi
+  # GNU first (Linux CI), BSD fallback (macOS). BSD order fails on Linux
+  # because GNU `stat -f` means filesystem mode — it succeeds with wrong output.
+  stat -c %Y "$p" 2>/dev/null || stat -f %m "$p" 2>/dev/null || true
 }
 
 # _status_humanize_age <seconds> — "4h ago", "2d ago", etc.

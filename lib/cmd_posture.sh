@@ -60,6 +60,8 @@ check_placeholder_secrets() {
   local env_file
   for env_file in "$CLI_ROOT"/.env "$CLI_ROOT"/.*.env; do
     [ -f "$env_file" ] || continue
+    local env_base
+    env_base=$(basename "$env_file")
     local line key val
     while IFS= read -r line; do
       # Skip blanks and comments
@@ -75,7 +77,7 @@ check_placeholder_secrets() {
       lower=$(printf '%s' "$val" | tr '[:upper:]' '[:lower:]')
       if [[ "$lower" =~ $_POSTURE_PLACEHOLDERS_REGEX ]]; then
         posture_emit "fail" "secrets" "$stack" \
-          "$(basename "$env_file"): $key appears to be a placeholder ('$val')" \
+          "$env_base: $key appears to be a placeholder ('$val')" \
           "Set a real value for $key in $env_file"
         return 0
       fi

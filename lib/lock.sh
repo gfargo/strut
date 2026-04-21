@@ -212,6 +212,9 @@ lock_acquire_remote() {
   dir_expr=$(_lock_remote_dir_expr "$stack" "$env")
 
   # shellcheck disable=SC2086
+  # shellcheck disable=SC2087
+  # SC2087: heredoc is unquoted intentionally — $dir_expr expands client-side
+  # while all \$-escaped vars expand server-side.
   ssh $ssh_opts "$user@$host" bash -s -- "$stack" "$env" "$cmd" <<REMOTE
 set -eu
 stack="\$1"; env="\$2"; cmd="\$3"
