@@ -170,15 +170,34 @@ cmd_status() {
   $compose_cmd ps
 }
 
-# cmd_prune [--volumes|positional...]
+# cmd_prune [--volumes] [--all] [--no-protect]
+#
+# Forwards flags through to docker_prune, automatically scoping the prune to
+# the current stack so rollback snapshots can protect their referenced images
+# from deletion. Opt out with --no-protect or PRUNE_PROTECT_ROLLBACK_IMAGES=false.
 cmd_prune() {
+  local -a args=()
+  local protect=true
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --no-protect) protect=false; shift ;;
+      *) args+=("$1"); shift ;;
+    esac
+  done
+  # Default to --volumes when caller passed no flags (preserves prior behavior).
+  [ "${#args[@]}" -eq 0 ] && args=(--volumes)
+
+  if [ "$protect" = "true" ] && [ -n "${CMD_STACK:-}" ]; then
+    args+=(--stack "$CMD_STACK")
+  fi
+
   if [ "$DRY_RUN" = "true" ]; then
     echo ""
     echo -e "${YELLOW}[DRY-RUN] Execution plan for prune:${NC}"
-    run_cmd "Docker system prune" docker system prune -af "${1:---volumes}"
+    run_cmd "Docker system prune" docker system prune -af "${args[@]}"
     echo ""
     echo -e "${YELLOW}[DRY-RUN] No changes made.${NC}"
     return 0
   fi
-  docker_prune "${1:---volumes}"
+  docker_prune "${args[@]}"
 }
