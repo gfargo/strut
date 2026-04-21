@@ -72,10 +72,22 @@ load_strut_config
 
 source "$LIB/utils.sh"
 
-# Clean up any SSH master connections this process opened via ControlMaster.
+# Unified EXIT trap — runs every cleanup registered via `strut_register_cleanup`.
 # Registered here (not in utils.sh) so sourcing the library in tests doesn't
-# install a trap on the test runner.
-trap 'ssh_mux_cleanup' EXIT
+# install a trap on the test runner. Libraries (ssh mux, deploy lock, etc.)
+# append their cleanup commands to STRUT_CLEANUPS rather than calling
+# `trap` directly, which would clobber previously installed handlers.
+STRUT_CLEANUPS=()
+strut_register_cleanup() { STRUT_CLEANUPS+=("$1"); }
+_strut_run_cleanups() {
+  local _cmd
+  for _cmd in "${STRUT_CLEANUPS[@]+"${STRUT_CLEANUPS[@]}"}"; do
+    eval "$_cmd" 2>/dev/null || true
+  done
+}
+trap '_strut_run_cleanups' EXIT
+
+strut_register_cleanup 'ssh_mux_cleanup'
 
 source "$LIB/output.sh"
 source "$LIB/flags.sh"
@@ -115,6 +127,8 @@ source "$LIB/cmd_validate.sh"
 source "$LIB/cmd_rollback.sh"
 source "$LIB/diff.sh"
 source "$LIB/cmd_diff.sh"
+source "$LIB/lock.sh"
+source "$LIB/cmd_lock.sh"
 
 # ── Argument parsing ──────────────────────────────────────────────────────────
 
@@ -136,6 +150,7 @@ usage() {
   echo "  deploy   [--env <name>] [--services <profile>] [--pull-only]  Deploy stack"
   echo "  stop     [--env <name>] [--services <profile>] [--volumes]   Stop running containers"
   echo "  diff     [--env <name>] [--json]                              Preview pending changes vs VPS"
+  echo "  lock     <status|release> [--env <name>] [--force]            Inspect/manage deploy locks"
   echo "  health   [--env <name>] [--services <profile>] [--json]       Health checks"
   echo "  logs     [--env <name>] [service] [--since <dur>] [--follow]  View logs"
   echo "  migrate  [--env <name>] [neo4j|postgres] [--status|--up|--down N]  Run schema migrations"
@@ -560,6 +575,7 @@ if [ "$FLAGS_HELP" = "true" ]; then
     validate) _usage_validate ;;
     rollback) _usage_rollback ;;
     diff)     _usage_diff ;;
+    lock)     _usage_lock ;;
     *)        usage ;;
   esac
   exit 0
@@ -593,5 +609,6 @@ case "$COMMAND" in
   rollback)            cmd_rollback "${CMD_ARGS[@]+"${CMD_ARGS[@]}"}" ;;
   domain)              cmd_domain "${CMD_ARGS[@]+"${CMD_ARGS[@]}"}" ;;
   diff)                cmd_diff "${CMD_ARGS[@]+"${CMD_ARGS[@]}"}" ;;
+  lock)                cmd_lock "${CMD_ARGS[@]+"${CMD_ARGS[@]}"}" ;;
   *)                   usage; fail "Unknown command: '$COMMAND'" ;;
 esac
