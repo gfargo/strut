@@ -165,6 +165,7 @@ usage() {
   echo "  domain   <domain> <email> [--skip-ssl]                         Configure domain/SSL"
   echo "  list                                                           List stacks"
   echo "  status-all [--env <name>] [--json]                             Dashboard across all stacks"
+  echo "  posture    [--stack <name>] [--category <c>] [--fail-on <l>]   Security/ops posture check"
   echo "  scaffold <new-stack-name>                                      New stack"
   echo "  init     [--registry <type>] [--org <name>]                    Initialize new project"
   echo "  upgrade                                                        Upgrade strut to latest version"
@@ -356,6 +357,12 @@ case "${1:-}" in
     shift
     source "$LIB/cmd_status_all.sh"
     cmd_status_all "$@"
+    exit $?
+    ;;
+  posture)
+    shift
+    source "$LIB/cmd_posture.sh"
+    cmd_posture "$@"
     exit $?
     ;;
 
