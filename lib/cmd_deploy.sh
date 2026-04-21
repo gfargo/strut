@@ -17,6 +17,8 @@ _usage_deploy() {
   echo "  --services <profile> Service profile (messaging|ui|full)"
   echo "  --pull-only          Pull images without restarting containers"
   echo "  --skip-validation    Skip pre-deploy config validation and hooks"
+  echo "  --force-unlock       Break an existing deploy lock before acquiring"
+  echo "  --no-lock            Skip lock acquisition (advanced; recovery only)"
   echo "  --dry-run            Show execution plan without making changes"
   echo ""
   echo "Related commands:"
@@ -76,16 +78,45 @@ cmd_deploy() {
   # Parse deploy-specific flags
   local pull_only=false
   local skip_validation=false
+  local force_unlock=false
+  local skip_lock=false
   while [[ $# -gt 0 ]]; do
     case $1 in
       --pull-only) pull_only=true; shift ;;
       --skip-validation) skip_validation=true; shift ;;
+      --force-unlock) force_unlock=true; shift ;;
+      --no-lock) skip_lock=true; shift ;;
       *) shift ;;
     esac
   done
 
   # Export for deploy_stack to read
   export SKIP_VALIDATION="$skip_validation"
+
+  # ── Concurrency lock ─────────────────────────────────────────────────────
+  # Prevents two deploys racing against the same stack/env. Honor --no-lock
+  # escape hatch for specialized recovery flows, and --force-unlock to break
+  # stale locks from a previous crashed deploy.
+  if [ "$skip_lock" != "true" ] && [ "$DRY_RUN" != "true" ]; then
+    local _env_key="${env_name:-default}"
+    if [ "$force_unlock" = "true" ]; then
+      warn "Breaking any existing deploy lock (--force-unlock)"
+      lock_force_break_local "$stack" "$_env_key" || true
+    fi
+    if ! lock_acquire_local "$stack" "$_env_key" "deploy"; then
+      if lock_is_stale_local "$stack" "$_env_key"; then
+        warn "Existing deploy lock appears stale — retry with --force-unlock"
+      else
+        warn "Re-run with --force-unlock if you're sure the previous deploy is gone"
+      fi
+      fail "Deploy lock held — aborting"
+    fi
+    # Ensure lock is released no matter how we exit. Register with the
+    # entrypoint's unified cleanup chain so we don't clobber other traps.
+    if declare -F strut_register_cleanup >/dev/null; then
+      strut_register_cleanup "lock_release_local '$stack' '$_env_key'"
+    fi
+  fi
 
   # Check if this is a VPS environment and warn user (skip if we're ON the VPS)
   if [ -f "$env_file" ]; then
