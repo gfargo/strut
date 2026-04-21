@@ -164,6 +164,7 @@ usage() {
   echo "  keys     <subcommand> [options]                                Key management (SSH, API, env, GitHub)"
   echo "  domain   <domain> <email> [--skip-ssl]                         Configure domain/SSL"
   echo "  list                                                           List stacks"
+  echo "  status-all [--env <name>] [--json]                             Dashboard across all stacks"
   echo "  scaffold <new-stack-name>                                      New stack"
   echo "  init     [--registry <type>] [--org <name>]                    Initialize new project"
   echo "  upgrade                                                        Upgrade strut to latest version"
@@ -349,6 +350,12 @@ case "${1:-}" in
     shift
     source "$LIB/cmd_doctor.sh"
     cmd_doctor "$@"
+    exit $?
+    ;;
+  status-all)
+    shift
+    source "$LIB/cmd_status_all.sh"
+    cmd_status_all "$@"
     exit $?
     ;;
 
