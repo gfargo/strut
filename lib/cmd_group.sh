@@ -19,6 +19,8 @@ Usage:
   strut group remove <name> <stack>             Remove a stack from a group
   strut group <name> <command> [--env <name>] [--stop-on-error] [options]
                                                 Run command for all stacks in group
+  strut group <name> logs [--follow] [--since <dur>] [--grep <pat>] [--service <svc>]
+                                                Multiplex logs with [stack] prefixes
 
 Flags (for group execution):
   --stop-on-error   Halt on the first failing stack (default: continue)
@@ -202,6 +204,111 @@ _group_dispatch() {
   [ "$failed" -eq 0 ]
 }
 
+# _group_logs <group> [--follow] [--since <dur>] [--grep <pat>] [--service <svc>]
+#
+# Tails logs across every stack in the group, prefixing each line with the
+# stack name (colored per-stack on a TTY, plain otherwise). One background
+# process per stack, each re-invoking `$0 <stack> logs ...` so env-file
+# sourcing stays isolated. Ctrl+C propagates via INT/TERM traps; EXIT is
+# routed through the entrypoint cleanup chain so we don't clobber other
+# registered cleanups.
+_group_logs() {
+  local group="$1"; shift
+
+  local follow=""
+  local since=""
+  local grep_pattern=""
+  local service=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --follow|-f)  follow="--follow"; shift ;;
+      --since)      since="${2:-}"; shift 2 ;;
+      --since=*)    since="${1#*=}"; shift ;;
+      --grep)       grep_pattern="${2:-}"; shift 2 ;;
+      --grep=*)     grep_pattern="${1#*=}"; shift ;;
+      --service)    service="${2:-}"; shift 2 ;;
+      --service=*)  service="${1#*=}"; shift ;;
+      --help|-h)    _usage_group; return 0 ;;
+      *)            warn "Unknown flag: $1"; shift ;;
+    esac
+  done
+
+  if ! groups_exists "$group"; then
+    fail "Unknown group: $group"
+  fi
+
+  local members
+  members=$(groups_members "$group")
+  if [ -z "$members" ]; then
+    warn "Group '$group' has no stacks"
+    return 0
+  fi
+
+  # Palette cycles across stacks — ANSI color codes. TTY check below decides
+  # whether to actually emit the escapes.
+  local -a palette=(31 32 33 34 35 36 91 92 93 94 95 96)
+  local -a child_pids=()
+  local idx=0
+  local stack
+
+  _group_logs_cleanup() {
+    local p
+    for p in "${child_pids[@]+"${child_pids[@]}"}"; do
+      kill "$p" 2>/dev/null || true
+    done
+  }
+
+  # INT/TERM need explicit handlers to propagate signals to children and exit
+  # cleanly. EXIT is handled by the entrypoint's STRUT_CLEANUPS chain.
+  trap '_group_logs_cleanup; exit 130' INT
+  trap '_group_logs_cleanup; exit 143' TERM
+  if declare -F strut_register_cleanup >/dev/null; then
+    strut_register_cleanup '_group_logs_cleanup'
+  fi
+
+  while IFS= read -r stack; do
+    [ -z "$stack" ] && continue
+    if ! _group_stack_exists "$stack"; then
+      warn "skip: $stack (no stacks/$stack directory found)"
+      continue
+    fi
+    local color="${palette[$((idx % ${#palette[@]}))]}"
+    idx=$((idx + 1))
+    local prefix
+    if [ -t 1 ]; then
+      prefix=$'\033['"${color}"'m['"$stack"']\033[0m'
+    else
+      prefix="[$stack]"
+    fi
+
+    local -a child_args=("$stack" "logs")
+    [ -n "$follow" ] && child_args+=("$follow")
+    [ -n "$since" ]  && child_args+=("--since" "$since")
+    [ -n "$service" ] && child_args+=("$service")
+
+    # One background process per stack. Output flows into the parent's stdout
+    # line-by-line, prefixed with the stack tag. Optional grep filter runs
+    # before the prefix so the filter pattern is in log terms, not "[stack] …".
+    if [ -n "$grep_pattern" ]; then
+      (
+        "$0" "${child_args[@]}" 2>&1 \
+          | grep --line-buffered -E "$grep_pattern" \
+          | awk -v p="$prefix" '{ print p " " $0; fflush() }'
+      ) &
+    else
+      (
+        "$0" "${child_args[@]}" 2>&1 \
+          | awk -v p="$prefix" '{ print p " " $0; fflush() }'
+      ) &
+    fi
+    child_pids+=("$!")
+  done <<< "$members"
+
+  # Wait for all children. If --follow isn't set they'll exit after dumping
+  # backlog; if --follow is set, the user Ctrl+Cs to end.
+  wait
+}
+
 # cmd_group — entry point invoked from strut entrypoint.
 # Usage patterns:
 #   cmd_group list
@@ -223,7 +330,10 @@ cmd_group() {
       local cmd="${1:-}"
       shift || true
       [ -z "$cmd" ] && { _usage_group; fail "Missing command for group '$first'"; }
-      _group_dispatch "$first" "$cmd" "$@"
+      case "$cmd" in
+        logs) _group_logs "$first" "$@" ;;
+        *)    _group_dispatch "$first" "$cmd" "$@" ;;
+      esac
       ;;
   esac
 }
