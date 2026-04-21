@@ -7,8 +7,7 @@
 #         migrate_status, phase validation
 
 setup() {
-  export CLI_ROOT="$(cd "$(dirname "$BATS_TEST_FILENAME")/.." && pwd)"
-  TEST_TMP="$(mktemp -d)"
+  source "$(dirname "$BATS_TEST_FILENAME")/test_helper/common.bash"
 
   source "$CLI_ROOT/lib/utils.sh"
   fail() { echo "$1" >&2; return 1; }
@@ -51,8 +50,10 @@ teardown() {
 # ── migrate_wizard argument validation ────────────────────────────────────────
 
 @test "migrate_wizard: fails without vps_host" {
-  # Test in a subshell with timeout to avoid hanging
-  run timeout 5 bash -c '
+  # Run in a subshell under timeout to avoid hanging; source utils.sh
+  # first so fail/warn/log are defined in the child shell.
+  run _timeout 5 bash -c '
+    source "$CLI_ROOT/lib/utils.sh"
     source "$CLI_ROOT/lib/migrate.sh"
     MIGRATE_AUTO_YES=true
     migrate_wizard "" 2>&1
@@ -61,7 +62,8 @@ teardown() {
 }
 
 @test "migrate_wizard: rejects invalid start phase 0" {
-  run timeout 5 bash -c '
+  run _timeout 5 bash -c '
+    source "$CLI_ROOT/lib/utils.sh"
     source "$CLI_ROOT/lib/migrate.sh"
     MIGRATE_AUTO_YES=true
     migrate_wizard "test-host" "ubuntu" "" "" "--start-phase=0" 2>&1
@@ -70,7 +72,8 @@ teardown() {
 }
 
 @test "migrate_wizard: rejects invalid start phase 9" {
-  run timeout 5 bash -c '
+  run _timeout 5 bash -c '
+    source "$CLI_ROOT/lib/utils.sh"
     source "$CLI_ROOT/lib/migrate.sh"
     MIGRATE_AUTO_YES=true
     migrate_wizard "test-host" "ubuntu" "" "" "--start-phase=9" 2>&1
