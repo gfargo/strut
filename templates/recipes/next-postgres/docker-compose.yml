@@ -1,0 +1,59 @@
+services:
+  web:
+    build: ./app
+    image: YOUR_ORG/STACK_NAME_PLACEHOLDER-web:latest
+    container_name: STACK_NAME_PLACEHOLDER-web
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URL=${DATABASE_URL}
+      - NEXTAUTH_SECRET=${NEXTAUTH_SECRET}
+      - NEXTAUTH_URL=https://${DOMAIN}
+    expose:
+      - "3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:3000/api/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: STACK_NAME_PLACEHOLDER-postgres
+    restart: unless-stopped
+    environment:
+      - POSTGRES_DB=STACK_NAME_PLACEHOLDER
+      - POSTGRES_USER=STACK_NAME_PLACEHOLDER
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U STACK_NAME_PLACEHOLDER"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  proxy:
+    image: caddy:2-alpine
+    container_name: STACK_NAME_PLACEHOLDER-proxy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      - DOMAIN=${DOMAIN}
+      - ACME_EMAIL=${ACME_EMAIL}
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - web
+
+volumes:
+  postgres_data:
+  caddy_data:
+  caddy_config:

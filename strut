@@ -132,6 +132,7 @@ source "$LIB/cmd_lock.sh"
 source "$LIB/groups.sh"
 source "$LIB/cmd_group.sh"
 source "$LIB/plugins.sh"
+source "$LIB/recipes.sh"
 
 # Project-local plugins are discovered once PROJECT_ROOT is known. find_project_root
 # above populates it when strut is invoked inside a project; outside one this is a no-op.
@@ -199,7 +200,8 @@ usage() {
   echo "  status-all [--env <name>] [--json]                             Dashboard across all stacks"
   echo "  posture    [--stack <name>] [--category <c>] [--fail-on <l>]   Security/ops posture check"
   echo "  group      list|show|add|remove | <name> <command>             Stack groups (coordinated multi-stack ops)"
-  echo "  scaffold <new-stack-name>                                      New stack"
+  echo "  scaffold <new-stack-name> [--recipe <name>]                    New stack (optionally from a recipe)"
+  echo "  scaffold list [--json]                                         List available scaffold recipes"
   echo "  init     [--registry <type>] [--org <name>]                    Initialize new project"
   echo "  upgrade                                                        Upgrade strut to latest version"
   echo "  skills   [list|install] [--format kiro|claude|cursor|generic|all]  AI agent context"
@@ -388,7 +390,11 @@ case "${1:-}" in
     cmd_list
     exit 0
     ;;
-  scaffold)       cmd_scaffold "${2:-}"; exit 0 ;;
+  scaffold)
+    shift
+    cmd_scaffold "$@"
+    exit $?
+    ;;
   completions)
     shift
     source "$LIB/cmd_completions.sh"

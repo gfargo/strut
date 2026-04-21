@@ -2,31 +2,68 @@
 # ==================================================
 # lib/cmd_scaffold.sh — Scaffold a new stack
 # ==================================================
-# Requires: lib/utils.sh sourced first
+# Requires: lib/utils.sh, lib/recipes.sh sourced first
 #
 # Provides:
-#   cmd_scaffold <new-stack-name>
+#   cmd_scaffold <new-stack-name> [--recipe <recipe>]
+#   cmd_scaffold list [--json]
 
 set -euo pipefail
 
 _usage_scaffold() {
   echo ""
-  echo "Usage: strut scaffold <new-stack-name>"
+  echo "Usage: strut scaffold <new-stack-name> [--recipe <recipe>]"
+  echo "       strut scaffold list [--json]"
   echo ""
-  echo "Create a new stack with default configuration files:"
-  echo "  docker-compose.prod.yml, docker-compose.dev.yml, Dockerfile,"
-  echo "  .env.template, services.conf, required_vars, and proxy config"
-  echo "  (nginx/ or caddy/ based on REVERSE_PROXY setting)."
+  echo "Create a new stack. Without --recipe, scaffolds the default"
+  echo "single-service template (docker-compose, Dockerfile, services.conf,"
+  echo "required_vars, proxy config). With --recipe <name> the recipe's"
+  echo "files are copied instead."
   echo ""
   echo "Examples:"
   echo "  strut scaffold my-app"
-  echo "  strut scaffold api-service"
+  echo "  strut scaffold my-api --recipe python-api"
+  echo "  strut scaffold list"
+  echo "  strut scaffold list --json"
   echo ""
 }
 
 cmd_scaffold() {
-  local new_name="${1:-}"
-  [ -n "$new_name" ] || fail "Usage: strut scaffold <new-stack-name>"
+  # ── Parse first positional ──────────────────────────
+  local first="${1:-}"
+  [ -n "$first" ] || fail "Usage: strut scaffold <new-stack-name> [--recipe <recipe>]"
+
+  # ── Subcommand: list ────────────────────────────────
+  if [ "$first" = "list" ]; then
+    shift
+    local want_json=false
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --json) want_json=true; shift ;;
+        *) fail "Unknown flag: $1  (usage: strut scaffold list [--json])" ;;
+      esac
+    done
+    recipes_discover
+    if [ "$want_json" = "true" ] || [ "$(output_mode)" = "json" ]; then
+      OUTPUT_MODE=json recipes_list_json
+    else
+      recipes_list_text
+    fi
+    return 0
+  fi
+
+  local new_name="$first"
+  shift || true
+
+  # ── Parse flags ─────────────────────────────────────
+  local recipe_flag=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --recipe=*) recipe_flag="${1#*=}"; shift ;;
+      --recipe)   recipe_flag="${2:-}"; shift 2 ;;
+      *) fail "Unknown flag: $1  (usage: strut scaffold <name> [--recipe <recipe>])" ;;
+    esac
+  done
 
   local target
   if [ -n "${PROJECT_ROOT:-}" ]; then
@@ -39,6 +76,39 @@ cmd_scaffold() {
   local templates_dir="${STRUT_HOME:-$CLI_ROOT}/templates"
   [ -d "$templates_dir" ] || fail "templates/ directory not found"
 
+  # ── Branch: recipe-driven scaffold ──────────────────
+  if [ -n "$recipe_flag" ]; then
+    recipes_discover
+    local recipe_dir
+    recipe_dir="$(recipes_dir_for "$recipe_flag")" || \
+      fail "Unknown recipe: $recipe_flag  (run 'strut scaffold list' to see available recipes)"
+
+    log "Scaffolding new stack from recipe '$recipe_flag': $new_name → $target"
+    mkdir -p "$target"
+
+    # Copy everything except recipe.conf.
+    # tar pipe preserves hidden files (.gitignore etc.) and subdirs.
+    ( cd "$recipe_dir" && tar --exclude=recipe.conf -cf - . ) | ( cd "$target" && tar -xf - )
+
+    _scaffold_substitute "$target" "$new_name"
+
+    ok "Stack scaffolded from recipe '$recipe_flag': $target"
+    echo ""
+    echo "Next steps:"
+    if [ -f "$target/README.md" ]; then
+      echo "  1. Read $target/README.md for recipe-specific guidance"
+      echo "  2. Edit $target/.env.template → copy to .prod.env and fill secrets"
+      echo "  3. strut $new_name deploy --env prod"
+    else
+      echo "  1. Edit $target/.env.template → copy to .prod.env and fill secrets"
+      echo "  2. Edit $target/docker-compose.yml → review and adjust services"
+      echo "  3. strut $new_name deploy --env prod"
+    fi
+    echo ""
+    return 0
+  fi
+
+  # ── Default scaffold (backward compat, no recipe) ───
   log "Scaffolding new stack: $new_name → $target"
   mkdir -p "$target"
 
@@ -137,17 +207,7 @@ BACKUP_NEO4J=false
 BACKUP_LOCAL_DIR="./backups"
 BACKUP_EOF
 
-  # Substitute stack name in files
-  if command -v sed &>/dev/null; then
-    find "$target" -type f -not -path '*/.git/*' -print0 | \
-      xargs -0 sed -i.bak "s/STACK_NAME_PLACEHOLDER/$new_name/g" 2>/dev/null
-    # Substitute DEFAULT_ORG into templates when set
-    if [ -n "${DEFAULT_ORG:-}" ]; then
-      find "$target" -type f -not -path '*/.git/*' -print0 | \
-        xargs -0 sed -i.bak "s/YOUR_ORG/${DEFAULT_ORG}/g" 2>/dev/null
-    fi
-    find "$target" -name "*.bak" -delete 2>/dev/null
-  fi
+  _scaffold_substitute "$target" "$new_name"
 
   ok "Stack scaffolded: $target"
   echo ""
@@ -161,4 +221,20 @@ BACKUP_EOF
   esac
   echo "  5. strut $new_name deploy --env prod"
   echo ""
+}
+
+# _scaffold_substitute <target> <stack-name>
+# Replaces STACK_NAME_PLACEHOLDER and YOUR_ORG (when DEFAULT_ORG set) across
+# every file under <target>. Uses sed -i with a .bak suffix for BSD/GNU
+# portability, then sweeps the .bak files.
+_scaffold_substitute() {
+  local target="$1" new_name="$2"
+  command -v sed >/dev/null 2>&1 || return 0
+  find "$target" -type f -not -path '*/.git/*' -print0 | \
+    xargs -0 sed -i.bak "s/STACK_NAME_PLACEHOLDER/$new_name/g" 2>/dev/null
+  if [ -n "${DEFAULT_ORG:-}" ]; then
+    find "$target" -type f -not -path '*/.git/*' -print0 | \
+      xargs -0 sed -i.bak "s/YOUR_ORG/${DEFAULT_ORG}/g" 2>/dev/null
+  fi
+  find "$target" -name "*.bak" -delete 2>/dev/null || true
 }
