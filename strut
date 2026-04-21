@@ -129,6 +129,8 @@ source "$LIB/diff.sh"
 source "$LIB/cmd_diff.sh"
 source "$LIB/lock.sh"
 source "$LIB/cmd_lock.sh"
+source "$LIB/groups.sh"
+source "$LIB/cmd_group.sh"
 
 # ── Argument parsing ──────────────────────────────────────────────────────────
 
@@ -190,6 +192,7 @@ usage() {
   echo "  list                                                           List stacks"
   echo "  status-all [--env <name>] [--json]                             Dashboard across all stacks"
   echo "  posture    [--stack <name>] [--category <c>] [--fail-on <l>]   Security/ops posture check"
+  echo "  group      list|show|add|remove | <name> <command>             Stack groups (coordinated multi-stack ops)"
   echo "  scaffold <new-stack-name>                                      New stack"
   echo "  init     [--registry <type>] [--org <name>]                    Initialize new project"
   echo "  upgrade                                                        Upgrade strut to latest version"
@@ -387,6 +390,11 @@ case "${1:-}" in
     shift
     source "$LIB/cmd_posture.sh"
     cmd_posture "$@"
+    exit $?
+    ;;
+  group)
+    shift
+    cmd_group "$@"
     exit $?
     ;;
 
