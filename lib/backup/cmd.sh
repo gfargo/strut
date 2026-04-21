@@ -135,6 +135,7 @@ backup_command() {
       fi
       backup_postgres "$stack" "$compose_cmd"
       BACKUP_TARGET="postgres" fire_hook_or_warn post_backup "$stack_dir"
+      notify_event backup.success stack="$stack" env="$env_name" type=postgres
       ;;
     neo4j)
       if [ "$DRY_RUN" = "true" ]; then
@@ -150,6 +151,7 @@ backup_command() {
       fi
       backup_neo4j "$stack" "$compose_cmd"
       BACKUP_TARGET="neo4j" fire_hook_or_warn post_backup "$stack_dir"
+      notify_event backup.success stack="$stack" env="$env_name" type=neo4j
       ;;
     mysql)
       if [ "$DRY_RUN" = "true" ]; then
@@ -164,6 +166,7 @@ backup_command() {
       fi
       backup_mysql "$stack" "$compose_cmd"
       BACKUP_TARGET="mysql" fire_hook_or_warn post_backup "$stack_dir"
+      notify_event backup.success stack="$stack" env="$env_name" type=mysql
       ;;
     sqlite)
       if [ "$DRY_RUN" = "true" ]; then
@@ -178,6 +181,7 @@ backup_command() {
       fi
       backup_sqlite "$stack" "$compose_cmd"
       BACKUP_TARGET="sqlite" fire_hook_or_warn post_backup "$stack_dir"
+      notify_event backup.success stack="$stack" env="$env_name" type=sqlite
       ;;
     gdrive-transcripts)
       if [ "$DRY_RUN" = "true" ]; then
@@ -190,6 +194,7 @@ backup_command() {
       fi
       backup_gdrive_transcripts "$stack" "$compose_cmd"
       BACKUP_TARGET="gdrive-transcripts" fire_hook_or_warn post_backup "$stack_dir"
+      notify_event backup.success stack="$stack" env="$env_name" type=gdrive-transcripts
       ;;
     all)
       if [ "$DRY_RUN" = "true" ]; then
@@ -218,6 +223,7 @@ backup_command() {
       [ "${BACKUP_SQLITE:-false}" = "true" ] && backup_sqlite "$stack" "$compose_cmd"
       backup_gdrive_transcripts "$stack" "$compose_cmd"
       BACKUP_TARGET="all" fire_hook_or_warn post_backup "$stack_dir"
+      notify_event backup.success stack="$stack" env="$env_name" type=all
       ;;
     *)
       fail "Unknown backup command: $target
