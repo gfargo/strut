@@ -39,6 +39,17 @@ backup_command() {
     compose_cmd=$(resolve_compose_cmd "$stack" "$env_file" "$services")
   fi
 
+  # Fire pre_backup hook for actual backup-creation targets (not list/verify/etc).
+  # Non-zero exit aborts. Skipped in DRY_RUN so dry-run stays side-effect-free.
+  local is_backup_target=false
+  case "$target" in
+    postgres|neo4j|mysql|sqlite|gdrive-transcripts|all) is_backup_target=true ;;
+  esac
+  if [ "$is_backup_target" = "true" ] && [ "$DRY_RUN" != "true" ]; then
+    BACKUP_TARGET="$target" fire_hook pre_backup "$stack_dir" || \
+      fail "pre_backup hook failed — aborting backup"
+  fi
+
   case "$target" in
     verify)
       [ -z "$arg2" ] && fail "Usage: strut $stack backup verify <backup-file> [--full]"
@@ -122,7 +133,9 @@ backup_command() {
         echo -e "${YELLOW}[DRY-RUN] No changes made.${NC}"
         return 0
       fi
-      backup_postgres "$stack" "$compose_cmd" ;;
+      backup_postgres "$stack" "$compose_cmd"
+      BACKUP_TARGET="postgres" fire_hook_or_warn post_backup "$stack_dir"
+      ;;
     neo4j)
       if [ "$DRY_RUN" = "true" ]; then
         echo ""
@@ -135,7 +148,9 @@ backup_command() {
         echo -e "${YELLOW}[DRY-RUN] No changes made.${NC}"
         return 0
       fi
-      backup_neo4j "$stack" "$compose_cmd" ;;
+      backup_neo4j "$stack" "$compose_cmd"
+      BACKUP_TARGET="neo4j" fire_hook_or_warn post_backup "$stack_dir"
+      ;;
     mysql)
       if [ "$DRY_RUN" = "true" ]; then
         echo ""
@@ -147,7 +162,9 @@ backup_command() {
         echo -e "${YELLOW}[DRY-RUN] No changes made.${NC}"
         return 0
       fi
-      backup_mysql "$stack" "$compose_cmd" ;;
+      backup_mysql "$stack" "$compose_cmd"
+      BACKUP_TARGET="mysql" fire_hook_or_warn post_backup "$stack_dir"
+      ;;
     sqlite)
       if [ "$DRY_RUN" = "true" ]; then
         echo ""
@@ -159,7 +176,9 @@ backup_command() {
         echo -e "${YELLOW}[DRY-RUN] No changes made.${NC}"
         return 0
       fi
-      backup_sqlite "$stack" "$compose_cmd" ;;
+      backup_sqlite "$stack" "$compose_cmd"
+      BACKUP_TARGET="sqlite" fire_hook_or_warn post_backup "$stack_dir"
+      ;;
     gdrive-transcripts)
       if [ "$DRY_RUN" = "true" ]; then
         echo ""
@@ -169,7 +188,9 @@ backup_command() {
         echo -e "${YELLOW}[DRY-RUN] No changes made.${NC}"
         return 0
       fi
-      backup_gdrive_transcripts "$stack" "$compose_cmd" ;;
+      backup_gdrive_transcripts "$stack" "$compose_cmd"
+      BACKUP_TARGET="gdrive-transcripts" fire_hook_or_warn post_backup "$stack_dir"
+      ;;
     all)
       if [ "$DRY_RUN" = "true" ]; then
         echo ""
@@ -196,6 +217,7 @@ backup_command() {
       [ "${BACKUP_MYSQL:-false}" = "true" ] && backup_mysql "$stack" "$compose_cmd"
       [ "${BACKUP_SQLITE:-false}" = "true" ] && backup_sqlite "$stack" "$compose_cmd"
       backup_gdrive_transcripts "$stack" "$compose_cmd"
+      BACKUP_TARGET="all" fire_hook_or_warn post_backup "$stack_dir"
       ;;
     *)
       fail "Unknown backup command: $target
