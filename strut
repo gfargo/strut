@@ -131,6 +131,11 @@ source "$LIB/lock.sh"
 source "$LIB/cmd_lock.sh"
 source "$LIB/groups.sh"
 source "$LIB/cmd_group.sh"
+source "$LIB/plugins.sh"
+
+# Project-local plugins are discovered once PROJECT_ROOT is known. find_project_root
+# above populates it when strut is invoked inside a project; outside one this is a no-op.
+plugins_discover
 
 # ── Argument parsing ──────────────────────────────────────────────────────────
 
@@ -190,6 +195,7 @@ usage() {
   echo "  keys     <subcommand> [options]                                Key management (SSH, API, env, GitHub)"
   echo "  domain   <domain> <email> [--skip-ssl]                         Configure domain/SSL"
   echo "  list                                                           List stacks"
+  echo "  list plugins [--json]                                          List discovered project plugins"
   echo "  status-all [--env <name>] [--json]                             Dashboard across all stacks"
   echo "  posture    [--stack <name>] [--category <c>] [--fail-on <l>]   Security/ops posture check"
   echo "  group      list|show|add|remove | <name> <command>             Stack groups (coordinated multi-stack ops)"
@@ -370,6 +376,14 @@ case "${1:-}" in
     for _arg in "$@"; do
       if [ "$_arg" = "--json" ]; then OUTPUT_MODE=json; break; fi
     done
+    if [ "${1:-}" = "plugins" ]; then
+      if [ "$(output_mode)" = "json" ]; then
+        plugins_list_json
+      else
+        plugins_list_text
+      fi
+      exit 0
+    fi
     cmd_list
     exit 0
     ;;
@@ -515,9 +529,28 @@ case "${1:-}" in
     esac
     exit 0
     ;;
-  --help|-h|help) usage; exit 0 ;;
+  --help|-h|help)
+    # `strut help <plugin>` routes to plugin_help for project plugins.
+    if [ -n "${2:-}" ] && plugins_has "$2"; then
+      plugins_help "$2"
+      exit 0
+    fi
+    usage
+    exit 0
+    ;;
   "")             usage; exit 1 ;;
 esac
+
+# Top-level plugin dispatch — only reached when $1 didn't match any core
+# command. Precedence: core commands above always win. If $1 matches a
+# stack directory, fall through to the stack dispatcher so plugins never
+# shadow real stacks.
+if [ -n "${1:-}" ] && plugins_has "$1" && [ ! -d "$CLI_ROOT/stacks/$1" ]; then
+  _plugin_name="$1"
+  shift
+  plugins_run "$_plugin_name" "$@"
+  exit $?
+fi
 
 STACK="${1:-}"
 COMMAND="${2:-}"
@@ -618,5 +651,15 @@ case "$COMMAND" in
   domain)              cmd_domain "${CMD_ARGS[@]+"${CMD_ARGS[@]}"}" ;;
   diff)                cmd_diff "${CMD_ARGS[@]+"${CMD_ARGS[@]}"}" ;;
   lock)                cmd_lock "${CMD_ARGS[@]+"${CMD_ARGS[@]}"}" ;;
-  *)                   usage; fail "Unknown command: '$COMMAND'" ;;
+  *)
+    # Stack-level plugin fallthrough — `strut <stack> <plugin> ...`.
+    # Plugin contract: plugin_main receives stack, env_name, then the
+    # parsed positional args (already stripped of global flags).
+    if plugins_has "$COMMAND"; then
+      plugins_run "$COMMAND" "$STACK" "$ENV_NAME" "${CMD_ARGS[@]+"${CMD_ARGS[@]}"}"
+      exit $?
+    fi
+    usage
+    fail "Unknown command: '$COMMAND'"
+    ;;
 esac
