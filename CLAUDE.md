@@ -88,6 +88,10 @@ BATS test suite with property-based tests (100-iteration randomized loops). Key 
 - Compose commands use `resolve_compose_cmd` for consistent project naming
 - `DRY_RUN=true` + `run_cmd`/`run_cmd_eval` for preview mode
 
+## Commit Messages
+
+- **Do not** add `Co-Authored-By: Claude …` (or any AI/tool attribution) trailers to commits or PR bodies in this repo. History was filter-repo'd to remove them; don't reintroduce.
+
 ## Skills (`.kiro/skills/`)
 
 9 procedural skills for operational workflows: `vps-deployment`, `vps-debugging`, `database-backups`, `key-rotation`, `stack-validation`, `drift-detection`, `monitoring-setup`, `domain-ssl`, `vps-audit-migration`.
