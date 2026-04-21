@@ -18,6 +18,7 @@ BACKUP_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/backup"
 [ -f "$BACKUP_LIB_DIR/compare.sh" ] && source "$BACKUP_LIB_DIR/compare.sh"
 [ -f "$BACKUP_LIB_DIR/mysql.sh" ] && source "$BACKUP_LIB_DIR/mysql.sh"
 [ -f "$BACKUP_LIB_DIR/sqlite.sh" ] && source "$BACKUP_LIB_DIR/sqlite.sh"
+[ -f "$BACKUP_LIB_DIR/cmd.sh" ] && source "$BACKUP_LIB_DIR/cmd.sh"
 
 # _backup_dir <stack>
 # Returns the backup directory for a stack.
