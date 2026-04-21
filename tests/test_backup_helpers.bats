@@ -11,6 +11,7 @@ setup() {
 
   # Source utils with fail() overridden
   source "$CLI_ROOT/lib/utils.sh"
+  source "$CLI_ROOT/lib/config.sh"
   fail() { echo "$1" >&2; return 1; }
   error() { echo "$1" >&2; }
 

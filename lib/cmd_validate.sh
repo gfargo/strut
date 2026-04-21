@@ -295,7 +295,7 @@ _validate_required_vars() {
       missing+=("$var")
       valid=false
     fi
-  done < "$vars_file"
+  done < <(preprocess_config "$vars_file")
 
   if [ ${#missing[@]} -gt 0 ]; then
     for var in "${missing[@]}"; do

@@ -6,6 +6,7 @@
 setup() {
   source "$(dirname "$BATS_TEST_FILENAME")/test_helper/common.bash"
   load_utils
+  source "$CLI_ROOT/lib/config.sh"
   source "$CLI_ROOT/lib/output.sh"
 
   export REAL_CLI_ROOT="$CLI_ROOT"

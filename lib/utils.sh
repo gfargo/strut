@@ -130,7 +130,7 @@ load_services_conf() {
   local conf="$stack_dir/services.conf"
   if [ -f "$conf" ]; then
     # shellcheck disable=SC1090
-    source "$conf"
+    source <(preprocess_config "$conf")
   fi
 }
 

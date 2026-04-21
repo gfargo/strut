@@ -10,6 +10,7 @@ setup() {
   export CLI_ROOT="$(cd "$(dirname "$BATS_TEST_FILENAME")/.." && pwd)"
   TEST_TMP="$(mktemp -d)"
   source "$CLI_ROOT/lib/utils.sh"
+  source "$CLI_ROOT/lib/config.sh"
   fail() { echo "$1" >&2; return 1; }
 }
 

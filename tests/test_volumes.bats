@@ -17,6 +17,7 @@ teardown() {
 
 _load_volumes() {
   source "$CLI_ROOT/lib/utils.sh"
+  source "$CLI_ROOT/lib/config.sh"
   # Stub log functions used in volumes.sh (not defined in utils.sh)
   log_info()    { echo "[info] $1"; }
   log_success() { echo "[ok] $1"; }

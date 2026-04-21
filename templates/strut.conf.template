@@ -33,3 +33,11 @@
 # ── Branding ───────────────────────────────────────
 # Banner text shown in deploy/release output
 # BANNER_TEXT=strut
+
+# ── Includes ───────────────────────────────────────
+# Pull in shared config from another file. Base values load first,
+# child assignments below override. Relative paths resolve against
+# this file's directory. Supports nested includes and cycle detection.
+#
+# include = .strut/shared.conf
+# include = ../common/strut.conf

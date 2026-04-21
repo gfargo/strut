@@ -196,7 +196,7 @@ check_required_vars() {
     if ! grep -qE "^${var}=.+" "$env_file" 2>/dev/null; then
       missing+=("$var")
     fi
-  done < "$req_file"
+  done < <(preprocess_config "$req_file")
 
   if [ "${#missing[@]}" -gt 0 ]; then
     local first="${missing[0]}"
