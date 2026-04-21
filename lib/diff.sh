@@ -142,12 +142,60 @@ diff_extract_images() {
   '
 }
 
+# diff_image_pairs <new_pairs> <old_pairs>
+#
+# Both args are streams of `service<US>image\n` rows (US = 0x1f). Emits
+# the same op stream as diff_env_content — ADD/REMOVE/CHANGE — so callers
+# can treat env and image diffs uniformly.
+#
+# Semantics match the two-argument convention used elsewhere: the first
+# argument is the *newer* / *incoming* side (what's on the left of "→")
+# when rendered, the second is the *older* / *baseline* side.
+#
+#   ADD    → present in new only
+#   REMOVE → present in old only
+#   CHANGE → present in both but differs
+diff_image_pairs() {
+  local new_pairs="$1"
+  local old_pairs="$2"
+
+  declare -A new_map old_map
+  local svc img
+  while IFS=$'\x1f' read -r svc img; do
+    [ -z "$svc" ] && continue
+    new_map[$svc]="$img"
+  done <<< "$new_pairs"
+
+  while IFS=$'\x1f' read -r svc img; do
+    [ -z "$svc" ] && continue
+    old_map[$svc]="$img"
+  done <<< "$old_pairs"
+
+  local -a all_svcs=()
+  for svc in "${!new_map[@]}" "${!old_map[@]}"; do
+    all_svcs+=("$svc")
+  done
+  local sorted
+  sorted=$(printf '%s\n' "${all_svcs[@]+"${all_svcs[@]}"}" | sort -u)
+
+  while IFS= read -r svc; do
+    [ -z "$svc" ] && continue
+    local nv="${new_map[$svc]-__STRUT_ABSENT__}"
+    local ov="${old_map[$svc]-__STRUT_ABSENT__}"
+    if [ "$nv" = "__STRUT_ABSENT__" ] && [ "$ov" != "__STRUT_ABSENT__" ]; then
+      printf 'REMOVE\x1f%s\x1f%s\x1f\n' "$svc" "$ov"
+    elif [ "$nv" != "__STRUT_ABSENT__" ] && [ "$ov" = "__STRUT_ABSENT__" ]; then
+      printf 'ADD\x1f%s\x1f\x1f%s\n' "$svc" "$nv"
+    elif [ "$nv" != "$ov" ]; then
+      printf 'CHANGE\x1f%s\x1f%s\x1f%s\n' "$svc" "$ov" "$nv"
+    fi
+  done <<< "$sorted"
+}
+
 # diff_images_content <local_content> <remote_content>
 #
-# Compares extracted service→image maps. Emits TSV:
-#   ADD\t<service>\t\t<new_image>
-#   REMOVE\t<service>\t<old_image>\t
-#   CHANGE\t<service>\t<old_image>\t<new_image>
+# Compares extracted service→image maps from two compose files. Thin
+# wrapper over diff_image_pairs.
 diff_images_content() {
   local local_content="$1"
   local remote_content="$2"
@@ -156,37 +204,7 @@ diff_images_content() {
   loc_img=$(diff_extract_images "$local_content")
   rem_img=$(diff_extract_images "$remote_content")
 
-  declare -A loc_map rem_map
-  local svc img
-  while IFS=$'\x1f' read -r svc img; do
-    [ -z "$svc" ] && continue
-    loc_map[$svc]="$img"
-  done <<< "$loc_img"
-
-  while IFS=$'\x1f' read -r svc img; do
-    [ -z "$svc" ] && continue
-    rem_map[$svc]="$img"
-  done <<< "$rem_img"
-
-  local -a all_svcs=()
-  for svc in "${!loc_map[@]}" "${!rem_map[@]}"; do
-    all_svcs+=("$svc")
-  done
-  local sorted
-  sorted=$(printf '%s\n' "${all_svcs[@]}" | sort -u)
-
-  while IFS= read -r svc; do
-    [ -z "$svc" ] && continue
-    local lv="${loc_map[$svc]-__STRUT_ABSENT__}"
-    local rv="${rem_map[$svc]-__STRUT_ABSENT__}"
-    if [ "$lv" = "__STRUT_ABSENT__" ] && [ "$rv" != "__STRUT_ABSENT__" ]; then
-      printf 'REMOVE\x1f%s\x1f%s\x1f\n' "$svc" "$rv"
-    elif [ "$lv" != "__STRUT_ABSENT__" ] && [ "$rv" = "__STRUT_ABSENT__" ]; then
-      printf 'ADD\x1f%s\x1f\x1f%s\n' "$svc" "$lv"
-    elif [ "$lv" != "$rv" ]; then
-      printf 'CHANGE\x1f%s\x1f%s\x1f%s\n' "$svc" "$rv" "$lv"
-    fi
-  done <<< "$sorted"
+  diff_image_pairs "$loc_img" "$rem_img"
 }
 
 # ── Remote fetchers (thin SSH wrappers) ───────────────────────────────────────
