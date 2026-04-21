@@ -38,12 +38,12 @@ _backup_dir() {
   # Try sourcing volume.conf then backup.conf for this stack
   local stack_dir="$cli_root/stacks/$stack"
   if [ -f "$stack_dir/volume.conf" ]; then
-    # shellcheck disable=SC1091
-    source "$stack_dir/volume.conf"
+    # shellcheck disable=SC1090
+    source <(preprocess_config "$stack_dir/volume.conf")
   fi
   if [ -f "$stack_dir/backup.conf" ]; then
-    # shellcheck disable=SC1091
-    source "$stack_dir/backup.conf"
+    # shellcheck disable=SC1090
+    source <(preprocess_config "$stack_dir/backup.conf")
   fi
 
   # BACKUP_LOCAL_DIR in backup.conf references ${BACKUP_PATH} from volume.conf

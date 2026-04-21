@@ -15,6 +15,7 @@ teardown() {
 
 _load_utils() {
   source "$CLI_ROOT/lib/utils.sh"
+  source "$CLI_ROOT/lib/config.sh"
   fail() { echo "$1" >&2; return 1; }
 }
 
