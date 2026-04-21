@@ -33,7 +33,7 @@ backup_command() {
   local arg5="${positional[4]:-}"
 
   local compose_cmd=""
-  if [[ "$target" != "compare" && "$target" != "compare-labels" ]]; then
+  if [[ "$target" != "compare" && "$target" != "compare-labels" && "$target" != "offsite" ]]; then
     validate_env_file "$env_file"
     export_volume_paths "$stack_dir"
     compose_cmd=$(resolve_compose_cmd "$stack" "$env_file" "$services")
@@ -106,6 +106,24 @@ backup_command() {
     storage)
       backup_storage_stats_cmd "$stack"
       ;;
+    offsite)
+      # Load backup.conf so offsite_* helpers see BACKUP_OFFSITE* vars.
+      local _bk_conf="$stack_dir/backup.conf"
+      [ -f "$_bk_conf" ] && { set -a; source "$_bk_conf"; set +a; }
+
+      case "$arg2" in
+        ""|status)  offsite_status ;;
+        sync)       offsite_sync_all "$stack" ;;
+        list)       offsite_list "$stack" ;;
+        restore)
+          [ -z "$arg3" ] && fail "Usage: strut $stack backup offsite restore <filename>"
+          offsite_restore "$stack" "$arg3"
+          ;;
+        *)
+          fail "Unknown offsite subcommand: $arg2 (status|sync|list|restore)"
+          ;;
+      esac
+      ;;
     check-missed)
       backup_check_missed_cmd "$stack"
       ;;
@@ -129,11 +147,14 @@ backup_command() {
         run_cmd "Create backup directory" mkdir -p "$(_backup_dir "$stack")"
         run_cmd "Run pg_dump inside postgres container" echo "pg_dump → postgres-$(date +%Y%m%d-%H%M%S).sql"
         run_cmd "Create backup metadata" echo "metadata → backups/metadata/"
+        offsite_enabled 2>/dev/null && \
+          run_cmd "Offsite sync (${BACKUP_OFFSITE})" echo "$(_offsite_remote_url "$stack" "postgres-*.sql")"
         echo ""
         echo -e "${YELLOW}[DRY-RUN] No changes made.${NC}"
         return 0
       fi
       backup_postgres "$stack" "$compose_cmd"
+      offsite_sync_latest "$stack" "postgres-*.sql"
       BACKUP_TARGET="postgres" fire_hook_or_warn post_backup "$stack_dir"
       notify_event backup.success stack="$stack" env="$env_name" type=postgres
       ;;
@@ -150,6 +171,7 @@ backup_command() {
         return 0
       fi
       backup_neo4j "$stack" "$compose_cmd"
+      offsite_sync_latest "$stack" "neo4j-*.dump"
       BACKUP_TARGET="neo4j" fire_hook_or_warn post_backup "$stack_dir"
       notify_event backup.success stack="$stack" env="$env_name" type=neo4j
       ;;
@@ -165,6 +187,7 @@ backup_command() {
         return 0
       fi
       backup_mysql "$stack" "$compose_cmd"
+      offsite_sync_latest "$stack" "mysql-*.sql"
       BACKUP_TARGET="mysql" fire_hook_or_warn post_backup "$stack_dir"
       notify_event backup.success stack="$stack" env="$env_name" type=mysql
       ;;
@@ -180,6 +203,7 @@ backup_command() {
         return 0
       fi
       backup_sqlite "$stack" "$compose_cmd"
+      offsite_sync_latest "$stack" "sqlite-*.db"
       BACKUP_TARGET="sqlite" fire_hook_or_warn post_backup "$stack_dir"
       notify_event backup.success stack="$stack" env="$env_name" type=sqlite
       ;;
@@ -247,7 +271,8 @@ Available commands:
   storage                               Show storage statistics
   check-missed                          Check for missed backups
   compare <env1> <env2> [--service X]   Compare databases between environments
-  compare-labels <env1> <env2>          Compare Neo4j label distribution"
+  compare-labels <env1> <env2>          Compare Neo4j label distribution
+  offsite status|sync|list|restore ...  Offsite backup sync (S3/R2/B2)"
       ;;
   esac
 }
