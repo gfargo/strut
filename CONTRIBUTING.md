@@ -16,9 +16,28 @@ brew install shellcheck bats-core   # macOS
 ## Running Tests
 
 ```bash
-bats tests/                    # all tests
+bats tests/                    # all unit tests
 bats tests/test_config.bats    # single file
 ```
+
+### Integration tests
+
+`tests/integration/` contains end-to-end tests that drive real Docker
+containers through the full `strut deploy` / `stop` / rollback lifecycle.
+They're not picked up by `bats tests/` — run them explicitly:
+
+```bash
+bats tests/integration/
+```
+
+Requirements: a working Docker daemon (`docker info` must succeed) and the
+`nginx:alpine` image (the suite pulls it on demand, but you can warm it with
+`docker pull nginx:alpine`). Individual tests skip cleanly if Docker isn't
+available, so this is safe to run on any dev machine.
+
+A single run takes ~60–90s (deploy pauses 60s waiting for services). In CI
+they run in their own job — `.github/workflows/integration.yml` — so a
+broken Docker runner doesn't mask failures in the fast unit-test matrix.
 
 ## Linting
 

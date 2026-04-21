@@ -1,0 +1,63 @@
+name: Integration Tests
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - 'wiki/**'
+      - '**.md'
+      - '.kiro/**'
+  pull_request:
+    branches: [main]
+    paths-ignore:
+      - 'wiki/**'
+      - '**.md'
+      - '.kiro/**'
+
+# Integration tests bring up real Docker containers end-to-end. They're
+# gated to a dedicated job (rather than merged into the main `test.yml`
+# bats matrix) because they need Docker, are slower (60s+ per deploy),
+# and the failure modes are different. Standard unit tests must still
+# pass for this job to be meaningful.
+jobs:
+  integration:
+    name: Integration (bats, Docker)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify Docker is available
+        run: |
+          docker version
+          docker info
+          docker compose version
+
+      - name: Install bats
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bats
+          sudo mkdir -p /usr/lib/bats-support /usr/lib/bats-assert
+          sudo git clone --depth 1 https://github.com/bats-core/bats-support.git /usr/lib/bats-support
+          sudo git clone --depth 1 https://github.com/bats-core/bats-assert.git /usr/lib/bats-assert
+
+      - name: Pre-pull test images
+        # Warm the cache so the deploy step isn't measuring image-pull time.
+        run: docker pull nginx:alpine
+
+      - name: Run integration tests
+        run: bats tests/integration/
+
+      - name: Dump Docker state on failure
+        if: failure()
+        run: |
+          echo "::group::docker ps -a"
+          docker ps -a || true
+          echo "::endgroup::"
+          echo "::group::docker compose ls"
+          docker compose ls || true
+          echo "::endgroup::"
+          echo "::group::stacks dir contents"
+          ls -la stacks/ || true
+          echo "::endgroup::"
