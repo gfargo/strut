@@ -259,6 +259,94 @@ rollback_protected_images() {
   done | awk 'NF && !seen[$0]++'
 }
 
+# ── Reference resolution ──────────────────────────────────────────────────────
+#
+# rollback_list_snapshot_files <stack>
+#
+# Emits snapshot file paths in descending timestamp order (newest first),
+# one per line. Empty output when the rollback dir is missing or empty.
+rollback_list_snapshot_files() {
+  local stack="$1"
+  local rollback_dir
+  rollback_dir=$(_rollback_dir "$stack")
+  [ -d "$rollback_dir" ] || return 0
+  ls -t "$rollback_dir"/*.json 2>/dev/null || true
+}
+
+# rollback_resolve_ref <stack> <ref>
+#
+# Resolves a human-supplied snapshot reference to an absolute file path.
+# Supported forms:
+#   HEAD         → newest snapshot
+#   HEAD~N       → Nth-older snapshot (HEAD~0 == HEAD, HEAD~1 == previous, …)
+#   <basename>   → file at <rollback_dir>/<basename>.json (with or without .json)
+#   <path>       → verbatim path when absolute or existing
+#
+# Returns 0 with the path on stdout, 1 with an error message on stderr when
+# the ref cannot be resolved.
+rollback_resolve_ref() {
+  local stack="$1"
+  local ref="$2"
+
+  [ -z "$ref" ] && { echo "empty snapshot ref" >&2; return 1; }
+
+  # Literal path that exists.
+  if [ -f "$ref" ]; then
+    echo "$ref"
+    return 0
+  fi
+
+  # HEAD[~N] form
+  if [[ "$ref" =~ ^HEAD(~([0-9]+))?$ ]]; then
+    local offset="${BASH_REMATCH[2]:-0}"
+    local -a snapshots=()
+    while IFS= read -r f; do
+      [ -n "$f" ] && snapshots+=("$f")
+    done < <(rollback_list_snapshot_files "$stack")
+    local count="${#snapshots[@]}"
+    if [ "$count" -eq 0 ]; then
+      echo "no snapshots for stack '$stack'" >&2
+      return 1
+    fi
+    if [ "$offset" -ge "$count" ]; then
+      echo "HEAD~$offset out of range (only $count snapshot(s) exist)" >&2
+      return 1
+    fi
+    echo "${snapshots[$offset]}"
+    return 0
+  fi
+
+  # Basename lookup inside the stack's rollback dir.
+  local rollback_dir
+  rollback_dir=$(_rollback_dir "$stack")
+  local base="${ref%.json}"
+  local candidate="$rollback_dir/${base}.json"
+  if [ -f "$candidate" ]; then
+    echo "$candidate"
+    return 0
+  fi
+
+  echo "snapshot not found: $ref" >&2
+  return 1
+}
+
+# rollback_snapshot_image_pairs <snapshot_file>
+#
+# Emits `<service><US><image>\n` rows for every service in the snapshot.
+# US = 0x1f, matching the delimiter used by lib/diff.sh. Requires jq —
+# rollback_restore_snapshot already makes jq a hard requirement, so the
+# rest of the rollback family follows the same policy.
+rollback_snapshot_image_pairs() {
+  local file="$1"
+  [ -f "$file" ] || return 0
+
+  if ! command -v jq >/dev/null 2>&1; then
+    fail "jq is required for rollback diff (install with: brew install jq)"
+  fi
+
+  jq -r '.services | to_entries[] | "\(.key)\u001f\(.value.image)"' "$file" 2>/dev/null
+}
+
 # rollback_enforce_retention <stack>
 # Keeps only the last N snapshots (default: 5, configurable via ROLLBACK_RETENTION)
 rollback_enforce_retention() {
