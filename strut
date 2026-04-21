@@ -71,6 +71,7 @@ find_project_root || true  # OK if not in a project (init, --version, etc.)
 load_strut_config
 
 source "$LIB/utils.sh"
+source "$LIB/output.sh"
 source "$LIB/flags.sh"
 source "$LIB/hooks.sh"
 source "$LIB/notify.sh"
@@ -219,28 +220,64 @@ usage() {
 
 # ── list command ──────────────────────────────────────────────────────────────
 cmd_list() {
+  if [ ! -d "$CLI_ROOT/stacks" ]; then
+    if [ "$(output_mode)" = "json" ]; then
+      out_json_object
+        out_json_array "stacks"
+        out_json_close_array
+      out_json_close_object
+      out_json_newline
+    else
+      warn "No stacks/ directory found — run 'strut init' to get started"
+    fi
+    return 0
+  fi
+
+  if [ "$(output_mode)" = "json" ]; then
+    out_json_object
+      out_json_array "stacks"
+      local stack_dir
+      for stack_dir in "$CLI_ROOT/stacks"/*/; do
+        [ -d "$stack_dir" ] || continue
+        local name
+        name=$(basename "$stack_dir")
+        [ "$name" = "shared" ] && continue
+        local has_compose="false"
+        [ -f "$stack_dir/docker-compose.yml" ] && has_compose="true"
+        out_json_object
+          out_json_field "name" "$name"
+          out_json_field "path" "$stack_dir"
+          out_json_field_raw "has_compose" "$has_compose"
+        out_json_close_object
+      done
+      out_json_close_array
+    out_json_close_object
+    out_json_newline
+    return 0
+  fi
+
   echo ""
   echo -e "${BLUE}Available stacks:${NC}"
   echo ""
-  if [ -d "$CLI_ROOT/stacks" ]; then
-    local found=false
-    for stack_dir in "$CLI_ROOT/stacks"/*/; do
-      [ -d "$stack_dir" ] || continue
-      local name
-      name=$(basename "$stack_dir")
-      [ "$name" = "shared" ] && continue
-      found=true
-      if [ -f "$stack_dir/docker-compose.yml" ]; then
-        echo -e "  ${GREEN}✓${NC} $name   ($stack_dir)"
-      else
-        echo -e "  ${YELLOW}?${NC} $name   (no docker-compose.yml)"
-      fi
-    done
-    if ! $found; then
-      echo "  (none — run 'strut scaffold <name>' to create one)"
+  out_table_header "Stack" "Compose" "Path"
+  local found=false
+  for stack_dir in "$CLI_ROOT/stacks"/*/; do
+    [ -d "$stack_dir" ] || continue
+    local name
+    name=$(basename "$stack_dir")
+    [ "$name" = "shared" ] && continue
+    found=true
+    if [ -f "$stack_dir/docker-compose.yml" ]; then
+      out_table_row "$name" "✓" "$stack_dir"
+    else
+      out_table_row "$name" "?" "$stack_dir"
     fi
+  done
+  if $found; then
+    out_table_render
   else
-    warn "No stacks/ directory found — run 'strut init' to get started"
+    out_table_reset
+    echo "  (none — run 'strut scaffold <name>' to create one)"
   fi
   echo ""
 }
@@ -298,7 +335,15 @@ case "${1:-}" in
     fi
     exit 0
     ;;
-  list|--list|-l) cmd_list; exit 0 ;;
+  list|--list|-l)
+    shift
+    # Honor --json for CI consumption
+    for _arg in "$@"; do
+      if [ "$_arg" = "--json" ]; then OUTPUT_MODE=json; break; fi
+    done
+    cmd_list
+    exit 0
+    ;;
   scaffold)       cmd_scaffold "${2:-}"; exit 0 ;;
   doctor)
     shift
