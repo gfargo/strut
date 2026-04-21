@@ -27,7 +27,7 @@ _usage_logs() {
   echo ""
 }
 
-# cmd_logs [service] [--follow|-f] (reads CMD_*)
+# cmd_logs [service] [--follow|-f] [--since <dur>] (reads CMD_*)
 cmd_logs() {
   local stack="$CMD_STACK"
   local env_file="$CMD_ENV_FILE"
@@ -35,9 +35,12 @@ cmd_logs() {
 
   local service_arg=""
   local follow_flag=""
+  local since_arg=""
   while [[ $# -gt 0 ]]; do
     case $1 in
       --follow|-f) follow_flag="--follow"; shift ;;
+      --since=*)   since_arg="${1#*=}"; shift ;;
+      --since)     since_arg="${2:-}"; shift 2 ;;
       -*) shift ;;
       *)  service_arg="$1"; shift ;;
     esac
@@ -46,7 +49,7 @@ cmd_logs() {
   validate_env_file "$env_file"
   local compose_cmd
   compose_cmd=$(resolve_compose_cmd "$stack" "$env_file" "$services")
-  logs_tail "$compose_cmd" "$service_arg" "$follow_flag"
+  logs_tail "$compose_cmd" "$service_arg" "$follow_flag" "$since_arg"
 }
 
 # cmd_logs_download [service] [--since <dur>] (reads CMD_*)
