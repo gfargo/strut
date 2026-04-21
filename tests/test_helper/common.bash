@@ -22,6 +22,21 @@ load_docker() {
   source "$CLI_ROOT/lib/docker.sh"
 }
 
+# Portable timeout wrapper — uses `timeout` on Linux, `gtimeout` on macOS
+# (install via `brew install coreutils`), otherwise runs without a timeout.
+#
+# Usage: _timeout <seconds> <command> [args...]
+_timeout() {
+  if command -v timeout &>/dev/null; then
+    timeout "$@"
+  elif command -v gtimeout &>/dev/null; then
+    gtimeout "$@"
+  else
+    shift  # drop the duration
+    "$@"
+  fi
+}
+
 # Cleanup helper — call in teardown()
 common_teardown() {
   [ -n "${TEST_TMP:-}" ] && rm -rf "$TEST_TMP"
