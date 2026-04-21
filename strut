@@ -113,6 +113,8 @@ source "$LIB/cmd_stop.sh"
 source "$LIB/cmd_skills.sh"
 source "$LIB/cmd_validate.sh"
 source "$LIB/cmd_rollback.sh"
+source "$LIB/diff.sh"
+source "$LIB/cmd_diff.sh"
 
 # ── Argument parsing ──────────────────────────────────────────────────────────
 
@@ -133,6 +135,7 @@ usage() {
   echo "  release  [--env <name>] [--services <profile>]                 Full VPS release (update + migrate + deploy)"
   echo "  deploy   [--env <name>] [--services <profile>] [--pull-only]  Deploy stack"
   echo "  stop     [--env <name>] [--services <profile>] [--volumes]   Stop running containers"
+  echo "  diff     [--env <name>] [--json]                              Preview pending changes vs VPS"
   echo "  health   [--env <name>] [--services <profile>] [--json]       Health checks"
   echo "  logs     [--env <name>] [service] [--since <dur>] [--follow]  View logs"
   echo "  migrate  [--env <name>] [neo4j|postgres] [--status|--up|--down N]  Run schema migrations"
@@ -556,6 +559,7 @@ if [ "$FLAGS_HELP" = "true" ]; then
     volumes)  _usage_volumes ;;
     validate) _usage_validate ;;
     rollback) _usage_rollback ;;
+    diff)     _usage_diff ;;
     *)        usage ;;
   esac
   exit 0
@@ -588,5 +592,6 @@ case "$COMMAND" in
   validate)            cmd_validate ;;
   rollback)            cmd_rollback "${CMD_ARGS[@]+"${CMD_ARGS[@]}"}" ;;
   domain)              cmd_domain "${CMD_ARGS[@]+"${CMD_ARGS[@]}"}" ;;
+  diff)                cmd_diff "${CMD_ARGS[@]+"${CMD_ARGS[@]}"}" ;;
   *)                   usage; fail "Unknown command: '$COMMAND'" ;;
 esac
