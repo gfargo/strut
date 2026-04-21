@@ -21,13 +21,23 @@ BLUE='\033[0;34m'
 NC='\033[0m'  # No Color
 
 # ── Log helpers ───────────────────────────────────────────────────────────────
+# When _error_context is set (e.g. "my-stack/prod/deploy") by the strut
+# entrypoint, warn/fail/error prepend "[${_error_context}]" so CI logs and
+# group deploys surface which stack/env/command triggered the message.
+_error_prefix() {
+  if [ -n "${_error_context:-}" ]; then
+    printf '[%s] ' "$_error_context"
+  fi
+  return 0
+}
+
 log()  { echo -e "${BLUE}[strut]${NC} $1"; }
 ok()   { echo -e "${GREEN}✓${NC} $1"; }
-warn() { echo -e "${YELLOW}⚠${NC}  $1"; }
-fail() { echo -e "${RED}✗${NC}  $1" >&2; exit 1; }
+warn() { echo -e "${YELLOW}⚠${NC}  $(_error_prefix)$1"; }
+fail() { echo -e "${RED}✗${NC}  $(_error_prefix)$1" >&2; exit 1; }
 
 # Like fail() but without exit — for non-fatal errors
-error() { echo -e "${RED}✗${NC}  $1" >&2; }
+error() { echo -e "${RED}✗${NC}  $(_error_prefix)$1" >&2; }
 
 # ── Banner helpers ────────────────────────────────────────────────────────────
 

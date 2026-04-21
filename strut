@@ -444,6 +444,14 @@ export CMD_ENV_NAME="$ENV_NAME"
 export CMD_SERVICES="$SERVICES"
 export CMD_JSON="$JSON_FLAG"
 
+# Error context for fail/warn/error messages. Formats as
+# "stack/env/command" when all three are known, else falls back.
+if [ -n "$ENV_NAME" ]; then
+  export _error_context="$STACK/$ENV_NAME/$COMMAND"
+else
+  export _error_context="$STACK/$COMMAND"
+fi
+
 # parse_common_flags already consumed --help/-h into FLAGS_HELP
 if [ "$FLAGS_HELP" = "true" ]; then
   case "$COMMAND" in
