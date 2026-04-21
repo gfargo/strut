@@ -33,24 +33,99 @@ docker_pull_stack() {
     || warn "Some images could not be pulled (may need to build from source)"
 }
 
-# docker_prune [--volumes] [--all]
+# _docker_unused_images
+#   Emits `<repo:tag>\n` for every image that is not currently in use by a
+#   running container. Filters out `<none>:<none>` dangling images (those
+#   have a separate prune step). Used by `docker_prune` when we want to
+#   manually rmi a filtered subset (e.g. to protect rollback-referenced
+#   images).
+_docker_unused_images() {
+  local running_images
+  running_images=$(docker ps --format '{{.Image}}' 2>/dev/null | sort -u)
+  docker images --format '{{.Repository}}:{{.Tag}}' 2>/dev/null \
+    | grep -v '<none>' \
+    | grep -v '^:$' \
+    | awk -v running="$running_images" '
+        BEGIN { n = split(running, arr, "\n"); for (i=1; i<=n; i++) used[arr[i]] = 1 }
+        !($0 in used) { print }
+      '
+}
+
+# docker_prune_protected <protected_images...>
+#
+# Prunes unused images except those in the protected list. Called by
+# `docker_prune` when `--all --protect <img> [<img>...]` is supplied and
+# gives us fine-grained control that `docker image prune -a` can't.
+# Dry-run mode is controlled by $DRY_RUN.
+docker_prune_protected() {
+  local -a protected=("$@")
+  declare -A protect
+  local img
+  for img in "${protected[@]+"${protected[@]}"}"; do
+    protect["$img"]=1
+  done
+
+  local unused
+  unused=$(_docker_unused_images)
+
+  local to_prune=() to_keep=()
+  while IFS= read -r img; do
+    [ -z "$img" ] && continue
+    if [ "${protect[$img]:-0}" = "1" ]; then
+      to_keep+=("$img")
+    else
+      to_prune+=("$img")
+    fi
+  done <<< "$unused"
+
+  if [ "${#to_keep[@]}" -gt 0 ]; then
+    log "Protecting ${#to_keep[@]} image(s) referenced by rollback snapshots:"
+    for img in "${to_keep[@]}"; do
+      echo "  • $img"
+    done
+  fi
+
+  if [ "${#to_prune[@]}" -eq 0 ]; then
+    ok "No unused images to prune"
+    return 0
+  fi
+
+  log "Pruning ${#to_prune[@]} unused image(s)..."
+  for img in "${to_prune[@]}"; do
+    if [ "${DRY_RUN:-false}" = "true" ]; then
+      echo "  [dry-run] docker rmi $img"
+    else
+      docker rmi "$img" 2>/dev/null || warn "Failed to remove $img (may be in use)"
+    fi
+  done
+}
+
+# docker_prune [--volumes] [--all] [--stack <name>]
 #
 # Interactively prunes unused Docker resources: dangling images, build cache,
 # and optionally all unused images and anonymous volumes. Each step prompts
 # for confirmation.
 #
 # Args:
-#   --volumes — Also remove anonymous volumes
-#   --all     — Remove all unused images (not just dangling)
+#   --volumes       — Also remove anonymous volumes
+#   --all           — Remove all unused images (not just dangling)
+#   --stack <name>  — Scope the prune to a stack's context; rollback snapshots
+#                     for <name> will protect their referenced images from
+#                     pruning (respect ROLLBACK_RETENTION_DAYS). Off by default;
+#                     PRUNE_PROTECT_ROLLBACK_IMAGES=false opts out even when
+#                     --stack is provided.
 #
 # Side effects: Removes Docker images, build cache, and optionally volumes
 docker_prune() {
   local remove_volumes=false
   local remove_all=false
+  local scope_stack=""
   while [[ $# -gt 0 ]]; do
     case $1 in
       --volumes) remove_volumes=true; shift ;;
       --all)     remove_all=true;     shift ;;
+      --stack)   scope_stack="${2:-}"; shift 2 ;;
+      --stack=*) scope_stack="${1#*=}"; shift ;;
       *)         shift ;;
     esac
   done
@@ -66,10 +141,24 @@ docker_prune() {
     ok "No dangling images"
   fi
 
-  # All unused images
+  # All unused images — protected by rollback snapshots when applicable.
   if $remove_all; then
-    confirm "Remove ALL unused images (not currently used by any container)?" \
-      && docker image prune -a -f
+    local -a protected=()
+    if [ -n "$scope_stack" ] && [ "${PRUNE_PROTECT_ROLLBACK_IMAGES:-true}" = "true" ]; then
+      if declare -F rollback_protected_images >/dev/null; then
+        while IFS= read -r p; do
+          [ -n "$p" ] && protected+=("$p")
+        done < <(rollback_protected_images "$scope_stack")
+      fi
+    fi
+
+    if [ "${#protected[@]}" -gt 0 ]; then
+      confirm "Remove unused images (protecting ${#protected[@]} referenced by rollback)?" \
+        && docker_prune_protected "${protected[@]}"
+    else
+      confirm "Remove ALL unused images (not currently used by any container)?" \
+        && docker image prune -a -f
+    fi
   fi
 
   # Build cache
