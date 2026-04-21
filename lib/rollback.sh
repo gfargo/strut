@@ -202,6 +202,63 @@ rollback_list_snapshots() {
 
 # ── Retention ─────────────────────────────────────────────────────────────────
 
+# rollback_protected_images <stack> [retention_days]
+#
+# Emits image tags referenced by rollback snapshots within the retention
+# window — one per line, deduplicated. Used by `docker_prune` to avoid
+# deleting images a rollback might need.
+#
+# Retention window defaults to $ROLLBACK_RETENTION_DAYS (or 30) and can be
+# overridden by the second arg. A window of 0 means "protect every
+# snapshot that exists" (useful when retention is count-based rather than
+# time-based).
+#
+# Snapshots without jq available fall back to a grep-based extractor so
+# operators without jq still get protection.
+rollback_protected_images() {
+  local stack="$1"
+  local retention_days="${2:-${ROLLBACK_RETENTION_DAYS:-30}}"
+  local rollback_dir
+  rollback_dir=$(_rollback_dir "$stack")
+  [ -d "$rollback_dir" ] || return 0
+
+  # Build the cutoff epoch. 0 disables time-filtering.
+  local cutoff=0
+  if [ "$retention_days" -gt 0 ] 2>/dev/null; then
+    local now
+    now=$(date -u +%s)
+    cutoff=$(( now - retention_days * 86400 ))
+  fi
+
+  local f ts ts_epoch
+  for f in "$rollback_dir"/*.json; do
+    [ -f "$f" ] || continue
+
+    if [ "$cutoff" -gt 0 ]; then
+      if command -v jq >/dev/null 2>&1; then
+        ts=$(jq -r '.timestamp // empty' "$f" 2>/dev/null || echo "")
+      else
+        ts=$(awk -F'"' '/"timestamp"/ { print $4; exit }' "$f")
+      fi
+      if [ -n "$ts" ]; then
+        ts_epoch=$(date -u -j -f "%Y-%m-%dT%H:%M:%SZ" "$ts" +%s 2>/dev/null \
+          || date -u -d "$ts" +%s 2>/dev/null \
+          || echo 0)
+        if [ "$ts_epoch" -lt "$cutoff" ]; then
+          continue
+        fi
+      fi
+    fi
+
+    if command -v jq >/dev/null 2>&1; then
+      jq -r '.services | to_entries[] | .value.image' "$f" 2>/dev/null
+    else
+      # Grep-based fallback: tolerates slight JSON formatting changes.
+      awk -F'"' '/"image"[[:space:]]*:/ { print $4 }' "$f"
+    fi
+  done | awk 'NF && !seen[$0]++'
+}
+
 # rollback_enforce_retention <stack>
 # Keeps only the last N snapshots (default: 5, configurable via ROLLBACK_RETENTION)
 rollback_enforce_retention() {
