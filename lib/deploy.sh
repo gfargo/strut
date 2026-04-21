@@ -82,17 +82,11 @@ deploy_stack() {
       warn "docker-compose.yml: syntax check failed (may still work)"
     fi
 
-    # Run custom pre-deploy hooks
+    # Run custom pre_deploy hook via the generic lifecycle dispatcher
+    # (falls back to legacy pre-deploy.sh for backward compat with #18)
     if [ "${PRE_DEPLOY_HOOKS:-true}" = "true" ]; then
-      local hook_file="$stack_dir/hooks/pre-deploy.sh"
-      if [ -f "$hook_file" ]; then
-        log "Running custom pre-deploy hook..."
-        if bash "$hook_file"; then
-          ok "Custom pre-deploy hook passed"
-        else
-          fail "Custom pre-deploy hook failed: $hook_file"
-        fi
-      fi
+      fire_hook pre_deploy "$stack_dir" || \
+        fail "pre_deploy hook failed — aborting deploy"
     fi
 
     ok "Pre-deploy validation passed"
@@ -198,6 +192,9 @@ deploy_stack() {
   echo "  Logs:   $compose_cmd logs -f"
   echo "  Status: $compose_cmd ps"
   echo ""
+
+  # Fire post_deploy lifecycle hook (non-fatal on failure)
+  DEPLOY_STATUS="ok" fire_hook_or_warn post_deploy "$stack_dir"
 }
 
 # vps_update_repo <stack> <env_file>
