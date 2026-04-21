@@ -8,6 +8,7 @@ setup() {
   load_utils
 
   source "$CLI_ROOT/lib/hooks.sh"
+  source "$CLI_ROOT/lib/notify.sh"
   source "$CLI_ROOT/lib/backup/cmd.sh"
   source "$CLI_ROOT/lib/cmd_backup.sh"
 

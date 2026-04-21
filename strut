@@ -73,6 +73,7 @@ load_strut_config
 source "$LIB/utils.sh"
 source "$LIB/flags.sh"
 source "$LIB/hooks.sh"
+source "$LIB/notify.sh"
 source "$LIB/docker.sh"
 source "$LIB/deploy.sh"
 source "$LIB/health.sh"
@@ -191,6 +192,9 @@ usage() {
   echo "  migrate <vps-host> [vps-user] [ssh-port] [ssh-key] [--yes]    Run migration wizard"
   echo "          --yes, -y                                              Auto-answer yes to all prompts"
   echo "  migrate:status                                                 Show migration status"
+  echo ""
+  echo "Notification Commands:"
+  echo "  notify test <slack|discord|webhook>                            Send a test notification"
   echo ""
   echo "Service profiles (--services):"
   echo "  (none)      Core services (as defined in docker-compose.yml)"
@@ -403,6 +407,21 @@ case "${1:-}" in
     ;;
   migrate:status)
     migrate_status
+    exit 0
+    ;;
+  notify)
+    # notify test <slack|discord|webhook>
+    NOTIFY_SUBCMD="${2:-}"
+    shift 2 || true
+    case "$NOTIFY_SUBCMD" in
+      test)
+        notify_test "${1:-}"
+        ;;
+      *)
+        echo "Usage: strut notify test <slack|discord|webhook>"
+        exit 1
+        ;;
+    esac
     exit 0
     ;;
   --help|-h|help) usage; exit 0 ;;

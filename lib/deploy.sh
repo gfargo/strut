@@ -195,6 +195,12 @@ deploy_stack() {
 
   # Fire post_deploy lifecycle hook (non-fatal on failure)
   DEPLOY_STATUS="ok" fire_hook_or_warn post_deploy "$stack_dir"
+
+  # Notification providers (Slack/Discord/webhook) subscribed to deploy.success
+  notify_event deploy.success \
+    stack="$stack" \
+    env="$env_name" \
+    services="${services_profile:-core}"
 }
 
 # vps_update_repo <stack> <env_file>

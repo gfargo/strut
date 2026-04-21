@@ -1,0 +1,35 @@
+# ==================================================
+# notifications.conf — Event notification providers
+# ==================================================
+# Place at your project root (alongside strut.conf). strut reads this
+# whenever it dispatches a lifecycle event (deploy.success, backup.success,
+# health.fail, drift.detected, etc.).
+#
+# Format is shell env vars — same style as strut.conf. Leave a provider
+# unset to disable it. Events are a comma-separated list, or `*` for all.
+#
+# Test a provider:
+#   strut notify test slack
+#   strut notify test discord
+#   strut notify test webhook
+#
+# Notification failures never fail the underlying action.
+
+# ── Slack ──────────────────────────────────────────
+# SLACK_WEBHOOK=https://hooks.slack.com/services/T000/B000/XXXX
+# SLACK_EVENTS=deploy.success,deploy.fail,health.fail,backup.fail
+
+# ── Discord ────────────────────────────────────────
+# DISCORD_WEBHOOK=https://discord.com/api/webhooks/000/XXXX
+# DISCORD_EVENTS=deploy.fail,health.fail
+
+# ── Generic JSON webhook ───────────────────────────
+# Posts a raw JSON body: {"event": "...", "key": "value", ...}
+# WEBHOOK_URL=https://ops.example.com/strut
+# WEBHOOK_EVENTS=*
+
+# ── Events currently wired ─────────────────────────
+#   deploy.success    — stack, env, services
+#   backup.success    — stack, env, type
+#
+# Coming in a follow-up: deploy.fail, health.fail, backup.fail, drift.detected
