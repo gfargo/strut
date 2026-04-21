@@ -1,0 +1,12 @@
+{$DOMAIN} {
+    root * /srv
+    file_server
+    encode zstd gzip
+    tls {$ACME_EMAIL}
+
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+        X-Content-Type-Options "nosniff"
+        Referrer-Policy "strict-origin-when-cross-origin"
+    }
+}
