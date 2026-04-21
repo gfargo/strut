@@ -71,6 +71,12 @@ find_project_root || true  # OK if not in a project (init, --version, etc.)
 load_strut_config
 
 source "$LIB/utils.sh"
+
+# Clean up any SSH master connections this process opened via ControlMaster.
+# Registered here (not in utils.sh) so sourcing the library in tests doesn't
+# install a trap on the test runner.
+trap 'ssh_mux_cleanup' EXIT
+
 source "$LIB/output.sh"
 source "$LIB/flags.sh"
 source "$LIB/hooks.sh"
