@@ -71,6 +71,7 @@ find_project_root || true  # OK if not in a project (init, --version, etc.)
 load_strut_config
 
 source "$LIB/utils.sh"
+source "$LIB/flags.sh"
 source "$LIB/docker.sh"
 source "$LIB/deploy.sh"
 source "$LIB/health.sh"
@@ -420,24 +421,16 @@ STACK_DIR="$CLI_ROOT/stacks/$STACK"
 shift 2  # consume stack and command; remaining args are command-specific
 
 # ── Parse universal options ───────────────────────────────────────────────────
-# Only --env, --services, and --json are parsed globally.
+# Only --env, --services, --json, and --dry-run are parsed globally.
 # All other flags and positional args are passed through to command handlers.
-ENV_NAME=""
-SERVICES=""
-JSON_FLAG=""
-CMD_ARGS=()
-
-while [[ $# -gt 0 ]]; do
-  case $1 in
-    --env=*)       ENV_NAME="${1#*=}"; shift ;;
-    --env)         ENV_NAME="$2"; shift 2 ;;
-    --services=*)  SERVICES="${1#*=}"; shift ;;
-    --services)    SERVICES="$2"; shift 2 ;;
-    --json)        JSON_FLAG="--json"; shift ;;
-    --dry-run)     DRY_RUN="true"; export DRY_RUN; shift ;;
-    *)             CMD_ARGS+=("$1"); shift ;;
-  esac
-done
+parse_common_flags "$@"
+ENV_NAME="$FLAGS_ENV_NAME"
+SERVICES="$FLAGS_SERVICES"
+JSON_FLAG="$FLAGS_JSON"
+if [ "$FLAGS_DRY_RUN" = "true" ]; then
+  DRY_RUN="true"; export DRY_RUN
+fi
+CMD_ARGS=("${FLAGS_POSITIONAL[@]+"${FLAGS_POSITIONAL[@]}"}")
 
 ENV_FILE=$(resolve_env_file "$STACK" "$ENV_NAME")
 
@@ -451,15 +444,8 @@ export CMD_ENV_NAME="$ENV_NAME"
 export CMD_SERVICES="$SERVICES"
 export CMD_JSON="$JSON_FLAG"
 
-# Check for --help in CMD_ARGS or as the command itself
-_has_help_flag() {
-  for arg in "${CMD_ARGS[@]+"${CMD_ARGS[@]}"}"; do
-    [[ "$arg" == "--help" || "$arg" == "-h" ]] && return 0
-  done
-  return 1
-}
-
-if _has_help_flag; then
+# parse_common_flags already consumed --help/-h into FLAGS_HELP
+if [ "$FLAGS_HELP" = "true" ]; then
   case "$COMMAND" in
     deploy)   _usage_deploy ;;
     stop)     _usage_stop ;;
