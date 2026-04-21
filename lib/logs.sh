@@ -19,8 +19,10 @@ logs_tail() {
   local compose_cmd="$1"
   local service="${2:-}"
   local follow="${3:-}"
+  local since="${4:-}"
   local tail_args="--tail=200"
   [ "$follow" = "--follow" ] || [ "$follow" = "-f" ] && tail_args="$tail_args -f"
+  [ -n "$since" ] && tail_args="$tail_args --since=$since"
 
   if [ -n "$service" ]; then
     $compose_cmd logs $tail_args "$service"
