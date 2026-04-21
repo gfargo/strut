@@ -22,6 +22,7 @@ _usage_backup() {
   echo "  retention check|enforce           Manage retention policy"
   echo "  compare <env1> <env2> [service]   Compare backups across environments"
   echo "  compare-labels <env1> <env2>      Compare backup labels"
+  echo "  offsite status|sync|list|restore  Offsite backup sync (S3/R2/B2)"
   echo ""
   echo "Examples:"
   echo "  strut my-stack backup postgres --env prod"
