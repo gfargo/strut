@@ -52,6 +52,42 @@ teardown() {
   [ "$status" -eq 0 ]  # YOUR_ORG still present
 }
 
+# ── Regression: warn when YOUR_ORG survives scaffold ─────────────────────────
+# Docker rejects uppercase repository names on deploy. When DEFAULT_ORG is
+# unset and the selected recipe has `image: YOUR_ORG/...:latest`, scaffold
+# must emit a warning so the user fixes it before `strut deploy`.
+
+@test "scaffold: recipe with YOUR_ORG in image: emits warning when DEFAULT_ORG unset" {
+  source "$CLI_ROOT/lib/recipes.sh"
+  unset DEFAULT_ORG
+  export DEFAULT_ORG=""
+  run cmd_scaffold "py-stack" --recipe python-api
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"YOUR_ORG"* ]]
+  [[ "$output" == *"repository name must be lowercase"* ]]
+  [[ "$output" == *"docker-compose.yml"* ]]
+}
+
+@test "scaffold: recipe with DEFAULT_ORG set produces no uppercase tokens in image: fields" {
+  source "$CLI_ROOT/lib/recipes.sh"
+  export DEFAULT_ORG="acme-corp"
+  run cmd_scaffold "clean-stack" --recipe python-api
+  [ "$status" -eq 0 ]
+
+  local compose="$TEST_TMP/stacks/clean-stack/docker-compose.yml"
+  [ -f "$compose" ]
+
+  # Every image: line must be entirely lowercase (digits, lowercase letters,
+  # and these separators only: /  :  -  _  .). Any uppercase in an image: line
+  # would be rejected by Docker at deploy time.
+  run grep -E '^\s*image:.*[A-Z]' "$compose"
+  [ "$status" -ne 0 ]
+
+  # No warning should fire in the happy path
+  run cmd_scaffold "clean-stack-2" --recipe python-api
+  [[ "$output" != *"repository name must be lowercase"* ]]
+}
+
 @test "Property 10: random org names substitute correctly — 20 iterations" {
   for i in $(seq 1 20); do
     local org_name="org-${RANDOM}-${i}"
