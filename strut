@@ -59,15 +59,27 @@ _resolve_script_dir() {
 STRUT_HOME="$(_resolve_script_dir)"
 export STRUT_HOME
 
-# CLI_ROOT kept for backward compatibility within lib modules
-CLI_ROOT="$STRUT_HOME"
-export CLI_ROOT
-
 LIB="$STRUT_HOME/lib"
 
 # Source config first, then load project config
 source "$LIB/config.sh"
 find_project_root || true  # OK if not in a project (init, --version, etc.)
+
+# CLI_ROOT is the user's project root — where strut.conf, stacks/, and
+# .env files live. Lib modules read `$CLI_ROOT/stacks/<stack>/…`, so when
+# the user runs `strut` from inside an initialized project, dispatch
+# correctly targets that project's stacks.
+#
+# Fall back to STRUT_HOME when no project root was discovered. This
+# covers:
+#   * Top-level commands that don't need a project (init, upgrade,
+#     --version, audit, migrate wizard).
+#   * Developer/test mode invocations from inside the engine repo —
+#     tests override CLI_ROOT directly, but fixtures still work when run
+#     in-place.
+CLI_ROOT="${PROJECT_ROOT:-$STRUT_HOME}"
+export CLI_ROOT
+
 load_strut_config
 
 source "$LIB/utils.sh"
@@ -613,9 +625,17 @@ COMMAND="${2:-}"
 [ -n "$STACK" ]   || { usage; fail "Missing stack argument"; }
 [ -n "$COMMAND" ] || { usage; fail "Missing command argument"; }
 
-# Validate stack exists
+# Validate stack exists.
+# When PROJECT_ROOT is unset the user is outside any initialized project —
+# surface that explicitly instead of letting them puzzle over a generic
+# "stack not found" pointing at the engine's own directory.
 STACK_DIR="$CLI_ROOT/stacks/$STACK"
-[ -d "$STACK_DIR" ] || fail "Stack not found: '$STACK'  (run 'strut list' to see available stacks)"
+if [ ! -d "$STACK_DIR" ]; then
+  if [ -z "${PROJECT_ROOT:-}" ]; then
+    fail "Not inside a strut project (no strut.conf found walking up from $PWD). Run 'strut init' to create one, or cd into an existing project."
+  fi
+  fail "Stack not found: '$STACK'  (run 'strut list' to see available stacks)"
+fi
 
 shift 2  # consume stack and command; remaining args are command-specific
 

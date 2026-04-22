@@ -151,10 +151,15 @@ EOF
 }
 
 @test "entrypoint: --print with other args leaves args intact (does not launch TUI)" {
-  # Unknown stack — should hit the "Stack not found" failure path, not TUI.
+  # Unknown stack — should hit the stack-validation failure path, not TUI.
+  # Accept either "Stack not found" (dev mode / inside a project) or the
+  # "Not inside a strut project" message that fires when the entrypoint
+  # couldn't discover a PROJECT_ROOT.
   STRUT_NO_TUI= run "$STRUT" nonexistent-stack deploy --print
   [ "$status" -ne 0 ]
-  [[ "$output" == *"Stack not found"* ]] || [[ "$output" == *"Unknown"* ]]
+  [[ "$output" == *"Stack not found"* ]] \
+    || [[ "$output" == *"Not inside a strut project"* ]] \
+    || [[ "$output" == *"Unknown"* ]]
 }
 
 # ── tui_main: --print flow with stubbed picker ───────────────────────────────

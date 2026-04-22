@@ -336,7 +336,9 @@ local_sync_db() {
       warn "No anonymize.conf found at $anon_conf — skipping anonymization"
       warn "Create one with: TABLE.COLUMN=strategy (e.g. users.email=fake_email)"
     else
-      source "$CLI_ROOT/lib/anonymize.sh"
+      # anonymize.sh ships with the engine, not the project — always
+      # source from STRUT_HOME to stay correct under CLI_ROOT=PROJECT_ROOT.
+      source "${STRUT_HOME:-$CLI_ROOT}/lib/anonymize.sh"
 
       if [ "$DRY_RUN" = "true" ]; then
         anon_dry_run "$anon_conf" "postgres"
