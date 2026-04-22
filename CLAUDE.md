@@ -21,7 +21,7 @@ The `strut` entrypoint resolves Strut_Home via symlink resolution, then walks up
 | `lib/utils.sh` | Colors, logging, SSH helpers, compose builders |
 | `lib/deploy.sh` | Deploy orchestration, VPS release, repo sync |
 | `lib/health.sh` | Dynamic health checks from `services.conf` |
-| `lib/cmd_*.sh` | Command handlers (deploy, stop, init, scaffold, etc.) |
+| `lib/cmd_*.sh` | Command handlers (deploy, stop, init, scaffold, tui, etc.) |
 | `lib/docker.sh` | Docker pull, prune helpers |
 | `lib/volumes.sh` | Dynamic volume management from `volume.conf` |
 | `lib/keys.sh` + `lib/keys/` | Key management (SSH, API, env, db, GitHub) |
@@ -36,6 +36,8 @@ The `strut` entrypoint resolves Strut_Home via symlink resolution, then walks up
 
 ```
 strut <stack> <command> [--env <name>] [--dry-run] [--services <profile>]
+strut                                             # interactive TUI (fzf+select)
+strut --no-tui | STRUT_NO_TUI=1                   # disable TUI
 
 Top-level:  init, upgrade, --version, list, scaffold, audit, migrate, monitoring
 Per-stack:  deploy, stop, release, update, health, logs, status, shell, exec,

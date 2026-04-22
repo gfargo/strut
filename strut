@@ -134,10 +134,46 @@ source "$LIB/groups.sh"
 source "$LIB/cmd_group.sh"
 source "$LIB/plugins.sh"
 source "$LIB/recipes.sh"
+source "$LIB/cmd_tui.sh"
 
 # Project-local plugins are discovered once PROJECT_ROOT is known. find_project_root
 # above populates it when strut is invoked inside a project; outside one this is a no-op.
 plugins_discover
+
+# ── TUI dispatch (early, before usage gate) ───────────────────────────────────
+# `strut` with no args and an attached tty launches an interactive picker.
+# Disabled by STRUT_NO_TUI=1 or --no-tui; forced for testing with --tui.
+# --print is a TUI flag that prints the resolved command without running.
+_TUI_FORCE=false
+_TUI_DISABLED=false
+_TUI_PRINT=false
+_tui_preserved=()
+for _a in "$@"; do
+  case "$_a" in
+    --no-tui) _TUI_DISABLED=true ;;
+    --tui)    _TUI_FORCE=true ;;
+    --print)  _TUI_PRINT=true ;;
+    *)        _tui_preserved+=("$_a") ;;
+  esac
+done
+# Only strip the TUI-related flags if doing so leaves no other args (i.e. we
+# really are in TUI territory). Otherwise leave them for downstream handlers —
+# a hypothetical `strut foo bar --print` should not have --print silently
+# eaten.
+if [ "${#_tui_preserved[@]}" -eq 0 ]; then
+  set --
+  if [ "$_TUI_DISABLED" != "true" ] && [ "${STRUT_NO_TUI:-}" != "1" ]; then
+    if [ "$_TUI_FORCE" = "true" ] || [ -t 0 ]; then
+      if $_TUI_PRINT; then
+        tui_main --print
+      else
+        tui_main
+      fi
+      exit $?
+    fi
+  fi
+fi
+unset _TUI_FORCE _TUI_DISABLED _TUI_PRINT _tui_preserved _a
 
 # ── Argument parsing ──────────────────────────────────────────────────────────
 
@@ -146,6 +182,8 @@ usage() {
   echo -e "${BLUE}strut CLI${NC}"
   echo ""
   echo "Usage: strut <stack> <command> [options]"
+  echo "       strut                    # interactive TUI (fzf if available, select fallback)"
+  echo "       strut --no-tui           # force non-TUI (scripts, CI, etc.)"
   echo "       strut list"
   echo "       strut init [--registry <type>] [--org <name>] [--completions]"
   echo "       strut upgrade"
@@ -214,6 +252,8 @@ usage() {
   echo "  --services <prof>  Service profile (messaging|ui|full)"
   echo "  --json             JSON output (where supported)"
   echo "  --dry-run          Preview destructive operations without executing"
+  echo "  --no-tui           Disable interactive TUI when called with no args"
+  echo "                     (also honored via STRUT_NO_TUI=1)"
   echo ""
   echo "Audit Commands:"
   echo "  audit <vps-host> [vps-user] [ssh-key] [ssh-port]                 Audit VPS and generate report"
