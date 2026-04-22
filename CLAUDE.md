@@ -20,6 +20,7 @@ The `strut` entrypoint resolves Strut_Home via symlink resolution, then walks up
 | `lib/registry.sh` | Pluggable registry auth (ghcr/dockerhub/ecr/none) |
 | `lib/utils.sh` | Colors, logging, SSH helpers, compose builders |
 | `lib/deploy.sh` | Deploy orchestration, VPS release, repo sync |
+| `lib/deploy_blue_green.sh` | Blue-green deploy: dual-project, health-gated proxy swap, state-file rollback |
 | `lib/health.sh` | Dynamic health checks from `services.conf` |
 | `lib/cmd_*.sh` | Command handlers (deploy, stop, init, scaffold, tui, etc.) |
 | `lib/docker.sh` | Docker pull, prune helpers |

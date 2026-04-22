@@ -7,7 +7,7 @@ set -euo pipefail
 
 _usage_deploy() {
   echo ""
-  echo "Usage: strut <stack> deploy [--env <name>] [--services <profile>] [--pull-only] [--skip-validation] [--dry-run]"
+  echo "Usage: strut <stack> deploy [--env <name>] [--services <profile>] [--pull-only] [--skip-validation] [--blue-green] [--standard] [--dry-run]"
   echo ""
   echo "Deploy stack containers locally. Pulls images, creates data directories,"
   echo "stops existing containers, and starts services."
@@ -19,17 +19,22 @@ _usage_deploy() {
   echo "  --skip-validation    Skip pre-deploy config validation and hooks"
   echo "  --force-unlock       Break an existing deploy lock before acquiring"
   echo "  --no-lock            Skip lock acquisition (advanced; recovery only)"
+  echo "  --blue-green         Stand up new version alongside current, health-gate,"
+  echo "                       swap proxy, drain old (overrides DEPLOY_MODE)"
+  echo "  --standard           Force in-place deploy (overrides DEPLOY_MODE)"
   echo "  --dry-run            Show execution plan without making changes"
   echo ""
   echo "Related commands:"
   echo "  release              Full VPS release (update + migrate + deploy)"
   echo "  stop                 Stop running containers"
   echo "  health               Run health checks after deploy"
+  echo "  rollback             Restore previous deploy (blue-green: flips active color)"
   echo ""
   echo "Examples:"
   echo "  strut my-stack deploy --env prod"
   echo "  strut my-stack deploy --env prod --services full"
   echo "  strut my-stack deploy --env prod --pull-only"
+  echo "  strut my-stack deploy --env prod --blue-green"
   echo "  strut my-stack deploy --env prod --dry-run"
   echo ""
 }
@@ -80,15 +85,21 @@ cmd_deploy() {
   local skip_validation=false
   local force_unlock=false
   local skip_lock=false
+  # Mode: honor DEPLOY_MODE config default; --blue-green / --standard on the
+  # CLI always wins. `mode_flag=""` means "not overridden — use config".
+  local mode_flag=""
   while [[ $# -gt 0 ]]; do
     case $1 in
       --pull-only) pull_only=true; shift ;;
       --skip-validation) skip_validation=true; shift ;;
       --force-unlock) force_unlock=true; shift ;;
       --no-lock) skip_lock=true; shift ;;
+      --blue-green) mode_flag="blue-green"; shift ;;
+      --standard)   mode_flag="standard";   shift ;;
       *) shift ;;
     esac
   done
+  local deploy_mode="${mode_flag:-${DEPLOY_MODE:-standard}}"
 
   # Export for deploy_stack to read
   export SKIP_VALIDATION="$skip_validation"
@@ -139,9 +150,17 @@ cmd_deploy() {
 
   if $pull_only; then
     pull_only_stack "$stack" "$env_file" "$services"
-  else
-    deploy_stack "$stack" "$env_file" "$services"
+    return 0
   fi
+
+  case "$deploy_mode" in
+    blue-green)
+      bg_deploy_stack "$stack" "$env_file" "$services"
+      ;;
+    standard|*)
+      deploy_stack "$stack" "$env_file" "$services"
+      ;;
+  esac
 }
 
 # cmd_health (no args — reads CMD_*)
