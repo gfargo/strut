@@ -17,7 +17,8 @@ setup() {
 
 teardown() {
   rm -rf "$TEST_TMP"
-  # Remove any test stack dropped under the strut repo
+  # Older revisions of this file placed fixture stacks under the engine
+  # repo. Clean up in case a stale run left one behind.
   rm -rf "$CLI_ROOT/stacks/test-plugin-stack"
   unset PROJECT_ROOT
 }
@@ -213,8 +214,10 @@ EOF
 }
 
 @test "strut <stack> <plugin>: stack-level dispatch passes stack + env" {
-  mkdir -p "$CLI_ROOT/stacks/test-plugin-stack"
-  touch "$CLI_ROOT/stacks/test-plugin-stack/docker-compose.yml"
+  # Stacks live under PROJECT_ROOT/stacks/ — that's what the entrypoint
+  # resolves after find_project_root sets CLI_ROOT=PROJECT_ROOT.
+  mkdir -p "$PROJECT_ROOT/stacks/test-plugin-stack"
+  touch "$PROJECT_ROOT/stacks/test-plugin-stack/docker-compose.yml"
   _make_plugin "ship" '
 plugin_help() { echo "ship it"; }
 plugin_main() {
@@ -240,6 +243,10 @@ plugin_main() { echo "plugin list ran"; }
   cat > "$PROJECT_ROOT/strut.conf" <<'EOF'
 BANNER_TEXT="test"
 EOF
+  # Stand up an empty stacks/ dir so `list` renders its table header
+  # instead of warning about the missing directory.
+  mkdir -p "$PROJECT_ROOT/stacks/example"
+  touch "$PROJECT_ROOT/stacks/example/docker-compose.yml"
   cd "$PROJECT_ROOT"
   run bash "$CLI" list
   [ "$status" -eq 0 ]
@@ -249,8 +256,8 @@ EOF
 }
 
 @test "strut <stack> <plugin>: core stack command shadows plugin of same name" {
-  mkdir -p "$CLI_ROOT/stacks/test-plugin-stack"
-  touch "$CLI_ROOT/stacks/test-plugin-stack/docker-compose.yml"
+  mkdir -p "$PROJECT_ROOT/stacks/test-plugin-stack"
+  touch "$PROJECT_ROOT/stacks/test-plugin-stack/docker-compose.yml"
   _make_plugin "deploy" '
 plugin_main() { echo "plugin deploy ran"; }
 '

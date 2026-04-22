@@ -11,9 +11,9 @@ secrets/
 # Logs
 *.log
 logs/
-# Allow .gitkeep placeholders to track per-stack log dirs
-# !stacks/*/logs/
-# !stacks/*/logs/**/.gitkeep
+
+# 
+.claude/
 
 # Runtime data directories (created by deploy, must survive git clean)
 stacks/*/data/

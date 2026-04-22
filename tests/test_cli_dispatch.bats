@@ -61,7 +61,11 @@ setup() {
 @test "strut with nonexistent stack fails" {
   run bash "$CLI" nonexistent-stack deploy
   [ "$status" -ne 0 ]
-  [[ "$output" == *"Stack not found"* ]]
+  # When run outside any initialized project the entrypoint emits the
+  # clearer "Not inside a strut project" message; inside a project it
+  # falls through to "Stack not found". Either outcome satisfies this
+  # test — both confirm that a bogus stack name doesn't dispatch.
+  [[ "$output" == *"Stack not found"* ]] || [[ "$output" == *"Not inside a strut project"* ]]
 }
 
 @test "strut with valid stack but no command fails" {
