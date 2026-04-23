@@ -237,4 +237,22 @@ _scaffold_substitute() {
       xargs -0 sed -i.bak "s/YOUR_ORG/${DEFAULT_ORG}/g" 2>/dev/null
   fi
   find "$target" -name "*.bak" -delete 2>/dev/null || true
+
+  # If DEFAULT_ORG was unset and the scaffold still contains YOUR_ORG in any
+  # image: field, Docker will reject the stack on deploy ("repository name must
+  # be lowercase"). Warn loudly so the user fixes it before running deploy.
+  if [ -z "${DEFAULT_ORG:-}" ]; then
+    local offenders
+    offenders=$(grep -rl -E '^\s*image:.*YOUR_ORG' "$target" 2>/dev/null || true)
+    if [ -n "$offenders" ]; then
+      warn "Scaffolded files contain literal 'YOUR_ORG' in image: fields."
+      warn "Docker will reject these on deploy (repository name must be lowercase)."
+      warn "Fix by setting DEFAULT_ORG=<your-org> in strut.conf and re-scaffolding,"
+      warn "or edit the image: fields in:"
+      while IFS= read -r f; do
+        [ -z "$f" ] && continue
+        warn "  - ${f#"$target/"}"
+      done <<< "$offenders"
+    fi
+  fi
 }
