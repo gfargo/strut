@@ -64,6 +64,56 @@ cmd_update() {
   vps_update_repo "$stack" "$env_file"
 }
 
+# cmd_rebuild [--no-cache] [--pull] (reads CMD_*)
+# Builds images and restarts services. Equivalent to deploy with BUILD_MODE=local.
+cmd_rebuild() {
+  local stack="$CMD_STACK"
+  local env_file="$CMD_ENV_FILE"
+  local services="$CMD_SERVICES"
+
+  # Parse rebuild-specific flags
+  local no_cache=false
+  local pull_base=false
+  while [[ $# -gt 0 ]]; do
+    case $1 in
+      --no-cache) no_cache=true; shift ;;
+      --pull) pull_base=true; shift ;;
+      *) shift ;;
+    esac
+  done
+
+  # Force BUILD_MODE=local for this deploy, with optional flags
+  export BUILD_MODE="local"
+  if [ "$no_cache" = "true" ]; then
+    export BUILD_ARGS="${BUILD_ARGS:+$BUILD_ARGS }--no-cache"
+  fi
+  if [ "$pull_base" = "true" ]; then
+    export BUILD_PULL="true"
+  fi
+
+  # Delegate to the standard deploy pipeline
+  deploy_stack "$stack" "$env_file" "$services"
+}
+
+_usage_rebuild() {
+  echo ""
+  echo "Usage: strut <stack> rebuild [--env <name>] [--no-cache] [--pull] [--dry-run]"
+  echo ""
+  echo "Build images on target and restart services."
+  echo "Equivalent to deploy with BUILD_MODE=local."
+  echo ""
+  echo "Options:"
+  echo "  --env <name>       Environment (reads .<name>.env)"
+  echo "  --no-cache         Build without using cache"
+  echo "  --pull             Pull base images before building"
+  echo "  --dry-run          Show execution plan without running"
+  echo ""
+  echo "Examples:"
+  echo "  strut hub rebuild --env prod"
+  echo "  strut hub rebuild --env prod --no-cache"
+  echo ""
+}
+
 # cmd_release (no args — reads CMD_*)
 cmd_release() {
   local stack="$CMD_STACK"

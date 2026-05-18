@@ -321,7 +321,7 @@ bg_deploy_stack() {
   # Pre-deploy validation (reuse standard path's contract)
   if [ "${SKIP_VALIDATION:-false}" != "true" ] && [ "${PRE_DEPLOY_VALIDATE:-true}" = "true" ]; then
     log "[2/9] Pre-deploy validation..."
-    source "$cli_root/lib/cmd_validate.sh"
+    source "${STRUT_HOME:-$cli_root}/lib/cmd_validate.sh"
     export CMD_STACK="$stack" CMD_STACK_DIR="$stack_dir" CMD_ENV_FILE="$env_file" CMD_ENV_NAME="$env_name"
     cmd_validate 2>/dev/null || fail "Pre-deploy validation failed — fix and retry: strut $stack validate --env $env_name"
 
@@ -359,7 +359,7 @@ bg_deploy_stack() {
   # Save rollback snapshot of the **current** color before we touch anything.
   # Restore paths: standard rollback restores images; blue-green rollback
   # flips the .bluegreen active_color and brings the old project back up.
-  source "$cli_root/lib/rollback.sh"
+  source "${STRUT_HOME:-$cli_root}/lib/rollback.sh"
   if [ "$old_color" != "none" ]; then
     rollback_save_snapshot "$stack" "$old_cmd" "$env_name" || true
   fi
