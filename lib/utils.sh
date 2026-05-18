@@ -393,6 +393,10 @@ validate_env_file() {
 # and optional service profile. All compose command construction should
 # go through this function to ensure consistent --project-name format.
 #
+# Project name resolution order:
+#   1. COMPOSE_PROJECT_NAME from env file (respects existing deployments)
+#   2. Auto-generated: <stack>-<env_name> (avoids double-prefix)
+#
 # Requires: _docker_sudo() from lib/docker.sh (available at call time)
 resolve_compose_cmd() {
   local stack="$1"
@@ -404,13 +408,19 @@ resolve_compose_cmd() {
   local env_name
   env_name=$(extract_env_name "$env_file")
 
-  # Avoid double-prefixing: if env_name already starts with "<stack>-" (e.g.,
-  # jitsi-prod for the jitsi stack), use it as-is; otherwise prepend stack name.
-  local project_name
-  if [[ "$env_name" == "${stack}-"* ]]; then
-    project_name="$env_name"
-  else
-    project_name="${stack}-${env_name}"
+  # If COMPOSE_PROJECT_NAME is explicitly set in the environment (sourced from
+  # the env file by validate_env_file upstream), respect it. This allows strut
+  # to manage existing deployments that use a custom project name.
+  local project_name="${COMPOSE_PROJECT_NAME:-}"
+
+  if [ -z "$project_name" ]; then
+    # Avoid double-prefixing: if env_name already starts with "<stack>-" (e.g.,
+    # jitsi-prod for the jitsi stack), use it as-is; otherwise prepend stack name.
+    if [[ "$env_name" == "${stack}-"* ]]; then
+      project_name="$env_name"
+    else
+      project_name="${stack}-${env_name}"
+    fi
   fi
 
   local cmd="$(_docker_sudo)docker compose --env-file $env_file --project-name $project_name -f $compose_file"
