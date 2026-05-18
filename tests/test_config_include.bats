@@ -240,3 +240,69 @@ EOF
   [ "$COMMON_PORT" = "9000" ]
   [ "$API_PORT" = "8080" ]
 }
+
+# ── INI section skipping (issue #110) ────────────────────────────────────────
+
+@test "preprocess_config: skips [section] headers and their content" {
+  cat > "$TEST_TMP/with-sections.conf" <<'EOF'
+REGISTRY_TYPE=ghcr
+DEFAULT_ORG=my-org
+
+[hosts]
+compass = gfargo@compass.local:22 ~/.ssh/id_rsa
+mac = griffen@mac.local:22
+
+[stacks]
+plane = compass
+hub = compass
+
+BANNER_TEXT=after-sections
+EOF
+
+  result=$(preprocess_config "$TEST_TMP/with-sections.conf")
+  # Global keys should be present
+  [[ "$result" == *"REGISTRY_TYPE=ghcr"* ]]
+  [[ "$result" == *"DEFAULT_ORG=my-org"* ]]
+  [[ "$result" == *"BANNER_TEXT=after-sections"* ]]
+  # Section headers and content should NOT be present
+  [[ "$result" != *"[hosts]"* ]]
+  [[ "$result" != *"[stacks]"* ]]
+  [[ "$result" != *"compass"* ]]
+  [[ "$result" != *"plane"* ]]
+}
+
+@test "preprocess_config: global keys after sections are preserved" {
+  cat > "$TEST_TMP/sections-then-global.conf" <<'EOF'
+FIRST=one
+
+[hosts]
+myhost = user@host:22
+
+SECOND=two
+EOF
+
+  result=$(preprocess_config "$TEST_TMP/sections-then-global.conf")
+  [[ "$result" == *"FIRST=one"* ]]
+  [[ "$result" == *"SECOND=two"* ]]
+  [[ "$result" != *"[hosts]"* ]]
+  [[ "$result" != *"myhost"* ]]
+}
+
+@test "load_strut_config: works with [hosts] and [stacks] sections present" {
+  cat > "$TEST_TMP/strut.conf" <<'EOF'
+REGISTRY_TYPE=ecr
+DEFAULT_ORG=acme
+
+[hosts]
+prod-server = deploy@10.0.0.1:22 ~/.ssh/deploy_key
+
+[stacks]
+api = prod-server
+web = prod-server
+EOF
+
+  export PROJECT_ROOT="$TEST_TMP"
+  load_strut_config
+  [ "$REGISTRY_TYPE" = "ecr" ]
+  [ "$DEFAULT_ORG" = "acme" ]
+}

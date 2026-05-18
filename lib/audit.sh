@@ -362,8 +362,12 @@ audit_vps() {
   log "Auditing VPS: $vps_user@$vps_host"
   [ -n "$_sudo" ] && log "  (using sudo for docker commands)"
 
-  local audit_dir="$CLI_ROOT/audits/$(date +%Y%m%d-%H%M%S)-$vps_host"
-  mkdir -p "$audit_dir"
+  local audit_dir
+  # Prefer project root for audit output; fall back to current directory
+  # when running outside a project (e.g. `strut audit` from anywhere).
+  local audit_base="${PROJECT_ROOT:-$PWD}"
+  audit_dir="$audit_base/audits/$(date +%Y%m%d-%H%M%S)-$vps_host"
+  mkdir -p "$audit_dir" || fail "Cannot create audit directory: $audit_dir"
 
   # Run each audit category
   _audit_docker   "$ssh_opts" "$vps_user" "$vps_host" "$_sudo" "$audit_dir"
