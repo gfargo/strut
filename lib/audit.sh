@@ -31,18 +31,18 @@ _audit_docker() {
 
   log "Collecting container information..."
 
-  ssh $ssh_opts "$vps_user@$vps_host" "${_sudo}docker ps --format '{{json .}}'" > "$audit_dir/containers.jsonl" 2>/dev/null || {
+  ssh $ssh_opts "$vps_user@$vps_host" "${_sudo}docker ps --format json" > "$audit_dir/containers.jsonl" 2>/dev/null || {
     warn "Failed to get container list. Is Docker running?"
     return 1
   }
   log "  ✓ Containers collected"
 
-  ssh $ssh_opts "$vps_user@$vps_host" "${_sudo}docker ps -a --format '{{json .}}'" > "$audit_dir/containers-all.jsonl" 2>/dev/null
-  ssh $ssh_opts "$vps_user@$vps_host" "${_sudo}docker volume ls --format '{{json .}}'" > "$audit_dir/volumes.jsonl" 2>/dev/null
+  ssh $ssh_opts "$vps_user@$vps_host" "${_sudo}docker ps -a --format json" > "$audit_dir/containers-all.jsonl" 2>/dev/null
+  ssh $ssh_opts "$vps_user@$vps_host" "${_sudo}docker volume ls --format json" > "$audit_dir/volumes.jsonl" 2>/dev/null
   log "  ✓ Volumes collected"
 
-  ssh $ssh_opts "$vps_user@$vps_host" "${_sudo}docker network ls --format '{{json .}}'" > "$audit_dir/networks.jsonl" 2>/dev/null
-  ssh $ssh_opts "$vps_user@$vps_host" "${_sudo}docker images --format '{{json .}}'" > "$audit_dir/images.jsonl" 2>/dev/null
+  ssh $ssh_opts "$vps_user@$vps_host" "${_sudo}docker network ls --format json" > "$audit_dir/networks.jsonl" 2>/dev/null
+  ssh $ssh_opts "$vps_user@$vps_host" "${_sudo}docker images --format json" > "$audit_dir/images.jsonl" 2>/dev/null
   log "  ✓ Images collected"
 
   ssh $ssh_opts "$vps_user@$vps_host" "ss -tuln | grep LISTEN" > "$audit_dir/ports.txt" 2>/dev/null
@@ -62,7 +62,8 @@ _audit_nginx() {
   log "Collecting nginx configuration..."
   mkdir -p "$audit_dir/nginx"
 
-  ssh $ssh_opts "$vps_user@$vps_host" "${_sudo}docker ps --format '{{.Names}}' | grep -i nginx" > "$audit_dir/nginx/nginx-containers.txt" 2>/dev/null || true
+  # shellcheck disable=SC2029
+  ssh $ssh_opts "$vps_user@$vps_host" "${_sudo}docker ps --format '{{.Names}}'" 2>/dev/null | grep -i nginx > "$audit_dir/nginx/nginx-containers.txt" || true
   ssh $ssh_opts "$vps_user@$vps_host" "systemctl is-active nginx 2>/dev/null || echo 'not-running'" > "$audit_dir/nginx/nginx-service-status.txt" 2>/dev/null || true
 
   local nginx_containers
@@ -93,7 +94,8 @@ _audit_caddy() {
   log "Collecting Caddy configuration..."
   mkdir -p "$audit_dir/caddy"
 
-  ssh $ssh_opts "$vps_user@$vps_host" "${_sudo}docker ps --format '{{.Names}}' | grep -i caddy" > "$audit_dir/caddy/caddy-containers.txt" 2>/dev/null || true
+  # shellcheck disable=SC2029
+  ssh $ssh_opts "$vps_user@$vps_host" "${_sudo}docker ps --format '{{.Names}}'" 2>/dev/null | grep -i caddy > "$audit_dir/caddy/caddy-containers.txt" || true
   ssh $ssh_opts "$vps_user@$vps_host" "systemctl is-active caddy 2>/dev/null || echo 'not-running'" > "$audit_dir/caddy/caddy-service-status.txt" 2>/dev/null || true
 
   local caddy_containers
@@ -191,7 +193,12 @@ _audit_secrets() {
   container_ids=$(ssh $ssh_opts "$vps_user@$vps_host" "${_sudo}docker ps -q" 2>/dev/null || echo "")
   if [ -n "$container_ids" ]; then
     for cid in $container_ids; do
-      ssh $ssh_opts "$vps_user@$vps_host" "${_sudo}docker inspect $cid --format='{{range .Config.Env}}{{println .}}{{end}}' 2>/dev/null | cut -d'=' -f1 | sort -u" > "$audit_dir/secrets/container-${cid}-env-keys.txt" 2>/dev/null || true
+      # Use docker inspect JSON output and extract env var names locally
+      # to avoid Go template brace escaping issues over SSH
+      # shellcheck disable=SC2029
+      ssh $ssh_opts "$vps_user@$vps_host" "${_sudo}docker inspect $cid" 2>/dev/null \
+        | grep -oP '"[A-Z_][A-Z0-9_]*=' | tr -d '"' | tr -d '=' | sort -u \
+        > "$audit_dir/secrets/container-${cid}-env-keys.txt" 2>/dev/null || true
     done
   fi
   log "  ✓ Environment patterns collected"
@@ -205,7 +212,8 @@ _audit_databases() {
   log "Detecting database services..."
   mkdir -p "$audit_dir/databases"
 
-  ssh $ssh_opts "$vps_user@$vps_host" "${_sudo}docker ps --format '{{.Names}}\t{{.Image}}' | grep -E '(postgres|mysql|mariadb|mongo|redis|neo4j)'" > "$audit_dir/databases/database-containers.txt" 2>/dev/null || echo "No database containers found" > "$audit_dir/databases/database-containers.txt"
+  # shellcheck disable=SC2029
+  ssh $ssh_opts "$vps_user@$vps_host" "${_sudo}docker ps --format '{{.Names}}\t{{.Image}}'" 2>/dev/null | grep -E '(postgres|mysql|mariadb|mongo|redis|neo4j)' > "$audit_dir/databases/database-containers.txt" || echo "No database containers found" > "$audit_dir/databases/database-containers.txt"
   ssh $ssh_opts "$vps_user@$vps_host" "systemctl list-units --type=service --state=running --no-pager | grep -E '(postgres|mysql|mariadb|mongo|redis)'" > "$audit_dir/databases/database-services.txt" 2>/dev/null || echo "No database system services found" > "$audit_dir/databases/database-services.txt"
   ssh $ssh_opts "$vps_user@$vps_host" "ss -tuln | grep -E ':(5432|3306|27017|6379|7687)'" > "$audit_dir/databases/database-ports.txt" 2>/dev/null || echo "No database ports detected" > "$audit_dir/databases/database-ports.txt"
 }
