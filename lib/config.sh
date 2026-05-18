@@ -55,7 +55,31 @@ _preprocess_config() {
 
   local dir line inc_path
   dir=$(dirname "$abs")
+  local _in_section=false
   while IFS= read -r line || [ -n "$line" ]; do
+    # Detect INI-style section headers — these are parsed by topology.sh,
+    # not sourced as bash. Skip the header and all lines within the section.
+    if [[ "$line" =~ ^\[([a-zA-Z_-]+)\][[:space:]]*$ ]]; then
+      _in_section=true
+      continue
+    fi
+
+    # Lines inside a section use "key = value" format (spaces around =).
+    # A bash-style assignment (KEY=value, no spaces around =) or another
+    # section header signals the end of the section.
+    if [ "$_in_section" = "true" ]; then
+      # Stay in section for: blank lines and comments
+      if [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]]; then
+        continue
+      fi
+      # Section content: "key = value" (has space before =)
+      if [[ "$line" =~ ^[[:space:]]*[a-zA-Z0-9_-]+[[:space:]]+= ]]; then
+        continue
+      fi
+      # Anything else (bash assignment KEY=val, other content) = left section
+      _in_section=false
+    fi
+
     if [[ "$line" =~ ^[[:space:]]*include[[:space:]]*=[[:space:]]*(.+)$ ]]; then
       inc_path="${BASH_REMATCH[1]}"
       # Trim trailing whitespace
