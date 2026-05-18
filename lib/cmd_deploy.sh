@@ -85,6 +85,7 @@ cmd_deploy() {
   local skip_validation=false
   local force_unlock=false
   local skip_lock=false
+  local force_local=false
   # Mode: honor DEPLOY_MODE config default; --blue-green / --standard on the
   # CLI always wins. `mode_flag=""` means "not overridden — use config".
   local mode_flag=""
@@ -94,6 +95,7 @@ cmd_deploy() {
       --skip-validation) skip_validation=true; shift ;;
       --force-unlock) force_unlock=true; shift ;;
       --no-lock) skip_lock=true; shift ;;
+      --force-local) force_local=true; shift ;;
       --blue-green) mode_flag="blue-green"; shift ;;
       --standard)   mode_flag="standard";   shift ;;
       *) shift ;;
@@ -129,8 +131,8 @@ cmd_deploy() {
     fi
   fi
 
-  # Check if this is a VPS environment and warn user (skip if we're ON the VPS)
-  if [ -f "$env_file" ]; then
+  # Check if this is a VPS environment and warn user (skip if we're ON the VPS or --force-local)
+  if [ "$force_local" != "true" ] && [ -f "$env_file" ]; then
     set -a; source "$env_file"; set +a
     if [ -n "${VPS_HOST:-}" ] && ! is_running_on_vps; then
       warn "Detected VPS environment (VPS_HOST=$VPS_HOST)"
