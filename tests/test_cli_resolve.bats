@@ -117,3 +117,44 @@ EOF
   result=$(resolve_compose_cmd "knowledge-graph" "$TEST_TMP/.local.env" "")
   [[ "$result" == *"--project-name knowledge-graph-local"* ]]
 }
+
+# ── COMPOSE_PROJECT_NAME override (issue #96) ────────────────────────────────
+
+@test "resolve_compose_cmd: respects COMPOSE_PROJECT_NAME from env file" {
+  _load_cli_functions
+  cat > "$TEST_TMP/.prod.env" <<'EOF'
+VPS_HOST=10.0.0.1
+COMPOSE_PROJECT_NAME=plane
+EOF
+  set -a; source "$TEST_TMP/.prod.env"; set +a
+
+  result=$(resolve_compose_cmd "plane" "$TEST_TMP/.prod.env" "")
+  # Should use "plane" not "plane-prod"
+  [[ "$result" == *"--project-name plane"* ]]
+  [[ "$result" != *"--project-name plane-prod"* ]]
+}
+
+@test "resolve_compose_cmd: COMPOSE_PROJECT_NAME takes precedence over auto-generated name" {
+  _load_cli_functions
+  cat > "$TEST_TMP/.local.env" <<'EOF'
+COMPOSE_PROJECT_NAME=my-custom-name
+EOF
+  set -a; source "$TEST_TMP/.local.env"; set +a
+
+  result=$(resolve_compose_cmd "knowledge-graph" "$TEST_TMP/.local.env" "")
+  [[ "$result" == *"--project-name my-custom-name"* ]]
+  [[ "$result" != *"knowledge-graph-local"* ]]
+}
+
+@test "resolve_compose_cmd: auto-generates name when COMPOSE_PROJECT_NAME is not set" {
+  _load_cli_functions
+  # Ensure COMPOSE_PROJECT_NAME is unset
+  unset COMPOSE_PROJECT_NAME
+  cat > "$TEST_TMP/.prod.env" <<'EOF'
+VPS_HOST=10.0.0.1
+EOF
+  set -a; source "$TEST_TMP/.prod.env"; set +a
+
+  result=$(resolve_compose_cmd "my-app" "$TEST_TMP/.prod.env" "")
+  [[ "$result" == *"--project-name my-app-prod"* ]]
+}
