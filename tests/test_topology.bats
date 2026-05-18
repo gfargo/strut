@@ -261,3 +261,154 @@ EOF
   [[ "$result" == *"hub"* ]]
   [[ "$result" != *"immich"* ]]
 }
+
+# ── Property-Based Tests ──────────────────────────────────────────────────────
+
+@test "Property: topology_resolve_host parses any valid host spec (100 iterations)" {
+  for i in $(seq 1 100); do
+    # Reset topology state
+    _TOPO_HOSTS=()
+    _TOPO_STACK_HOST=()
+    _TOPO_LOADED=false
+
+    # Generate random username (alphanumeric, 3-12 chars)
+    local ulen=$(( (RANDOM % 10) + 3 ))
+    local rand_user=""
+    for c in $(seq 1 "$ulen"); do
+      rand_user+=$(printf '%s' "abcdefghijklmnopqrstuvwxyz0123456789" | cut -c$(( (RANDOM % 36) + 1 )))
+    done
+
+    # Generate random hostname with dots and .local suffix
+    local hlen=$(( (RANDOM % 8) + 3 ))
+    local rand_host=""
+    for c in $(seq 1 "$hlen"); do
+      rand_host+=$(printf '%s' "abcdefghijklmnopqrstuvwxyz" | cut -c$(( (RANDOM % 26) + 1 )))
+    done
+    # Add a subdomain or .local
+    if (( RANDOM % 2 == 0 )); then
+      rand_host="${rand_host}.local"
+    else
+      rand_host="${rand_host}.$(printf '%s' "abcdefghij" | cut -c$(( (RANDOM % 10) + 1 )))$(printf '%s' "abcdefghij" | cut -c$(( (RANDOM % 10) + 1 )))$(printf '%s' "abcdefghij" | cut -c$(( (RANDOM % 10) + 1 ))).com"
+    fi
+
+    # Generate random port (1-65535)
+    local rand_port=$(( (RANDOM % 65535) + 1 ))
+
+    # Generate random key path
+    local klen=$(( (RANDOM % 8) + 3 ))
+    local rand_key="~/.ssh/"
+    for c in $(seq 1 "$klen"); do
+      rand_key+=$(printf '%s' "abcdefghijklmnopqrstuvwxyz_" | cut -c$(( (RANDOM % 27) + 1 )))
+    done
+
+    # Write config
+    cat > "$TEST_TMP/strut.conf" <<EOF
+[hosts]
+testhost = ${rand_user}@${rand_host}:${rand_port} ${rand_key}
+
+[stacks]
+teststack = testhost
+EOF
+
+    export PROJECT_ROOT="$TEST_TMP"
+
+    local user host port key
+    read -r user host port key <<< "$(topology_resolve_host "teststack")"
+
+    if [ "$user" != "$rand_user" ]; then
+      fail "iteration $i: user mismatch: got '$user', expected '$rand_user'"
+    fi
+    if [ "$host" != "$rand_host" ]; then
+      fail "iteration $i: host mismatch: got '$host', expected '$rand_host'"
+    fi
+    if [ "$port" != "$rand_port" ]; then
+      fail "iteration $i: port mismatch: got '$port', expected '$rand_port'"
+    fi
+    if [ "$key" != "$rand_key" ]; then
+      fail "iteration $i: key mismatch: got '$key', expected '$rand_key'"
+    fi
+  done
+}
+
+@test "Property: topology_apply_to_env never overwrites existing env vars (100 iterations)" {
+  for i in $(seq 1 100); do
+    # Reset topology state
+    _TOPO_HOSTS=()
+    _TOPO_STACK_HOST=()
+    _TOPO_LOADED=false
+
+    # Generate a random value for VPS_HOST
+    local rand_val="existing-host-${RANDOM}-${RANDOM}"
+
+    cat > "$TEST_TMP/strut.conf" <<EOF
+[hosts]
+node1 = deploy@server${RANDOM}.example.com:$(( (RANDOM % 65535) + 1 )) ~/.ssh/key${RANDOM}
+
+[stacks]
+mystack = node1
+EOF
+
+    export PROJECT_ROOT="$TEST_TMP"
+    export VPS_HOST="$rand_val"
+    unset VPS_USER VPS_PORT VPS_SSH_KEY
+
+    topology_apply_to_env "mystack"
+
+    if [ "$VPS_HOST" != "$rand_val" ]; then
+      fail "iteration $i: VPS_HOST was overwritten: got '$VPS_HOST', expected '$rand_val'"
+    fi
+  done
+}
+
+@test "Property: topology_load is idempotent (100 iterations)" {
+  for i in $(seq 1 100); do
+    # Reset topology state
+    _TOPO_HOSTS=()
+    _TOPO_STACK_HOST=()
+    _TOPO_LOADED=false
+
+    # Generate random config with 1-3 hosts and stacks
+    local num_hosts=$(( (RANDOM % 3) + 1 ))
+    local conf_hosts=""
+    local conf_stacks=""
+    local aliases=()
+
+    for h in $(seq 1 "$num_hosts"); do
+      local alias="host${h}r${RANDOM}"
+      aliases+=("$alias")
+      conf_hosts+="${alias} = user${h}@node${h}.local:$(( (RANDOM % 65535) + 1 )) ~/.ssh/key${h}"$'\n'
+      conf_stacks+="stack${h} = ${alias}"$'\n'
+    done
+
+    cat > "$TEST_TMP/strut.conf" <<EOF
+[hosts]
+${conf_hosts}
+[stacks]
+${conf_stacks}
+EOF
+
+    export PROJECT_ROOT="$TEST_TMP"
+
+    # First load
+    topology_load
+    local hosts_after_first="${_TOPO_HOSTS[*]}"
+    local stacks_after_first="${_TOPO_STACK_HOST[*]}"
+    local loaded_after_first="$_TOPO_LOADED"
+
+    # Second load (should be a no-op)
+    topology_load
+    local hosts_after_second="${_TOPO_HOSTS[*]}"
+    local stacks_after_second="${_TOPO_STACK_HOST[*]}"
+    local loaded_after_second="$_TOPO_LOADED"
+
+    if [ "$hosts_after_first" != "$hosts_after_second" ]; then
+      fail "iteration $i: _TOPO_HOSTS changed after second load"
+    fi
+    if [ "$stacks_after_first" != "$stacks_after_second" ]; then
+      fail "iteration $i: _TOPO_STACK_HOST changed after second load"
+    fi
+    if [ "$loaded_after_first" != "$loaded_after_second" ]; then
+      fail "iteration $i: _TOPO_LOADED changed after second load"
+    fi
+  done
+}
