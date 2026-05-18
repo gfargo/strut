@@ -65,7 +65,8 @@ deploy_stack() {
     log "[2/7] Pre-deploy validation..."
 
     # Run config schema validation
-    source "$cli_root/lib/cmd_validate.sh"
+    local strut_home="${STRUT_HOME:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+    source "$strut_home/lib/cmd_validate.sh"
     export CMD_STACK="$stack"
     export CMD_STACK_DIR="$stack_dir"
     export CMD_ENV_FILE="$env_file"
@@ -146,7 +147,8 @@ deploy_stack() {
   fi
 
   # Save rollback snapshot before pulling/building new images
-  source "$cli_root/lib/rollback.sh"
+  local strut_home="${STRUT_HOME:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+  source "$strut_home/lib/rollback.sh"
   rollback_save_snapshot "$stack" "$compose_cmd" "$env_name"
 
   # Pull or build images based on BUILD_MODE
