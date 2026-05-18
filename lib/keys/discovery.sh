@@ -178,7 +178,7 @@ discover_vps_keys() {
 
   # List authorized users
   local authorized_users
-  authorized_users=$(ssh $ssh_opts "$vps_user@$vps_host" "cat ~/.ssh/authorized_keys 2>/dev/null | grep -oP '(?<=\s)[^\s]+@[^\s]+$' || echo ''" 2>/dev/null || echo "")
+  authorized_users=$(ssh $ssh_opts "$vps_user@$vps_host" "cat ~/.ssh/authorized_keys 2>/dev/null | awk '{print \$NF}' | grep '@' || echo ''" 2>/dev/null || echo "")
 
   # Check for .env files
   local env_files

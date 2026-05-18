@@ -91,7 +91,8 @@ drift_schedule_list() {
     local schedule
     local stack_name
     schedule=$(echo "$job" | awk '{print $1, $2, $3, $4, $5}')
-    stack_name=$(echo "$job" | grep -oP 'cli\.sh \K[^ ]+' || echo "unknown")
+    stack_name=$(echo "$job" | sed -n 's/.*cli\.sh \([^ ]*\).*/\1/p')
+    [ -z "$stack_name" ] && stack_name="unknown"
 
     echo "Stack: $stack_name"
     echo "  Schedule: $schedule"
