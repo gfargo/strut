@@ -235,11 +235,22 @@ vps_sudo_prefix() {
 # ── Misc helpers ─────────────────────────────────────────────────────────────
 
 # is_running_on_vps
-# Returns 0 if the current machine appears to be the VPS (VPS_HOST matches a local IP).
+# Returns 0 if the current machine appears to be the VPS target.
+# Checks: hostname match, hostname.local match, and local IP match.
 # Requires VPS_HOST to be set in the environment.
 is_running_on_vps() {
   local vps_host="${VPS_HOST:-}"
   [ -n "$vps_host" ] || return 1  # silent check — no VPS_HOST means not on VPS
+
+  # Check if VPS_HOST matches the current hostname (with or without .local)
+  local current_hostname
+  current_hostname=$(hostname 2>/dev/null || echo "")
+  if [ -n "$current_hostname" ]; then
+    [[ "$current_hostname" == "$vps_host" ]] && return 0
+    [[ "${current_hostname}.local" == "$vps_host" ]] && return 0
+    # Also handle case where VPS_HOST has .local but hostname doesn't
+    [[ "$current_hostname" == "${vps_host%.local}" ]] && return 0
+  fi
 
   # Check if VPS_HOST matches any local IP address
   if command -v hostname &>/dev/null; then
