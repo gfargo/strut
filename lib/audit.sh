@@ -197,7 +197,7 @@ _audit_secrets() {
       # to avoid Go template brace escaping issues over SSH
       # shellcheck disable=SC2029
       ssh $ssh_opts "$vps_user@$vps_host" "${_sudo}docker inspect $cid" 2>/dev/null \
-        | grep -oP '"[A-Z_][A-Z0-9_]*=' | tr -d '"' | tr -d '=' | sort -u \
+        | grep -Eo '"[A-Z_][A-Z0-9_]*=' | tr -d '"' | tr -d '=' | sort -u \
         > "$audit_dir/secrets/container-${cid}-env-keys.txt" 2>/dev/null || true
     done
   fi
