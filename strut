@@ -83,6 +83,7 @@ export CLI_ROOT
 load_strut_config
 
 source "$LIB/utils.sh"
+source "$LIB/topology.sh"
 
 # Unified EXIT trap — runs every cleanup registered via `strut_register_cleanup`.
 # Registered here (not in utils.sh) so sourcing the library in tests doesn't
@@ -665,6 +666,14 @@ export CMD_ENV_FILE="$ENV_FILE"
 export CMD_ENV_NAME="$ENV_NAME"
 export CMD_SERVICES="$SERVICES"
 export CMD_JSON="$JSON_FLAG"
+
+# Apply topology defaults — if [hosts]/[stacks] sections exist in strut.conf,
+# fill in VPS_HOST/VPS_USER/VPS_PORT/VPS_SSH_KEY from the topology map
+# (env file values take precedence when set).
+if [ -f "$ENV_FILE" ]; then
+  set -a; source "$ENV_FILE" 2>/dev/null; set +a
+fi
+topology_apply_to_env "$STACK"
 
 # Error context for fail/warn/error messages. Formats as
 # "stack/env/command" when all three are known, else falls back.
