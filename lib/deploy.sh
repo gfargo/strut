@@ -96,18 +96,26 @@ deploy_stack() {
 
   # Dry-run: show execution plan and exit early
   if [ "$DRY_RUN" = "true" ]; then
+    load_services_conf "$stack_dir"
+    local dry_build_mode="${BUILD_MODE:-registry}"
     echo ""
-    echo -e "${YELLOW}[DRY-RUN] Execution plan for deploy:${NC}"
-    local registry_type="${REGISTRY_TYPE:-none}"
-    if [ "$registry_type" != "none" ]; then
-      local registry_host="${REGISTRY_HOST:-}"
-      if [ -n "$registry_host" ]; then
-        run_cmd "Authenticate with registry ($registry_type: $registry_host)" echo "registry auth"
-      else
-        run_cmd "Authenticate with registry ($registry_type)" echo "registry auth"
+    echo -e "${YELLOW}[DRY-RUN] Execution plan for deploy (BUILD_MODE=$dry_build_mode):${NC}"
+    if [ "$dry_build_mode" = "registry" ]; then
+      local registry_type="${REGISTRY_TYPE:-none}"
+      if [ "$registry_type" != "none" ]; then
+        local registry_host="${REGISTRY_HOST:-}"
+        if [ -n "$registry_host" ]; then
+          run_cmd "Authenticate with registry ($registry_type: $registry_host)" echo "registry auth"
+        else
+          run_cmd "Authenticate with registry ($registry_type)" echo "registry auth"
+        fi
       fi
+      run_cmd "Pull latest images" $compose_cmd pull
+    elif [ "$dry_build_mode" = "local" ]; then
+      run_cmd "Build images on target" $compose_cmd build
+    else
+      run_cmd "Skip image pull/build (BUILD_MODE=$dry_build_mode)" echo "skipped"
     fi
-    run_cmd "Pull latest images" $compose_cmd pull
     run_cmd "Create data directories" mkdir -p "$stack_dir/data/..."
     run_cmd "Stop existing containers" $compose_cmd down --remove-orphans
     run_cmd "Start services" $compose_cmd up -d --remove-orphans
@@ -121,21 +129,45 @@ deploy_stack() {
     return 0
   fi
 
-  # Registry login (dispatches based on REGISTRY_TYPE from config)
-  log "[2/5] Authenticating with registry..."
-  registry_login
+  # Load services.conf early so BUILD_MODE and other config is available
+  # for the registry/build decision below.
+  load_services_conf "$stack_dir"
+  local build_mode="${BUILD_MODE:-registry}"
 
-  # Save rollback snapshot before pulling new images
+  # Registry login (dispatches based on REGISTRY_TYPE from config)
+  # Skipped when BUILD_MODE=local or BUILD_MODE=none (no registry needed)
+  if [ "$build_mode" = "registry" ]; then
+    log "[2/5] Authenticating with registry..."
+    registry_login
+  elif [ "$build_mode" = "local" ]; then
+    log "[2/5] Skipping registry auth (BUILD_MODE=local)"
+  else
+    log "[2/5] Skipping registry auth (BUILD_MODE=$build_mode)"
+  fi
+
+  # Save rollback snapshot before pulling/building new images
   source "$cli_root/lib/rollback.sh"
   rollback_save_snapshot "$stack" "$compose_cmd" "$env_name"
 
-  # Pull images
-  log "[3/5] Pulling latest images..."
-  docker_pull_stack "$compose_cmd"
+  # Pull or build images based on BUILD_MODE
+  if [ "$build_mode" = "local" ]; then
+    log "[3/5] Building images on target..."
+    local build_args="${BUILD_ARGS:-}"
+    local build_cmd="$compose_cmd build"
+    [ "${BUILD_PULL:-false}" = "true" ] && build_cmd="$build_cmd --pull"
+    [ "${BUILD_PARALLEL:-true}" = "true" ] && build_cmd="$build_cmd --parallel"
+    [ -n "$build_args" ] && build_cmd="$build_cmd $build_args"
+    $build_cmd || fail "Image build failed"
+    ok "Images built successfully"
+  elif [ "$build_mode" = "none" ]; then
+    log "[3/5] Skipping image pull/build (BUILD_MODE=none)"
+  else
+    log "[3/5] Pulling latest images..."
+    docker_pull_stack "$compose_cmd"
+  fi
 
   # Data directories — read from services.conf or use defaults
   log "[4/5] Creating data directories..."
-  load_services_conf "$stack_dir"
   local data_dirs="${STACK_DATA_DIRS:-data/postgres data/redis data/gdrive}"
   for dir in $data_dirs; do
     mkdir -p "$stack_dir/$dir"
@@ -264,7 +296,8 @@ vps_update_repo() {
 }
 
 # pull_only_stack <stack> <env_file> [services_profile]
-# Only pulls images without starting services
+# Only pulls images without starting services.
+# When BUILD_MODE=local, builds images instead of pulling.
 pull_only_stack() {
   local stack="$1"
   local env_file="$2"
@@ -276,9 +309,28 @@ pull_only_stack() {
   local compose_cmd
   compose_cmd=$(resolve_compose_cmd "$stack" "$env_file" "$services_profile")
 
-  registry_login
-  docker_pull_stack "$compose_cmd"
-  ok "Pull complete."
+  local cli_root="${CLI_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+  local stack_dir="$cli_root/stacks/$stack"
+  load_services_conf "$stack_dir"
+  local build_mode="${BUILD_MODE:-registry}"
+
+  if [ "$build_mode" = "local" ]; then
+    log "Building images on target (BUILD_MODE=local)..."
+    local build_args="${BUILD_ARGS:-}"
+    local build_cmd="$compose_cmd build"
+    [ "${BUILD_PULL:-false}" = "true" ] && build_cmd="$build_cmd --pull"
+    [ "${BUILD_PARALLEL:-true}" = "true" ] && build_cmd="$build_cmd --parallel"
+    [ -n "$build_args" ] && build_cmd="$build_cmd $build_args"
+    $build_cmd || fail "Image build failed"
+    ok "Build complete."
+  elif [ "$build_mode" = "none" ]; then
+    log "Skipping pull/build (BUILD_MODE=none)"
+    ok "Nothing to pull or build."
+  else
+    registry_login
+    docker_pull_stack "$compose_cmd"
+    ok "Pull complete."
+  fi
 }
 
 # vps_release <stack> <env_file> [services_profile]

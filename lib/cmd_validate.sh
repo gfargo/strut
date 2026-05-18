@@ -163,6 +163,33 @@ _validate_services_conf() {
         valid=false
       fi
     fi
+
+    # BUILD_MODE validation
+    if [[ "$key" == "BUILD_MODE" ]]; then
+      case "$val" in
+        local|registry|none) ;;
+        *)
+          _val_error "services.conf" "BUILD_MODE='$val' (must be local, registry, or none)"
+          valid=false
+          ;;
+      esac
+    fi
+
+    # BUILD_PULL validation
+    if [[ "$key" == "BUILD_PULL" ]]; then
+      if ! _is_valid_boolean "$val"; then
+        _val_error "services.conf" "BUILD_PULL='$val' (must be true or false)"
+        valid=false
+      fi
+    fi
+
+    # BUILD_PARALLEL validation
+    if [[ "$key" == "BUILD_PARALLEL" ]]; then
+      if ! _is_valid_boolean "$val"; then
+        _val_error "services.conf" "BUILD_PARALLEL='$val' (must be true or false)"
+        valid=false
+      fi
+    fi
   done < "$conf_file"
 
   $valid && _val_ok "services.conf" "valid ($service_count services, $db_count databases)"

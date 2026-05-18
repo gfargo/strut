@@ -4,6 +4,19 @@
 # Place this file in your stack directory (stacks/<name>/services.conf).
 # The health engine reads this to discover services and databases.
 #
+# ── Build Mode ─────────────────────────────────────
+# Controls how images are obtained during deploy.
+#   registry — pull from container registry (default)
+#   local    — build on target host (docker compose build)
+#   none     — images already exist, skip both build and pull
+#
+# BUILD_MODE=registry
+#
+# When BUILD_MODE=local, optional build settings:
+# BUILD_ARGS=--no-cache        # extra args passed to docker compose build
+# BUILD_PULL=false             # pull base images before build (default: false)
+# BUILD_PARALLEL=true          # parallel builds for multi-service stacks (default: true)
+#
 # ── Application Services ───────────────────────────
 # Declare each service with <NAME>_PORT and an optional <NAME>_HEALTH_PATH.
 #
