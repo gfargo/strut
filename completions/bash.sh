@@ -68,7 +68,7 @@ _strut_completions() {
   cword=$COMP_CWORD
 
   local top_cmds="init list scaffold upgrade doctor status-all posture group monitoring audit audit:list audit:generate migrate migrate:status notify skills help completions --version -v --help -h"
-  local per_stack_cmds="update release deploy stop diff lock health logs logs:download logs:rotate migrate backup restore db:pull db:push db:schema shell exec status volumes prune local prod staging dev debug keys validate rollback domain --help"
+  local per_stack_cmds="update release deploy rebuild stop diff lock health logs logs:download logs:rotate migrate backup restore db:pull db:push db:schema shell exec remote:init status volumes prune local prod staging dev debug keys validate rollback domain --help"
   local profiles="messaging ui full gdrive"
 
   # Flag-value completions — operate on prev regardless of position
@@ -173,7 +173,11 @@ _strut_completions() {
       [ "$cword" -eq 3 ] && mapfile -t COMPREPLY < <(compgen -W "neo4j postgres --status --up --down" -- "$cur") && return 0
       ;;
     deploy)
-      mapfile -t COMPREPLY < <(compgen -W "--env --services --pull-only --skip-validation --force-unlock --no-lock --dry-run" -- "$cur")
+      mapfile -t COMPREPLY < <(compgen -W "--env --services --pull-only --skip-validation --force-unlock --no-lock --force-local --blue-green --standard --dry-run" -- "$cur")
+      return 0
+      ;;
+    rebuild)
+      mapfile -t COMPREPLY < <(compgen -W "--env --no-cache --pull --dry-run" -- "$cur")
       return 0
       ;;
     health)
