@@ -241,7 +241,11 @@ vps_update_repo() {
   ssh $ssh_opts "$vps_user@$vps_host" "
     set -e
     if [ ! -d '$deploy_dir' ]; then
-      echo 'ERROR: $deploy_dir not found on VPS' >&2; exit 1
+      echo 'ERROR: $deploy_dir not found on VPS' >&2
+      echo '' >&2
+      echo 'strut is not initialized on this host.' >&2
+      echo 'Run: strut <stack> remote:init --env <name>' >&2
+      exit 1
     fi
     cd '$deploy_dir'
     echo '--- Current HEAD ---'

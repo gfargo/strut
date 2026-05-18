@@ -134,6 +134,7 @@ source "$LIB/cmd_domain.sh"
 source "$LIB/cmd_volumes.sh"
 source "$LIB/cmd_keys.sh"
 source "$LIB/cmd_remote.sh"
+source "$LIB/cmd_remote_init.sh"
 source "$LIB/cmd_init.sh"
 source "$LIB/cmd_stop.sh"
 source "$LIB/cmd_skills.sh"
@@ -226,6 +227,7 @@ usage() {
   echo "                                                                 Upload local backup to VPS and restore remotely"
   echo "  shell    [--env <name>]                                        SSH to VPS"
   echo "  exec     [--env <name>] <command>                              Execute command on VPS"
+  echo "  remote:init [--env <name>] [--host <h>] [--user <u>]          Bootstrap strut on VPS"
   echo "  status   [--env <name>]                                        Stack status"
   echo "  volumes  [--env <name>] [status|init|config]                   Volume management"
   echo "  local    start [--services <profile>]                          Start stack locally"
@@ -691,6 +693,7 @@ if [ "$FLAGS_HELP" = "true" ]; then
     validate) _usage_validate ;;
     rollback) _usage_rollback ;;
     diff)     _usage_diff ;;
+    remote:init) _usage_remote_init ;;
     lock)     _usage_lock ;;
     *)        usage ;;
   esac
@@ -715,6 +718,7 @@ case "$COMMAND" in
   db:push)             cmd_db_push "${CMD_ARGS[@]+"${CMD_ARGS[@]}"}" ;;
   shell)               cmd_shell ;;
   exec)                cmd_exec "${CMD_ARGS[@]+"${CMD_ARGS[@]}"}" ;;
+  remote:init)         cmd_remote_init "${CMD_ARGS[@]+"${CMD_ARGS[@]}"}" ;;
   status)              cmd_status ;;
   prune)               cmd_prune "${CMD_ARGS[@]+"${CMD_ARGS[@]}"}" ;;
   volumes)             cmd_volumes "${CMD_ARGS[@]+"${CMD_ARGS[@]}"}" ;;
