@@ -144,6 +144,21 @@ _load_utils() {
   [[ "$result" == *"ServerAliveInterval=5"* ]]
 }
 
+# ── IdentitiesOnly when key specified (issue #93) ────────────────────────────
+
+@test "build_ssh_opts: -k adds IdentitiesOnly=yes to prevent agent key offers" {
+  _load_utils
+  result=$(build_ssh_opts -k /home/user/.ssh/id_rsa)
+  [[ "$result" == *"IdentitiesOnly=yes"* ]]
+  [[ "$result" == *"-i /home/user/.ssh/id_rsa"* ]]
+}
+
+@test "build_ssh_opts: no IdentitiesOnly when no key specified" {
+  _load_utils
+  result=$(build_ssh_opts)
+  [[ "$result" != *"IdentitiesOnly"* ]]
+}
+
 # ── ControlMaster multiplexing (issue #37) ───────────────────────────────────
 
 @test "build_ssh_opts: includes ControlMaster options by default" {

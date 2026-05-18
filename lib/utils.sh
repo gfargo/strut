@@ -351,7 +351,7 @@ build_ssh_opts() {
   [[ "$batch" == true ]] && opts="$opts -o BatchMode=yes"
   [[ "$tty" == true ]] && opts="-t $opts"
   [[ "$keepalive" == true ]] && opts="$opts -o ServerAliveInterval=5 -o ServerAliveCountMax=2"
-  [[ -n "$ssh_key" ]] && opts="$opts -i $ssh_key"
+  [[ -n "$ssh_key" ]] && opts="$opts -o IdentitiesOnly=yes -i $ssh_key"
 
   if [[ "$no_mux" != true ]] && ssh_mux_enabled; then
     local ctl_path
