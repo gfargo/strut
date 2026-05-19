@@ -172,3 +172,57 @@ topology_apply_to_env() {
   [ -z "${VPS_PORT:-}" ] && export VPS_PORT="$port"
   [ -z "${VPS_SSH_KEY:-}" ] && [ -n "$key_path" ] && export VPS_SSH_KEY="$key_path"
 }
+
+# topology_apply_host_override <stack> <host_alias> <stack_dir>
+#
+# When --host is specified, overrides the topology target for this stack
+# and sources per-host env overrides from stacks/<stack>/.<host>.env if present.
+#
+# This enables deploying the same stack to multiple hosts with different
+# env vars (e.g., different ports, hostnames) per host.
+topology_apply_host_override() {
+  local stack="$1"
+  local host_alias="$2"
+  local stack_dir="$3"
+  topology_load
+
+  local host_spec="${_TOPO_HOSTS[$host_alias]:-}"
+  if [ -z "$host_spec" ]; then
+    fail "Unknown host alias: '$host_alias'. Check [hosts] in strut.conf."
+    return 1
+  fi
+
+  # Parse host spec and force-set VPS_* vars (override everything)
+  local conn_part key_path
+  conn_part="${host_spec%% *}"
+  key_path="${host_spec#* }"
+  [ "$key_path" = "$conn_part" ] && key_path=""
+
+  local user host port
+  if [[ "$conn_part" == *@* ]]; then
+    user="${conn_part%%@*}"
+    local host_port="${conn_part#*@}"
+  else
+    user="ubuntu"
+    local host_port="$conn_part"
+  fi
+
+  if [[ "$host_port" == *:* ]]; then
+    host="${host_port%%:*}"
+    port="${host_port#*:}"
+  else
+    host="$host_port"
+    port="22"
+  fi
+
+  export VPS_HOST="$host"
+  export VPS_USER="$user"
+  export VPS_PORT="$port"
+  [ -n "$key_path" ] && export VPS_SSH_KEY="$key_path"
+
+  # Source per-host env override if it exists
+  local host_env="$stack_dir/.$host_alias.env"
+  if [ -f "$host_env" ]; then
+    set -a; source "$host_env"; set +a
+  fi
+}
