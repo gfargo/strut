@@ -32,3 +32,5 @@ stacks/
 
 # Wiki (cloned separately as git submodule)
 wiki/
+
+.www
