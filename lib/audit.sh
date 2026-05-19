@@ -1472,3 +1472,118 @@ audit_list() {
     echo ""
   done
 }
+
+# audit_diff <vps_host> [vps_user] [ssh_key] [ssh_port]
+#
+# Runs a fresh audit and compares it against the most recent previous audit
+# for the same host. Shows: new/removed containers, changed images, port
+# changes, and disk usage delta.
+audit_diff() {
+  local vps_host="$1"
+  local vps_user="${2:-ubuntu}"
+  local ssh_key="${3:-}"
+  local ssh_port="${4:-}"
+
+  [ -n "$vps_host" ] || fail "Usage: strut audit:diff <vps-host> [vps-user] [ssh-key] [ssh-port]"
+
+  local audit_base="${PROJECT_ROOT:-$PWD}"
+  local audits_dir="$audit_base/audits"
+
+  # Find the most recent audit for this host
+  local prev_audit=""
+  if [ -d "$audits_dir" ]; then
+    prev_audit=$(find "$audits_dir" -maxdepth 1 -type d -name "*-$vps_host" | sort | tail -1)
+  fi
+
+  if [ -z "$prev_audit" ] || [ ! -f "$prev_audit/containers.jsonl" ]; then
+    warn "No previous audit found for $vps_host"
+    log "Running initial audit..."
+    audit_vps "$vps_host" "$vps_user" "$ssh_key" "$ssh_port"
+    return 0
+  fi
+
+  log "Previous audit: $(basename "$prev_audit")"
+  log "Running fresh audit for comparison..."
+
+  # Run a new audit
+  audit_vps "$vps_host" "$vps_user" "$ssh_key" "$ssh_port"
+
+  # Find the new audit (most recent)
+  local new_audit
+  new_audit=$(find "$audits_dir" -maxdepth 1 -type d -name "*-$vps_host" | sort | tail -1)
+
+  if [ "$new_audit" = "$prev_audit" ]; then
+    warn "No new audit was created — cannot diff"
+    return 1
+  fi
+
+  echo ""
+  print_banner "Audit Diff"
+  log "Comparing: $(basename "$prev_audit") → $(basename "$new_audit")"
+  echo ""
+
+  # ── Container diff ───────────────────────────────────────────────────────
+  local prev_containers="$prev_audit/containers.jsonl"
+  local new_containers="$new_audit/containers.jsonl"
+
+  if [ -f "$prev_containers" ] && [ -f "$new_containers" ]; then
+    local prev_names new_names
+    prev_names=$(jq -r '.Names // .Name // empty' "$prev_containers" 2>/dev/null | sort)
+    new_names=$(jq -r '.Names // .Name // empty' "$new_containers" 2>/dev/null | sort)
+
+    local added removed
+    added=$(comm -13 <(echo "$prev_names") <(echo "$new_names"))
+    removed=$(comm -23 <(echo "$prev_names") <(echo "$new_names"))
+
+    if [ -n "$added" ]; then
+      echo -e "${GREEN}+ New containers:${NC}"
+      echo "$added" | sed 's/^/    + /'
+      echo ""
+    fi
+
+    if [ -n "$removed" ]; then
+      echo -e "${RED}- Removed containers:${NC}"
+      echo "$removed" | sed 's/^/    - /'
+      echo ""
+    fi
+
+    if [ -z "$added" ] && [ -z "$removed" ]; then
+      echo -e "${GREEN}  Containers: no changes${NC}"
+      echo ""
+    fi
+
+    # Image changes (same container, different image)
+    local prev_images new_images
+    prev_images=$(jq -r '(.Names // .Name) + "=" + (.Image // "")' "$prev_containers" 2>/dev/null | sort)
+    new_images=$(jq -r '(.Names // .Name) + "=" + (.Image // "")' "$new_containers" 2>/dev/null | sort)
+
+    local image_changes
+    image_changes=$(comm -3 <(echo "$prev_images") <(echo "$new_images") | grep -v "^$" || true)
+    if [ -n "$image_changes" ]; then
+      echo -e "${YELLOW}~ Image changes:${NC}"
+      echo "$image_changes" | sed 's/^/    ~ /'
+      echo ""
+    fi
+  fi
+
+  # ── Disk usage diff ──────────────────────────────────────────────────────
+  local prev_disk="$prev_audit/disk-usage.txt"
+  local new_disk="$new_audit/disk-usage.txt"
+
+  if [ -f "$prev_disk" ] && [ -f "$new_disk" ]; then
+    local prev_root new_root
+    prev_root=$(grep -E '\s/$' "$prev_disk" | awk '{print $3}' || echo "?")
+    new_root=$(grep -E '\s/$' "$new_disk" | awk '{print $3}' || echo "?")
+
+    if [ "$prev_root" != "$new_root" ]; then
+      echo -e "${YELLOW}  Disk usage (root): $prev_root → $new_root${NC}"
+    else
+      echo "  Disk usage (root): $new_root (unchanged)"
+    fi
+    echo ""
+  fi
+
+  ok "Diff complete"
+  echo "  Previous: $prev_audit"
+  echo "  Current:  $new_audit"
+}

@@ -136,6 +136,7 @@ source "$LIB/cmd_volumes.sh"
 source "$LIB/cmd_keys.sh"
 source "$LIB/cmd_remote.sh"
 source "$LIB/cmd_remote_init.sh"
+source "$LIB/cmd_ship.sh"
 source "$LIB/cmd_init.sh"
 source "$LIB/cmd_stop.sh"
 source "$LIB/cmd_skills.sh"
@@ -211,6 +212,7 @@ usage() {
   echo "  release  [--env <name>] [--services <profile>]                 Full VPS release (update + migrate + deploy)"
   echo "  deploy   [--env <name>] [--services <profile>] [--pull-only]  Deploy stack"
   echo "  rebuild  [--env <name>] [--no-cache] [--pull]                  Build images + deploy"
+  echo "  ship     [--env <name>] [-m <msg>] [--no-commit]               Commit, push, rebuild on remote"
   echo "  stop     [--env <name>] [--services <profile>] [--volumes]   Stop running containers"
   echo "  diff     [--env <name>] [--json]                              Preview pending changes vs VPS"
   echo "  lock     <status|release> [--env <name>] [--force]            Inspect/manage deploy locks"
@@ -558,6 +560,15 @@ case "${1:-}" in
     audit_list
     exit 0
     ;;
+  audit:diff)
+    VPS_HOST="${2:-}"
+    VPS_USER="${3:-ubuntu}"
+    SSH_KEY="${4:-}"
+    SSH_PORT="${5:-}"
+    [ -n "$VPS_HOST" ] || { usage; fail "Usage: strut audit:diff <vps-host> [vps-user] [ssh-key] [ssh-port]"; }
+    audit_diff "$VPS_HOST" "$VPS_USER" "$SSH_KEY" "$SSH_PORT"
+    exit 0
+    ;;
   audit:generate)
     # audit:generate <stack-name> --from <audit-dir>
     STACK_NAME="${2:-}"
@@ -688,6 +699,7 @@ if [ "$FLAGS_HELP" = "true" ]; then
   case "$COMMAND" in
     deploy)   _usage_deploy ;;
     rebuild)  _usage_rebuild ;;
+    ship)     _usage_ship ;;
     stop)     _usage_stop ;;
     health)   _usage_health ;;
     logs)     _usage_logs ;;
@@ -716,6 +728,7 @@ case "$COMMAND" in
   release)             cmd_release "${CMD_ARGS[@]+"${CMD_ARGS[@]}"}" ;;
   deploy)              cmd_deploy "${CMD_ARGS[@]+"${CMD_ARGS[@]}"}" ;;
   rebuild)             cmd_rebuild "${CMD_ARGS[@]+"${CMD_ARGS[@]}"}" ;;
+  ship)                cmd_ship "${CMD_ARGS[@]+"${CMD_ARGS[@]}"}" ;;
   stop)                cmd_stop "${CMD_ARGS[@]+"${CMD_ARGS[@]}"}" ;;
   health)              cmd_health ;;
   logs)                cmd_logs "${CMD_ARGS[@]+"${CMD_ARGS[@]}"}" ;;
