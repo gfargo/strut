@@ -28,6 +28,7 @@ parse_common_flags() {
   FLAGS_JSON=""
   FLAGS_DRY_RUN=""
   FLAGS_HELP=""
+  FLAGS_HOST=""
   FLAGS_POSITIONAL=()
 
   while [[ $# -gt 0 ]]; do
@@ -36,6 +37,8 @@ parse_common_flags() {
       --env)         FLAGS_ENV_NAME="${2:-}"; shift 2 ;;
       --services=*)  FLAGS_SERVICES="${1#*=}"; shift ;;
       --services)    FLAGS_SERVICES="${2:-}"; shift 2 ;;
+      --host=*)      FLAGS_HOST="${1#*=}"; shift ;;
+      --host)        FLAGS_HOST="${2:-}"; shift 2 ;;
       --json)        FLAGS_JSON="--json"; shift ;;
       --dry-run)     FLAGS_DRY_RUN="true"; shift ;;
       --help|-h)     FLAGS_HELP="true"; shift ;;

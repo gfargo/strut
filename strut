@@ -684,7 +684,12 @@ export CMD_JSON="$JSON_FLAG"
 if [ -f "$ENV_FILE" ]; then
   set -a; source "$ENV_FILE" 2>/dev/null; set +a
 fi
-topology_apply_to_env "$STACK"
+if [ -n "$FLAGS_HOST" ]; then
+  # --host flag overrides topology target and applies per-host env
+  topology_apply_host_override "$STACK" "$FLAGS_HOST" "$STACK_DIR"
+else
+  topology_apply_to_env "$STACK"
+fi
 
 # Error context for fail/warn/error messages. Formats as
 # "stack/env/command" when all three are known, else falls back.
