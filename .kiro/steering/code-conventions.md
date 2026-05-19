@@ -37,11 +37,17 @@ Every lib module must:
 
 - Always use `build_ssh_opts` for consistent SSH option building
 - Always use `validate_env_file` before accessing env vars
+- When a key is specified, `IdentitiesOnly=yes` is added automatically
+- Never embed Go template braces (`{{`, `}}`) in SSH commands — they get mangled in batch mode
+- For JSON output from docker over SSH, use `--format json` (Docker 23.0+), not `--format '{{json .}}'`
+- Run `grep`/`awk` locally (pipe from SSH) rather than passing complex patterns through the remote shell
 
 ## Compose Commands
 
 - Always use `resolve_compose_cmd` for consistent project naming
 - Never construct compose commands manually
+- If `COMPOSE_PROJECT_NAME` is set in the env file, it takes precedence over auto-generated names
+- `BUILD_MODE` in `services.conf` controls image strategy: `registry` (pull), `local` (build), `none` (skip)
 
 ## Dry-Run
 
@@ -66,3 +72,12 @@ Every lib module must:
 - Use `envsubst` or pattern matching for variable expansion
 - Validate all user input before passing to shell commands
 - Env files must be gitignored — `strut validate` should warn if tracked
+
+## Portability (macOS + Linux)
+
+- Never use `grep -P` (Perl regex) — macOS BSD grep doesn't support it
+- Use `grep -Eo` for extended regex extraction
+- Use `awk '{print $NF}'` or `sed -n 's/.../\1/p'` for captures that would need `-P`
+- Never use `readarray` / `mapfile` without checking bash version (macOS ships bash 3.x unless upgraded)
+- Use `$(command -v foo)` not `which foo` for portability
+- `date` flags differ: macOS uses `-v`, Linux uses `-d` — use `date +%s` for epoch math

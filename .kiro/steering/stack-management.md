@@ -49,16 +49,45 @@ Project-level settings live in `strut.conf` at the project root:
 - `PRE_DEPLOY_HOOKS` — run custom hooks before deploy (default: true)
 - `BANNER_TEXT` — branding in CLI output
 
+### Topology (Multi-Host)
+
+For multi-host projects, `strut.conf` supports `[hosts]` and `[stacks]` sections:
+
+```ini
+[hosts]
+compass = gfargo@compass.local:22 ~/.ssh/id_rsa
+mac = griffen@mac.local:22 ~/.ssh/id_rsa
+
+[stacks]
+plane = compass
+hub = compass
+immich = mac
+```
+
+This auto-populates `VPS_HOST`/`VPS_USER`/`VPS_PORT`/`VPS_SSH_KEY` from the topology. Env file values always take precedence.
+
+Per-host env overrides: `stacks/<stack>/.<host_alias>.env`
+
 ## Essential Commands
 
 ```bash
 # Deploy / Release
 strut <stack> release --env prod              # Full VPS release (recommended)
 strut <stack> deploy --env prod               # Local deploy
+strut <stack> deploy --env prod --force-local  # Deploy locally even with VPS_HOST set
 strut <stack> deploy --env prod --skip-validation  # Emergency deploy (skip checks)
+strut <stack> rebuild --env prod              # Build images on target + deploy
+strut <stack> rebuild --env prod --no-cache   # Rebuild without Docker cache
+strut <stack> ship --env prod                 # Commit + push + remote rebuild (daily workflow)
+strut <stack> ship --env prod -m "fix bug"    # Ship with custom commit message
 strut <stack> update --env prod               # Update strut scripts on VPS only
 strut <stack> stop --env prod                 # Stop running containers
 strut <stack> rollback --env prod             # Roll back to previous deploy
+strut <stack> remote:init --env prod          # Bootstrap strut on a new VPS
+
+# Multi-host targeting
+strut <stack> deploy --env prod --host compass   # Target specific host from topology
+strut <stack> ship --env prod --host watch       # Ship to a specific host
 
 # Validation & Diagnostics
 strut <stack> validate --env prod             # Validate all config files
