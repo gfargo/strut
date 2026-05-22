@@ -53,6 +53,8 @@ strut <stack> <command> [--env <env>] [options]
 | `keys` | Key and credential management |
 | `domain` | Configure domain and SSL certificates |
 | `shell` / `exec` | SSH access to VPS |
+| `ship` | Commit, push, and remote rebuild in one step |
+| `remote:init` | Bootstrap strut on a remote VPS |
 | `local` | Local development environment |
 | `debug` | Container debugging tools |
 | `list` / `scaffold` / `init` | Stack and project management |

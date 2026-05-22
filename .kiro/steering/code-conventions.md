@@ -60,6 +60,7 @@ Every lib module must:
 - Use `setup()` / `teardown()` with `TEST_TMP` for temp dirs
 - Source `test_helper/common.bash` for shared helpers
 - Override `fail()` in tests: `fail() { echo "$1" >&2; return 1; }`
+- For tests using `run` that need `fail()` to abort: use `fail() { echo "$1" >&2; exit 1; }` inside the test (since `run` creates a subshell, `exit` terminates it correctly)
 - Property tests: 100 iterations with randomized inputs
 - Static analysis tests: grep-based checks for hardcoded references
 - Tests calling handlers must export `CMD_*` variables (CMD_STACK, CMD_STACK_DIR, CMD_ENV_FILE, CMD_ENV_NAME, CMD_SERVICES, CMD_JSON)
