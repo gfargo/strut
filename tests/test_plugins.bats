@@ -218,7 +218,7 @@ EOF
   # resolves after find_project_root sets CLI_ROOT=PROJECT_ROOT.
   mkdir -p "$PROJECT_ROOT/stacks/test-plugin-stack"
   touch "$PROJECT_ROOT/stacks/test-plugin-stack/docker-compose.yml"
-  _make_plugin "ship" '
+  _make_plugin "shipit" '
 plugin_help() { echo "ship it"; }
 plugin_main() {
   local stack="$1" env_name="$2"; shift 2
@@ -229,7 +229,7 @@ plugin_main() {
 BANNER_TEXT="test"
 EOF
   cd "$PROJECT_ROOT"
-  run bash "$CLI" test-plugin-stack ship --env prod extra
+  run bash "$CLI" test-plugin-stack shipit --env prod extra
   [ "$status" -eq 0 ]
   [[ "$output" == *"stack=test-plugin-stack"* ]]
   [[ "$output" == *"env=prod"* ]]
