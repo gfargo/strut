@@ -136,6 +136,7 @@ source "$LIB/cmd_volumes.sh"
 source "$LIB/cmd_keys.sh"
 source "$LIB/cmd_remote.sh"
 source "$LIB/cmd_remote_init.sh"
+source "$LIB/cmd_provision.sh"
 source "$LIB/cmd_ship.sh"
 source "$LIB/cmd_init.sh"
 source "$LIB/cmd_stop.sh"
@@ -722,6 +723,7 @@ if [ "$FLAGS_HELP" = "true" ]; then
     rollback) _usage_rollback ;;
     diff)     _usage_diff ;;
     remote:init) _usage_remote_init ;;
+    provision) _usage_provision ;;
     lock)     _usage_lock ;;
     *)        usage ;;
   esac
@@ -749,6 +751,7 @@ case "$COMMAND" in
   shell)               cmd_shell ;;
   exec)                cmd_exec "${CMD_ARGS[@]+"${CMD_ARGS[@]}"}" ;;
   remote:init)         cmd_remote_init "${CMD_ARGS[@]+"${CMD_ARGS[@]}"}" ;;
+  provision)           cmd_provision "${CMD_ARGS[@]+"${CMD_ARGS[@]}"}" ;;
   status)              cmd_status ;;
   prune)               cmd_prune "${CMD_ARGS[@]+"${CMD_ARGS[@]}"}" ;;
   volumes)             cmd_volumes "${CMD_ARGS[@]+"${CMD_ARGS[@]}"}" ;;
