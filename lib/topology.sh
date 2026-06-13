@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# shellcheck disable=SC2119,SC2120
 # ==================================================
 # lib/topology.sh — Multi-host topology from strut.conf
 # ==================================================
@@ -25,6 +26,8 @@ declare -gA _TOPO_HOSTS=()       # alias → "user@host:port key_path"
 declare -gA _TOPO_STACK_HOST=()  # stack → host_alias
 _TOPO_LOADED=false
 
+# topology_load [config_file]
+#
 # topology_load [config_file]
 #
 # Parses [hosts] and [stacks] sections from strut.conf.
