@@ -137,6 +137,7 @@ source "$LIB/cmd_keys.sh"
 source "$LIB/cmd_remote.sh"
 source "$LIB/cmd_remote_init.sh"
 source "$LIB/cmd_provision.sh"
+source "$LIB/cmd_cert.sh"
 source "$LIB/cmd_ship.sh"
 source "$LIB/cmd_init_secrets.sh"
 source "$LIB/cmd_init.sh"
@@ -727,6 +728,7 @@ if [ "$FLAGS_HELP" = "true" ]; then
     diff)     _usage_diff ;;
     remote:init) _usage_remote_init ;;
     provision) _usage_provision ;;
+    cert:renew|cert:status) _usage_cert_renew ;;
     lock)     _usage_lock ;;
     *)        usage ;;
   esac
@@ -756,6 +758,8 @@ case "$COMMAND" in
   exec)                cmd_exec "${CMD_ARGS[@]+"${CMD_ARGS[@]}"}" ;;
   remote:init)         cmd_remote_init "${CMD_ARGS[@]+"${CMD_ARGS[@]}"}" ;;
   provision)           cmd_provision "${CMD_ARGS[@]+"${CMD_ARGS[@]}"}" ;;
+  cert:renew)          cmd_cert_renew "${CMD_ARGS[@]+"${CMD_ARGS[@]}"}" ;;
+  cert:status)         cmd_cert_status "${CMD_ARGS[@]+"${CMD_ARGS[@]}"}" ;;
   status)              cmd_status ;;
   prune)               cmd_prune "${CMD_ARGS[@]+"${CMD_ARGS[@]}"}" ;;
   volumes)             cmd_volumes "${CMD_ARGS[@]+"${CMD_ARGS[@]}"}" ;;
