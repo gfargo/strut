@@ -228,6 +228,8 @@ deploy_stack() {
   echo ""
 
   # Fire post_deploy lifecycle hook (non-fatal on failure)
+  # First, run one-time first-run hook if needed (after services are up)
+  fire_first_run_hook "$stack_dir" || warn "First-run hook failed — deploy continues"
   DEPLOY_STATUS="ok" fire_hook_or_warn post_deploy "$stack_dir"
 
   # Notification providers (Slack/Discord/webhook) subscribed to deploy.success

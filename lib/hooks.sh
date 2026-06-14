@@ -76,3 +76,68 @@ fire_hook_or_warn() {
   fi
   return 0
 }
+
+# ── First-run hooks ──────────────────────────────────────────────────────────
+
+# _first_run_marker_path <stack_dir>
+#
+# Returns the path to the .strut-initialized marker file.
+# For local deploys this is inside the stack dir. For remote deploys
+# the caller should resolve this path on the VPS.
+_first_run_marker_path() {
+  local stack_dir="$1"
+  echo "$stack_dir/.strut-initialized"
+}
+
+# first_run_needed <stack_dir>
+#
+# Returns 0 if a first-run hook exists AND the stack has not been initialized
+# (marker file is absent). Returns 1 otherwise (no hook or already initialized).
+first_run_needed() {
+  local stack_dir="$1"
+  local hooks_dir="$stack_dir/hooks"
+
+  # Check if a first-run hook exists
+  local hook_file=""
+  for candidate in "$hooks_dir/first_run.sh" "$hooks_dir/first-run.sh"; do
+    if [ -f "$candidate" ]; then
+      hook_file="$candidate"
+      break
+    fi
+  done
+  [ -z "$hook_file" ] && return 1
+
+  # Check if already initialized
+  local marker
+  marker=$(_first_run_marker_path "$stack_dir")
+  [ -f "$marker" ] && return 1
+
+  return 0
+}
+
+# fire_first_run_hook <stack_dir>
+#
+# Runs the first-run hook if it exists and the stack hasn't been initialized.
+# On success, creates the .strut-initialized marker with a timestamp.
+# Returns 0 if no hook needed, 0 on success, or non-zero on hook failure.
+fire_first_run_hook() {
+  local stack_dir="$1"
+
+  if ! first_run_needed "$stack_dir"; then
+    return 0
+  fi
+
+  log "First-run hook detected — running one-time initialization..."
+  if fire_hook first_run "$stack_dir"; then
+    local marker
+    marker=$(_first_run_marker_path "$stack_dir")
+    echo "initialized=$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$marker"
+    ok "First-run hook completed — stack initialized"
+    return 0
+  else
+    local rc=$?
+    error "First-run hook failed (exit $rc)"
+    warn "Stack NOT marked as initialized — hook will re-run on next deploy"
+    return "$rc"
+  fi
+}
