@@ -137,6 +137,7 @@ source "$LIB/cmd_keys.sh"
 source "$LIB/cmd_remote.sh"
 source "$LIB/cmd_remote_init.sh"
 source "$LIB/cmd_ship.sh"
+source "$LIB/cmd_init_secrets.sh"
 source "$LIB/cmd_init.sh"
 source "$LIB/cmd_stop.sh"
 source "$LIB/cmd_skills.sh"
@@ -260,6 +261,7 @@ usage() {
   echo "  group      list|show|add|remove | <name> <command>             Stack groups (coordinated multi-stack ops)"
   echo "  scaffold <new-stack-name> [--recipe <name>]                    New stack (optionally from a recipe)"
   echo "  scaffold list [--json]                                         List available scaffold recipes"
+  echo "  init-secrets [--env <name>] [--force] [--dry-run]              Generate .env from template with auto-secrets"
   echo "  init     [--registry <type>] [--org <name>]                    Initialize new project"
   echo "  upgrade                                                        Upgrade strut to latest version"
   echo "  skills   [list|install] [--format kiro|claude|cursor|generic|all]  AI agent context"
@@ -705,6 +707,7 @@ if [ "$FLAGS_HELP" = "true" ]; then
     deploy)   _usage_deploy ;;
     rebuild)  _usage_rebuild ;;
     ship)     _usage_ship ;;
+    init-secrets) _usage_init_secrets ;;
     stop)     _usage_stop ;;
     health)   _usage_health ;;
     logs)     _usage_logs ;;
@@ -734,6 +737,7 @@ case "$COMMAND" in
   deploy)              cmd_deploy "${CMD_ARGS[@]+"${CMD_ARGS[@]}"}" ;;
   rebuild)             cmd_rebuild "${CMD_ARGS[@]+"${CMD_ARGS[@]}"}" ;;
   ship)                cmd_ship "${CMD_ARGS[@]+"${CMD_ARGS[@]}"}" ;;
+  init-secrets)        cmd_init_secrets "${CMD_ARGS[@]+"${CMD_ARGS[@]}"}" ;;
   stop)                cmd_stop "${CMD_ARGS[@]+"${CMD_ARGS[@]}"}" ;;
   health)              cmd_health ;;
   logs)                cmd_logs "${CMD_ARGS[@]+"${CMD_ARGS[@]}"}" ;;
