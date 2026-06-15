@@ -1,0 +1,7 @@
+# VHS tape runtime artifacts (generated when tapes execute strut commands)
+stacks/
+strut.conf
+.env
+.env.*
+backups/
+data/
