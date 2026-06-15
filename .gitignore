@@ -38,3 +38,8 @@ stacks/
 
 .www
 .homebrew-tap
+
+# VHS recording output (regenerated, not committed)
+bin/output/gif/*.gif
+bin/output/png/*.png
+!bin/output/**/.gitkeep
