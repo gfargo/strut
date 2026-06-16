@@ -110,6 +110,13 @@ strut <stack> local sync-db --from prod --anonymize
 strut <stack> shell --env prod                # Interactive SSH
 strut <stack> exec "docker ps" --env prod     # Single command
 
+# Secrets / Env file management
+strut <stack> init-secrets --env prod         # Generate .env from template
+strut <stack> secrets push --env prod         # Upload .env to VPS
+strut <stack> secrets pull --env prod         # Download .env from VPS
+strut <stack> secrets diff --env prod         # Compare local vs remote keys
+strut <stack> secrets validate --env prod     # Check required_vars before push
+
 # Dry-run (preview destructive commands)
 strut <stack> release --env prod --dry-run
 strut <stack> stop --env prod --dry-run
