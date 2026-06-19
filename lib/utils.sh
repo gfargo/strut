@@ -386,7 +386,16 @@ build_ssh_opts() {
 validate_env_file() {
   local env_file="$1"; shift
   [ -f "$env_file" ] || fail "Env file not found: $env_file"
+  # Preserve connection vars already resolved by the dispatcher (topology
+  # [stacks] mapping or an explicit --host override) so a global VPS_* defined
+  # in the env file can't clobber the intended target when we re-source. (LA-223)
+  local _vh="${VPS_HOST:-}" _vu="${VPS_USER:-}" _vp="${VPS_PORT:-}" _vk="${VPS_SSH_KEY:-}" _vd="${VPS_DEPLOY_DIR:-}"
   set -a; source "$env_file"; set +a
+  [ -n "$_vh" ] && export VPS_HOST="$_vh"
+  [ -n "$_vu" ] && export VPS_USER="$_vu"
+  [ -n "$_vp" ] && export VPS_PORT="$_vp"
+  [ -n "$_vk" ] && export VPS_SSH_KEY="$_vk"
+  [ -n "$_vd" ] && export VPS_DEPLOY_DIR="$_vd"
   local var
   for var in "$@"; do
     if [ -z "${!var:-}" ]; then

@@ -132,10 +132,18 @@ _secrets_push() {
     return 1
   fi
 
-  # Load VPS connection info (from the env file itself or project-level)
+  # Load VPS connection info (from the env file itself or project-level).
+  # Preserve dispatcher-resolved connection vars (topology / --host override)
+  # so a global VPS_* in the env file can't clobber the intended target. (LA-223)
   local conn_env="$CLI_ROOT/.${env_name}.env"
   [ -f "$conn_env" ] || conn_env="$local_env"
+  local _vh="${VPS_HOST:-}" _vu="${VPS_USER:-}" _vp="${VPS_PORT:-}" _vk="${VPS_SSH_KEY:-}" _vd="${VPS_DEPLOY_DIR:-}"
   set -a; source "$conn_env" 2>/dev/null; set +a
+  [ -n "$_vh" ] && export VPS_HOST="$_vh"
+  [ -n "$_vu" ] && export VPS_USER="$_vu"
+  [ -n "$_vp" ] && export VPS_PORT="$_vp"
+  [ -n "$_vk" ] && export VPS_SSH_KEY="$_vk"
+  [ -n "$_vd" ] && export VPS_DEPLOY_DIR="$_vd"
 
   local vps_host="${VPS_HOST:-}"
   local vps_user="${VPS_USER:-ubuntu}"
@@ -249,10 +257,17 @@ _secrets_pull() {
     esac
   done
 
-  # Load VPS connection info
+  # Load VPS connection info — preserve dispatcher-resolved vars (topology /
+  # --host) across the re-source so a global VPS_* can't clobber it. (LA-223)
   local conn_env="$CLI_ROOT/.${env_name}.env"
   if [ -f "$conn_env" ]; then
+    local _vh="${VPS_HOST:-}" _vu="${VPS_USER:-}" _vp="${VPS_PORT:-}" _vk="${VPS_SSH_KEY:-}" _vd="${VPS_DEPLOY_DIR:-}"
     set -a; source "$conn_env" 2>/dev/null; set +a
+    [ -n "$_vh" ] && export VPS_HOST="$_vh"
+    [ -n "$_vu" ] && export VPS_USER="$_vu"
+    [ -n "$_vp" ] && export VPS_PORT="$_vp"
+    [ -n "$_vk" ] && export VPS_SSH_KEY="$_vk"
+    [ -n "$_vd" ] && export VPS_DEPLOY_DIR="$_vd"
   fi
 
   local vps_host="${VPS_HOST:-}"
@@ -330,10 +345,17 @@ _secrets_diff() {
     return 1
   fi
 
-  # Load VPS connection info
+  # Load VPS connection info — preserve dispatcher-resolved vars (topology /
+  # --host) across the re-source so a global VPS_* can't clobber it. (LA-223)
   local conn_env="$CLI_ROOT/.${env_name}.env"
   if [ -f "$conn_env" ]; then
+    local _vh="${VPS_HOST:-}" _vu="${VPS_USER:-}" _vp="${VPS_PORT:-}" _vk="${VPS_SSH_KEY:-}" _vd="${VPS_DEPLOY_DIR:-}"
     set -a; source "$conn_env" 2>/dev/null; set +a
+    [ -n "$_vh" ] && export VPS_HOST="$_vh"
+    [ -n "$_vu" ] && export VPS_USER="$_vu"
+    [ -n "$_vp" ] && export VPS_PORT="$_vp"
+    [ -n "$_vk" ] && export VPS_SSH_KEY="$_vk"
+    [ -n "$_vd" ] && export VPS_DEPLOY_DIR="$_vd"
   fi
 
   local vps_host="${VPS_HOST:-}"
