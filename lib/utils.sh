@@ -375,6 +375,33 @@ build_ssh_opts() {
 
 # ── Env file validation ──────────────────────────────────────────────────────
 
+# _env_not_found_hint <env_file>
+#
+# Echoes contextual hint lines when an env file is missing:
+#   - if the name matches a topology host alias, suggests --host <name>
+#   - lists available .*.env files in the same directory
+_env_not_found_hint() {
+  local env_file="$1"
+  local env_name env_dir hint="" available="" f base name
+  env_name=$(extract_env_name "$env_file")
+  env_dir="$(dirname "$env_file")"
+
+  if declare -f topology_is_host_alias &>/dev/null && topology_is_host_alias "$env_name"; then
+    hint="  '$env_name' is a host alias in strut.conf — did you mean: --host $env_name"
+  fi
+
+  for f in "$env_dir"/.*.env; do
+    [ -f "$f" ] || continue
+    base="${f##*/}"; name="${base#.}"; name="${name%.env}"
+    available="${available:+$available }$name"
+  done
+  [ -n "$available" ] && hint="${hint:+$hint
+}  Available envs: $available"
+
+  [ -n "$hint" ] && echo "$hint"
+  return 0
+}
+
 # validate_env_file <env_file> <required_var1> [required_var2] ...
 #
 # Sources the env file and validates that all listed variables are non-empty.
@@ -385,7 +412,14 @@ build_ssh_opts() {
 #   validate_env_file "$ENV_FILE" VPS_HOST GH_PAT
 validate_env_file() {
   local env_file="$1"; shift
-  [ -f "$env_file" ] || fail "Env file not found: $env_file"
+  if [ ! -f "$env_file" ]; then
+    local hint msg
+    hint=$(_env_not_found_hint "$env_file")
+    msg="Env file not found: $env_file"
+    [ -n "$hint" ] && msg="$msg
+$hint"
+    fail "$msg"
+  fi
   # Preserve connection vars already resolved by the dispatcher (topology
   # [stacks] mapping or an explicit --host override) so a global VPS_* defined
   # in the env file can't clobber the intended target when we re-source. (LA-223)
