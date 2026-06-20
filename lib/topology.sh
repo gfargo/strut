@@ -22,8 +22,8 @@
 set -euo pipefail
 
 # Global topology state (populated by topology_load)
-declare -gA _TOPO_HOSTS=()       # alias → "user@host:port key_path"
-declare -gA _TOPO_STACK_HOST=()  # stack → host_alias
+declare -A _TOPO_HOSTS=()       # alias → "user@host:port key_path"
+declare -A _TOPO_STACK_HOST=()  # stack → host_alias
 _TOPO_LOADED=false
 
 # topology_load [config_file]
