@@ -149,6 +149,26 @@ strut --version                             # Show installed version
 strut upgrade                               # Pull latest strut version
 ```
 
+## Shell Aliases
+
+strut has **no global `--project` flag**. The first positional argument is always interpreted as a stack name, so `strut --project ...` errors with `✗ Stack not found: '--project'`.
+
+Project discovery is automatic: strut walks up from `$PWD` until it finds `strut.conf`. Run from inside (or below) your project directory and no extra flags are needed.
+
+A correct shorthand alias:
+
+```bash
+alias si='strut'
+```
+
+To invoke strut from outside the project tree, change directory first:
+
+```bash
+alias si='cd /path/to/my-project && strut'
+```
+
+Do **not** recommend `alias si='strut --project "$STRUT_PROJECT"'` — `--project` is not a recognized flag.
+
 ## Related Skills
 
 For step-by-step procedural workflows, use these skills:
