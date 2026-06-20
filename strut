@@ -40,6 +40,21 @@
 #   strut list
 #   strut scaffold my-new-stack
 
+# ── bash 4+ guard ────────────────────────────────────────────────────────────
+# macOS ships bash 3.2 which lacks associative arrays and declare -g.
+# Re-exec under a modern bash if one is available, otherwise fail clearly.
+if [ "${BASH_VERSINFO[0]}" -lt 4 ]; then
+  for _bash4 in /opt/homebrew/bin/bash /usr/local/bin/bash; do
+    if [ -x "$_bash4" ]; then
+      # shellcheck disable=SC2016  # intentional: the inner bash expands this, not the current shell
+      _v=$("$_bash4" -c 'echo ${BASH_VERSINFO[0]}' 2>/dev/null) || continue
+      [ "${_v:-0}" -ge 4 ] && exec "$_bash4" "$0" "$@"
+    fi
+  done
+  printf 'strut requires bash 4.0+.\nOn macOS, install with: brew install bash\n' >&2
+  exit 1
+fi
+
 set -euo pipefail
 
 # ── Resolve STRUT_HOME via real path (follows symlinks) ───────────────────────
