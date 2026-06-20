@@ -46,6 +46,7 @@
 if [ "${BASH_VERSINFO[0]}" -lt 4 ]; then
   for _bash4 in /opt/homebrew/bin/bash /usr/local/bin/bash; do
     if [ -x "$_bash4" ]; then
+      # shellcheck disable=SC2016  # intentional: the inner bash expands this, not the current shell
       _v=$("$_bash4" -c 'echo ${BASH_VERSINFO[0]}' 2>/dev/null) || continue
       [ "${_v:-0}" -ge 4 ] && exec "$_bash4" "$0" "$@"
     fi
