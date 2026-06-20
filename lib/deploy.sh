@@ -25,7 +25,14 @@ deploy_stack() {
 
   [ -d "$stack_dir" ]    || fail "Stack not found: $stack (looked in $stack_dir)"
   [ -f "$compose_file" ] || fail "Compose file not found: $compose_file"
-  [ -f "$env_file" ]     || fail "Env file not found: $env_file"
+  if [ ! -f "$env_file" ]; then
+    local _hint _msg
+    _hint=$(_env_not_found_hint "$env_file")
+    _msg="Env file not found: $env_file"
+    [ -n "$_hint" ] && _msg="$_msg
+$_hint"
+    fail "$_msg"
+  fi
 
   # Source env and validate required vars
   set -a; source "$env_file"; set +a
@@ -307,7 +314,14 @@ pull_only_stack() {
   local env_file="$2"
   local services_profile="${3:-}"
 
-  [ -f "$env_file" ] || fail "Env file not found: $env_file"
+  if [ ! -f "$env_file" ]; then
+    local _hint _msg
+    _hint=$(_env_not_found_hint "$env_file")
+    _msg="Env file not found: $env_file"
+    [ -n "$_hint" ] && _msg="$_msg
+$_hint"
+    fail "$_msg"
+  fi
   set -a; source "$env_file"; set +a
 
   local compose_cmd

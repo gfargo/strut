@@ -127,6 +127,16 @@ topology_has_host() {
   [ -n "${_TOPO_STACK_HOST[$stack]:-}" ]
 }
 
+# topology_is_host_alias <name>
+#
+# Returns 0 if name matches a defined host alias in [hosts], 1 otherwise.
+# Used to detect when a host alias is mistakenly passed to --env.
+topology_is_host_alias() {
+  local name="$1"
+  topology_load
+  [ -n "${_TOPO_HOSTS[$name]:-}" ]
+}
+
 # topology_list_hosts
 #
 # Lists all defined host aliases, one per line.

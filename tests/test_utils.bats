@@ -292,6 +292,36 @@ EOF
   [[ "$output" == *"Env file not found"* ]]
 }
 
+@test "validate_env_file: lists available envs in error when file missing" {
+  _load_utils
+  # Place a .prod.env in TEST_TMP so it shows up in the hint
+  echo "VPS_HOST=10.0.0.1" > "$TEST_TMP/.prod.env"
+  run validate_env_file "$TEST_TMP/.staging.env" VPS_HOST
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"Env file not found"* ]]
+  [[ "$output" == *"Available envs:"* ]]
+  [[ "$output" == *"prod"* ]]
+}
+
+@test "validate_env_file: hints --host when env name matches a topology host alias" {
+  _load_utils
+  source "$CLI_ROOT/lib/topology.sh"
+  # Override fail() again after sourcing topology (topology has set -euo pipefail)
+  fail() { echo "$1" >&2; return 1; }
+
+  cat > "$TEST_TMP/strut.conf" <<'EOF'
+[hosts]
+harbor = deploy@harbor.example.com:22 ~/.ssh/id_rsa
+EOF
+  export PROJECT_ROOT="$TEST_TMP"
+
+  run validate_env_file "$TEST_TMP/.harbor.env" VPS_HOST
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"Env file not found"* ]]
+  [[ "$output" == *"host alias"* ]]
+  [[ "$output" == *"--host harbor"* ]]
+}
+
 @test "validate_env_file: fails on missing required var" {
   _load_utils
   cat > "$TEST_TMP/.test.env" <<'EOF'

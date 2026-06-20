@@ -262,6 +262,36 @@ EOF
   [[ "$result" != *"immich"* ]]
 }
 
+# ── topology_is_host_alias ────────────────────────────────────────────────────
+
+@test "topology_is_host_alias: returns 0 for a defined host alias" {
+  cat > "$TEST_TMP/strut.conf" <<'EOF'
+[hosts]
+harbor = deploy@harbor.example.com:22 ~/.ssh/id_rsa
+EOF
+  export PROJECT_ROOT="$TEST_TMP"
+  topology_is_host_alias "harbor"
+}
+
+@test "topology_is_host_alias: returns 1 for an unknown name" {
+  cat > "$TEST_TMP/strut.conf" <<'EOF'
+[hosts]
+harbor = deploy@harbor.example.com:22 ~/.ssh/id_rsa
+EOF
+  export PROJECT_ROOT="$TEST_TMP"
+  run topology_is_host_alias "prod"
+  [ "$status" -eq 1 ]
+}
+
+@test "topology_is_host_alias: returns 1 when no [hosts] section" {
+  cat > "$TEST_TMP/strut.conf" <<'EOF'
+REGISTRY_TYPE=none
+EOF
+  export PROJECT_ROOT="$TEST_TMP"
+  run topology_is_host_alias "harbor"
+  [ "$status" -eq 1 ]
+}
+
 # ── Property-Based Tests ──────────────────────────────────────────────────────
 
 @test "Property: topology_resolve_host parses any valid host spec (100 iterations)" {

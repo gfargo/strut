@@ -271,7 +271,14 @@ bg_deploy_stack() {
 
   [ -d "$stack_dir" ]    || fail "Stack not found: $stack (looked in $stack_dir)"
   [ -f "$compose_file" ] || fail "Compose file not found: $compose_file"
-  [ -f "$env_file" ]     || fail "Env file not found: $env_file"
+  if [ ! -f "$env_file" ]; then
+    local _hint _msg
+    _hint=$(_env_not_found_hint "$env_file")
+    _msg="Env file not found: $env_file"
+    [ -n "$_hint" ] && _msg="$_msg
+$_hint"
+    fail "$_msg"
+  fi
 
   # Source env + validate required vars — same contract as deploy_stack.
   set -a; source "$env_file"; set +a
