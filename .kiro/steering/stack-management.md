@@ -111,7 +111,8 @@ strut <stack> shell --env prod                # Interactive SSH
 strut <stack> exec "docker ps" --env prod     # Single command
 
 # Secrets / Env file management
-strut <stack> init-secrets --env prod         # Generate .env from template
+strut <stack> init-secrets --env prod         # Generate .env from template (random values)
+strut <stack> secrets hydrate --env prod      # Build .env from template via a secret manager
 strut <stack> secrets push --env prod         # Upload .env to VPS
 strut <stack> secrets pull --env prod         # Download .env from VPS
 strut <stack> secrets diff --env prod         # Compare local vs remote keys

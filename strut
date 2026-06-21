@@ -157,6 +157,7 @@ source "$LIB/cmd_cert.sh"
 
 source "$LIB/cmd_gateway.sh"
 source "$LIB/cmd_ship.sh"
+source "$LIB/secrets_providers.sh"
 source "$LIB/cmd_secrets.sh"
 source "$LIB/cmd_init_secrets.sh"
 source "$LIB/cmd_init.sh"

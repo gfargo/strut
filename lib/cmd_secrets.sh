@@ -21,6 +21,7 @@ _usage_secrets() {
   echo "Sync environment files between local and VPS."
   echo ""
   echo "Subcommands:"
+  echo "  hydrate    Build local .env from a template, resolving secret references"
   echo "  push       Upload local .env to VPS (SCP, mode 600)"
   echo "  pull       Download .env from VPS to local"
   echo "  diff       Show differences between local and remote .env"
@@ -29,9 +30,16 @@ _usage_secrets() {
   echo "Options:"
   echo "  --env <name>   Environment name (default: prod)"
   echo "  --dry-run      Preview without executing"
-  echo "  --force        Overwrite remote file without confirmation"
+  echo "  --force        Overwrite local/remote file without confirmation"
+  echo ""
+  echo "Secret references (in a .env template, resolved by 'hydrate'):"
+  echo "  KEY=vault://<item>     Vaultwarden/Bitwarden item (via 'bw')"
+  echo "  KEY=exec://<command>   Stdout of a command"
+  echo "  KEY=file://<path>      Contents of a file (e.g. /run/secrets/x)"
+  echo "  KEY=plain-value        Literal — copied as-is"
   echo ""
   echo "Examples:"
+  echo "  strut my-app secrets hydrate --env prod      # template -> .prod.env"
   echo "  strut my-app secrets push --env prod"
   echo "  strut my-app secrets pull --env prod"
   echo "  strut my-app secrets diff --env prod"
@@ -479,6 +487,133 @@ _secrets_validate() {
   fi
 }
 
+# _secrets_hydrate (reads CMD_*)
+# Materialise the local .<env>.env from a template, resolving any
+# <provider>://<ref> references through the configured secret source(s).
+# Literal values pass through unchanged. Looks up the template stack-level
+# first, then project-level, preferring an env-specific name over .env.template.
+_secrets_hydrate() {
+  local stack="$CMD_STACK"
+  local stack_dir="$CMD_STACK_DIR"
+  local env_name="${CMD_ENV_NAME:-prod}"
+  local dry_run="${DRY_RUN:-false}"
+  local force=false
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --force) force=true; shift ;;
+      *) shift ;;
+    esac
+  done
+
+  # Resolve the template.
+  local template="" cand
+  for cand in \
+    "$stack_dir/.${env_name}.env.template" \
+    "$CLI_ROOT/.${env_name}.env.template" \
+    "$stack_dir/.env.template" \
+    "$CLI_ROOT/.env.template"; do
+    if [ -f "$cand" ]; then template="$cand"; break; fi
+  done
+  if [ -z "$template" ]; then
+    fail "No env template found for '$env_name' (looked for stacks/$stack/.${env_name}.env.template or .env.template)"
+    return 1
+  fi
+
+  # Output is written next to the template, matching the stack-first then
+  # project-level search order that _secrets_resolve_local_env (and therefore
+  # `secrets push`) uses to find it.
+  local out_file
+  out_file="$(dirname "$template")/.${env_name}.env"
+
+  print_banner "Secrets Hydrate"
+  log "Stack: $stack | Env: $env_name"
+  log "Template: $template"
+  log "Output: $out_file"
+  echo ""
+
+  # Pass 1 — scan the template. Collect the referenced provider schemes and,
+  # for --dry-run, report each mapping and return before touching credentials
+  # or disk (preview must work without unlocking the providers).
+  local schemes_seen=() value scheme key ref_count=0
+  while IFS= read -r line || [ -n "$line" ]; do
+    [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]] && continue
+    [[ "$line" =~ ^([A-Za-z_][A-Za-z0-9_]*)=(.*)$ ]] || continue
+    key="${BASH_REMATCH[1]}"; value="${BASH_REMATCH[2]}"
+    if scheme=$(secrets_reference_scheme "$value"); then
+      ref_count=$((ref_count + 1))
+      [ "$dry_run" = "true" ] && log "  $key  <-  ${scheme}://$(secrets_reference_target "$value")"
+      case " ${schemes_seen[*]-} " in
+        *" $scheme "*) ;;
+        *) schemes_seen+=("$scheme") ;;
+      esac
+    fi
+  done < "$template"
+
+  if [ "$dry_run" = "true" ]; then
+    echo ""
+    log "[DRY-RUN] $ref_count reference(s) would be resolved; literals copied as-is."
+    echo -e "${YELLOW}[DRY-RUN] No file written.${NC}"
+    return 0
+  fi
+
+  if [ -f "$out_file" ] && [ "$force" != "true" ]; then
+    warn "Output already exists: $out_file"
+    warn "Use --force to overwrite."
+    return 1
+  fi
+
+  # Pre-flight every referenced provider before writing anything, so a missing
+  # tool or session aborts with no half-written secret file.
+  local s
+  for s in ${schemes_seen[@]+"${schemes_seen[@]}"}; do
+    secrets_provider_available "$s" || return 1
+  done
+
+  # Pass 2 — resolve into a 600-mode temp file in the destination directory,
+  # then rename into place (atomic, same filesystem, never transits /tmp).
+  local resolved_count=0 literal_count=0 rv
+  local tmp_out
+  tmp_out=$(mktemp "$(dirname "$out_file")/.hydrate.XXXXXX") || { fail "Could not create temp file"; return 1; }
+  chmod 600 "$tmp_out"
+  trap 'rm -f "$tmp_out"' RETURN
+  while IFS= read -r line || [ -n "$line" ]; do
+    if [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]]; then
+      printf '%s\n' "$line" >> "$tmp_out"
+      continue
+    fi
+    if [[ "$line" =~ ^([A-Za-z_][A-Za-z0-9_]*)=(.*)$ ]]; then
+      key="${BASH_REMATCH[1]}"; value="${BASH_REMATCH[2]}"
+      if scheme=$(secrets_reference_scheme "$value"); then
+        if ! rv=$(secrets_resolve_reference "$value"); then
+          fail "Failed to resolve $key from ${scheme}://$(secrets_reference_target "$value")"
+          return 1
+        fi
+        # .env values are single-line (docker compose env_file can't represent
+        # a newline); a multi-line secret means the wrong target — fail loudly
+        # rather than emit a corrupt file. Mount multi-line secrets as files.
+        if [[ "$rv" == *$'\n'* ]]; then
+          fail "$key resolved to a multi-line value, which a .env file can't hold — mount it as a file (e.g. a Docker/compose secret) instead"
+          return 1
+        fi
+        printf '%s=%s\n' "$key" "$rv" >> "$tmp_out"
+        resolved_count=$((resolved_count + 1))
+      else
+        printf '%s\n' "$line" >> "$tmp_out"
+        literal_count=$((literal_count + 1))
+      fi
+    else
+      printf '%s\n' "$line" >> "$tmp_out"
+    fi
+  done < "$template"
+
+  mv "$tmp_out" "$out_file"
+  trap - RETURN
+  chmod 600 "$out_file"
+  echo ""
+  ok "Hydrated $out_file ($resolved_count resolved, $literal_count literal)"
+}
+
 # ── Dispatch ──────────────────────────────────────────────────────────────────
 
 cmd_secrets() {
@@ -486,6 +621,7 @@ cmd_secrets() {
   shift 2>/dev/null || true
 
   case "$subcmd" in
+    hydrate)  _secrets_hydrate "$@" ;;
     push)     _secrets_push "$@" ;;
     pull)     _secrets_pull "$@" ;;
     diff)     _secrets_diff "$@" ;;
