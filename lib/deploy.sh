@@ -248,8 +248,10 @@ $_hint"
 
 # vps_update_repo <stack> <env_file>
 #
-# SSHes into the VPS and runs `git pull` in VPS_DEPLOY_DIR to bring the
-# strut checkout up to date before a deploy.
+# SSHes into the VPS and updates the strut checkout in VPS_DEPLOY_DIR via
+# git fetch + reset --hard, so local drift (dirty files, diverged commits)
+# never blocks a deploy. Verifies the strut binary is present and executable
+# after the update.
 #
 # Requires in env file: VPS_HOST, VPS_USER (default: ubuntu)
 # Optional:             VPS_SSH_KEY, VPS_DEPLOY_DIR (default: /home/$VPS_USER/strut)
@@ -266,6 +268,7 @@ vps_update_repo() {
   local deploy_dir="${VPS_DEPLOY_DIR:-/home/$vps_user/strut}"
   local gh_pat="${GH_PAT:-}"
   local branch="${DEFAULT_BRANCH:-main}"
+  local env_name; env_name=$(extract_env_name "$env_file")
 
   local ssh_opts
   ssh_opts=$(build_ssh_opts -p "$vps_port" -k "$vps_ssh_key" --batch)
@@ -287,7 +290,7 @@ vps_update_repo() {
       echo 'ERROR: $deploy_dir not found on VPS' >&2
       echo '' >&2
       echo 'strut is not initialized on this host.' >&2
-      echo 'Run: strut <stack> remote:init --env <name>' >&2
+      echo 'Run: strut $stack remote:init --env $env_name' >&2
       exit 1
     fi
     cd '$deploy_dir'
@@ -303,6 +306,16 @@ vps_update_repo() {
     git clean -fd
     echo '--- Updated HEAD ---'
     git log --oneline -1
+    echo '--- Verifying strut binary ---'
+    if [ ! -f strut ]; then
+      echo 'ERROR: strut binary not found in $deploy_dir after update' >&2
+      echo '' >&2
+      echo 'The deploy directory exists but does not contain the strut executable.' >&2
+      echo 'Run: strut $stack remote:init --env $env_name' >&2
+      exit 1
+    fi
+    chmod +x strut
+    echo 'strut binary ready'
   " && ok "strut updated on VPS" || fail "Update failed — check VPS_HOST, VPS_SSH_KEY, and VPS_DEPLOY_DIR"
 }
 
@@ -418,7 +431,7 @@ vps_release() {
   # shellcheck disable=SC2029
   ssh $ssh_opts "$vps_user@$vps_host" "
     cd '$deploy_dir'
-    strut $stack migrate postgres --env $env_name
+    ./strut $stack migrate postgres --env $env_name
   " || warn "Postgres migration failed or no migrations to apply"
 
   # Step 3: Run Neo4j migrations
@@ -426,7 +439,7 @@ vps_release() {
   # shellcheck disable=SC2029
   ssh $ssh_opts "$vps_user@$vps_host" "
     cd '$deploy_dir'
-    strut $stack migrate neo4j --env $env_name
+    ./strut $stack migrate neo4j --env $env_name
   " || warn "Neo4j migration failed or no migrations to apply"
 
   # Step 4: Pull latest images
@@ -436,7 +449,7 @@ vps_release() {
   # shellcheck disable=SC2029
   ssh $ssh_opts "$vps_user@$vps_host" "
     cd '$deploy_dir'
-    strut $stack deploy --env $env_name $profile_flag --pull-only
+    ./strut $stack deploy --env $env_name $profile_flag --pull-only
   " || fail "Failed to pull images"
 
   # Step 5: Restart services
@@ -444,7 +457,7 @@ vps_release() {
   # shellcheck disable=SC2029
   ssh $ssh_opts "$vps_user@$vps_host" "
     cd '$deploy_dir'
-    strut $stack deploy --env $env_name $profile_flag
+    ./strut $stack deploy --env $env_name $profile_flag
   " || fail "Failed to restart services"
 
   # Step 6: Verify deployment
@@ -453,7 +466,7 @@ vps_release() {
   # shellcheck disable=SC2029
   ssh $ssh_opts "$vps_user@$vps_host" "
     cd '$deploy_dir'
-    strut $stack health --env $env_name $profile_flag
+    ./strut $stack health --env $env_name $profile_flag
   " || warn "Health check failed — check logs with: strut $stack logs --env $env_name"
 
   echo ""
