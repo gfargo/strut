@@ -268,6 +268,7 @@ vps_update_repo() {
   local deploy_dir="${VPS_DEPLOY_DIR:-/home/$vps_user/strut}"
   local gh_pat="${GH_PAT:-}"
   local branch="${DEFAULT_BRANCH:-main}"
+  local env_name; env_name=$(extract_env_name "$env_file")
 
   local ssh_opts
   ssh_opts=$(build_ssh_opts -p "$vps_port" -k "$vps_ssh_key" --batch)
@@ -289,7 +290,7 @@ vps_update_repo() {
       echo 'ERROR: $deploy_dir not found on VPS' >&2
       echo '' >&2
       echo 'strut is not initialized on this host.' >&2
-      echo 'Run: strut <stack> remote:init --env <name>' >&2
+      echo 'Run: strut $stack remote:init --env $env_name' >&2
       exit 1
     fi
     cd '$deploy_dir'
@@ -310,7 +311,7 @@ vps_update_repo() {
       echo 'ERROR: strut binary not found in $deploy_dir after update' >&2
       echo '' >&2
       echo 'The deploy directory exists but does not contain the strut executable.' >&2
-      echo 'Run: strut <stack> remote:init --env <name>' >&2
+      echo 'Run: strut $stack remote:init --env $env_name' >&2
       exit 1
     fi
     chmod +x strut
