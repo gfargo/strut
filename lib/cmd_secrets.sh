@@ -38,6 +38,8 @@ _usage_secrets() {
   echo "  KEY=file://<path>      Contents of a file (e.g. /run/secrets/x)"
   echo "  KEY=plain-value        Literal — copied as-is"
   echo ""
+  echo "  Note: exec:// runs commands with your privileges — only hydrate templates you trust."
+  echo ""
   echo "Examples:"
   echo "  strut my-app secrets hydrate --env prod      # template -> .prod.env"
   echo "  strut my-app secrets push --env prod"

@@ -43,7 +43,6 @@ EOF
 cmd_diff() {
   local stack="$CMD_STACK"
   local stack_dir="$CMD_STACK_DIR"
-  local env_file="$CMD_ENV_FILE"
   local env_name="$CMD_ENV_NAME"
   local json_mode="${CMD_JSON:-false}"
 
@@ -55,16 +54,35 @@ cmd_diff() {
     esac
   done
 
+  # Resolve env file using the same stack-first-then-project logic as secrets.
+  # This prevents comparing the project-root env against the remote when the
+  # stack has its own env file (fixes phantom pending changes — see #145).
+  local env_file
+  if ! env_file=$(_secrets_resolve_local_env "$stack_dir" "${env_name:-prod}"); then
+    # Fallback to CMD_ENV_FILE (project-root) for backward compat
+    env_file="$CMD_ENV_FILE"
+  fi
+
   [ -f "$env_file" ] || { fail "Env file not found: $env_file"; return 2; }
-  set -a; source "$env_file"; set +a
-  [ -n "${VPS_HOST:-}" ] || { fail "VPS_HOST not set in $env_file — diff requires a remote target"; return 2; }
+
+  # Source the project-root env first (for VPS connection info), then overlay
+  # the stack-level env so stack vars take precedence for the diff comparison.
+  if [ -f "$CMD_ENV_FILE" ]; then
+    set -a; source "$CMD_ENV_FILE"; set +a
+  fi
+  if [ "$env_file" != "$CMD_ENV_FILE" ] && [ -f "$env_file" ]; then
+    set -a; source "$env_file"; set +a
+  fi
+  [ -n "${VPS_HOST:-}" ] || { fail "VPS_HOST not set — diff requires a remote target (checked $env_file)"; return 2; }
 
   local local_compose="$stack_dir/docker-compose.yml"
   [ -f "$local_compose" ] || { fail "Local compose file not found: $local_compose"; return 2; }
 
-  # Resolve remote paths
+  # Resolve remote paths — use _secrets_resolve_remote_path for consistency
+  # with secrets push (which is the canonical uploader of .env to the VPS).
   local deploy_dir="${VPS_DEPLOY_DIR:-/home/${VPS_USER:-ubuntu}/strut}"
-  local remote_env="$deploy_dir/.${env_name:-prod}.env"
+  local remote_env
+  remote_env=$(_secrets_resolve_remote_path "$deploy_dir" "${env_name:-prod}")
   local remote_compose="$deploy_dir/stacks/$stack/docker-compose.yml"
 
   # Fetch remote content (may be empty if missing)
