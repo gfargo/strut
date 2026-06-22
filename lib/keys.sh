@@ -22,6 +22,7 @@ source "$LIB_DIR/keys/audit.sh"
 source "$LIB_DIR/keys/status.sh"
 source "$LIB_DIR/keys/test.sh"
 source "$LIB_DIR/keys/pull.sh"
+source "$LIB_DIR/keys/registry.sh"
 
 # ── Validation & Safety Helpers ──────────────────────────────────────────────
 
@@ -353,6 +354,10 @@ keys_command() {
     # Pull keys from VPS
     pull)           keys_pull "$stack" "$@" ;;
 
+    # Registry pull credential management
+    rotate-registry)  keys_registry_rotate "$stack" "$@" ;;
+    registry-status)  keys_registry_status "$stack" "$@" ;;
+
     # GitHub secrets management
     github:list)    keys_github_list "$@" ;;
     github:set)     keys_github_set "$@" ;;
@@ -412,6 +417,10 @@ keys_command() {
       echo "Database Credentials:"
       echo "  db:rotate <neo4j|postgres> [--dry-run] [--force]"
       echo "  db:create-readonly <username>"
+      echo ""
+      echo "Registry Credentials:"
+      echo "  rotate-registry [--registry <url>] [--hosts all|<list>] [--username <u>] [--revoke-old] [--dry-run]"
+      echo "  registry-status [--registry <url>] [--hosts all|<list>] [--json]"
       echo ""
       echo "GitHub Secrets:"
       echo "  github:list --repo <org/repo>"
