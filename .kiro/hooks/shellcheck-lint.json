@@ -1,0 +1,16 @@
+{
+  "version": "v1",
+  "hooks": [
+    {
+      "name": "ShellCheck Lint",
+      "description": "Runs ShellCheck on shell scripts when edited to catch common errors, undefined variables, and style issues.",
+      "trigger": "PostFileSave",
+      "matcher": "(lib/.*[^/]*\\.sh$|strut$)",
+      "action": {
+        "type": "agent",
+        "prompt": "Run shellcheck -x -S warning on the edited file and report any issues found. If there are no issues, say nothing."
+      },
+      "enabled": true
+    }
+  ]
+}

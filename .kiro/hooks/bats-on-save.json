@@ -1,0 +1,16 @@
+{
+  "version": "v1",
+  "hooks": [
+    {
+      "name": "Run BATS Test on Save",
+      "description": "Runs the edited BATS test file automatically to give immediate feedback on test changes.",
+      "trigger": "PostFileSave",
+      "matcher": "tests/[^/]*\\.bats$",
+      "action": {
+        "type": "agent",
+        "prompt": "A BATS test file was just saved. Run it with `bats <filepath>` and report the results. If all tests pass, just say so briefly. If any fail, show the failures."
+      },
+      "enabled": true
+    }
+  ]
+}
