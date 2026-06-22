@@ -642,11 +642,11 @@ _secrets_status() {
   if local_env=$(_secrets_resolve_local_env "$stack_dir" "$env_name"); then
     local var_count modified_ago perms
     var_count=$(grep -c "^[A-Za-z_]" "$local_env" 2>/dev/null || echo 0)
-    perms=$(stat -f '%Lp' "$local_env" 2>/dev/null || stat -c '%a' "$local_env" 2>/dev/null || echo "?")
+    perms=$(stat -c '%a' "$local_env" 2>/dev/null || stat -f '%Lp' "$local_env" 2>/dev/null || echo "?")
 
     # Calculate time since last modification
     local mod_ts now_ts diff_secs
-    mod_ts=$(stat -f '%m' "$local_env" 2>/dev/null || stat -c '%Y' "$local_env" 2>/dev/null || echo 0)
+    mod_ts=$(stat -c '%Y' "$local_env" 2>/dev/null || stat -f '%m' "$local_env" 2>/dev/null || echo 0)
     now_ts=$(date +%s)
     diff_secs=$((now_ts - mod_ts))
     if [ "$diff_secs" -lt 60 ]; then

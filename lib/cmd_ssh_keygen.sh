@@ -129,13 +129,13 @@ _ssh_keygen_resolve_host() {
 _ssh_keygen_clipboard() {
   local file="$1"
   if command -v pbcopy &>/dev/null; then
-    cat "$file" | pbcopy
+    pbcopy < "$file"
     return 0
   elif command -v xclip &>/dev/null; then
-    cat "$file" | xclip -selection clipboard
+    xclip -selection clipboard < "$file"
     return 0
   elif command -v xsel &>/dev/null; then
-    cat "$file" | xsel --clipboard --input
+    xsel --clipboard --input < "$file"
     return 0
   else
     return 1
