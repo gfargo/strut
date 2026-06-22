@@ -118,6 +118,11 @@ strut <stack> secrets pull --env prod         # Download .env from VPS
 strut <stack> secrets diff --env prod         # Compare local vs remote keys
 strut <stack> secrets validate --env prod     # Check required_vars before push
 
+# Deploy keys & CI setup
+strut <stack> ssh:keygen --name ci            # Generate deploy keypair + authorize on host
+strut <stack> ci:init --provider github       # Bootstrap all CI secrets for the stack
+strut <stack> ci:init --dry-run               # Preview what secrets would be set
+
 # Dry-run (preview destructive commands)
 strut <stack> release --env prod --dry-run
 strut <stack> stop --env prod --dry-run

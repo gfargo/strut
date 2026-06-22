@@ -157,6 +157,8 @@ source "$LIB/cmd_cert.sh"
 
 source "$LIB/cmd_gateway.sh"
 source "$LIB/cmd_ship.sh"
+source "$LIB/cmd_ssh_keygen.sh"
+source "$LIB/cmd_ci_init.sh"
 source "$LIB/secrets_providers.sh"
 source "$LIB/cmd_secrets.sh"
 source "$LIB/cmd_init_secrets.sh"
@@ -750,6 +752,8 @@ if [ "$FLAGS_HELP" = "true" ]; then
     diff)     _usage_diff ;;
     remote:init) _usage_remote_init ;;
     provision) _usage_provision ;;
+    ssh:keygen) _usage_ssh_keygen ;;
+    ci:init) _usage_ci_init ;;
 
     cert:renew|cert:status) _usage_cert_renew ;;
 
@@ -784,6 +788,8 @@ case "$COMMAND" in
   exec)                cmd_exec "${CMD_ARGS[@]+"${CMD_ARGS[@]}"}" ;;
   remote:init)         cmd_remote_init "${CMD_ARGS[@]+"${CMD_ARGS[@]}"}" ;;
   provision)           cmd_provision "${CMD_ARGS[@]+"${CMD_ARGS[@]}"}" ;;
+  ssh:keygen)          cmd_ssh_keygen "${CMD_ARGS[@]+"${CMD_ARGS[@]}"}" ;;
+  ci:init)             cmd_ci_init "${CMD_ARGS[@]+"${CMD_ARGS[@]}"}" ;;
 
   cert:renew)          cmd_cert_renew "${CMD_ARGS[@]+"${CMD_ARGS[@]}"}" ;;
   cert:status)         cmd_cert_status "${CMD_ARGS[@]+"${CMD_ARGS[@]}"}" ;;
