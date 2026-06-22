@@ -18,7 +18,7 @@ _usage_secrets() {
   echo ""
   echo "Usage: strut <stack> secrets <subcommand> [--env <name>]"
   echo ""
-  echo "Sync environment files between local and VPS."
+  echo "Manage environment secrets: source, validate, sync, and inspect."
   echo ""
   echo "Subcommands:"
   echo "  hydrate    Build local .env from a template, resolving secret references"
@@ -26,11 +26,19 @@ _usage_secrets() {
   echo "  pull       Download .env from VPS to local"
   echo "  diff       Show differences between local and remote .env"
   echo "  validate   Check required_vars are present before push"
+  echo "  status     Show the secrets pipeline state for this stack"
   echo ""
   echo "Options:"
   echo "  --env <name>   Environment name (default: prod)"
   echo "  --dry-run      Preview without executing"
   echo "  --force        Overwrite local/remote file without confirmation"
+  echo ""
+  echo "Typical workflow:"
+  echo "  1. strut <stack> init-secrets --env prod       # Generate random secrets"
+  echo "     OR  strut <stack> secrets hydrate --env prod # Fetch from a secret manager"
+  echo "  2. strut <stack> secrets validate --env prod   # Check for missing/weak values"
+  echo "  3. strut <stack> secrets push --env prod       # Upload to VPS"
+  echo "  4. strut <stack> secrets diff --env prod       # Verify local matches remote"
   echo ""
   echo "Secret references (in a .env template, resolved by 'hydrate'):"
   echo "  KEY=vault://<item>     Vaultwarden/Bitwarden item (via 'bw')"
@@ -40,13 +48,17 @@ _usage_secrets() {
   echo ""
   echo "  Note: exec:// runs commands with your privileges — only hydrate templates you trust."
   echo ""
+  echo "Related commands:"
+  echo "  strut <stack> init-secrets   Generate .env from template (random values)"
+  echo "  strut <stack> ssh:keygen     Generate a deploy keypair"
+  echo "  strut <stack> ci:init        Bootstrap CI/CD secrets"
+  echo "  strut <stack> keys env:*     Rotate/manage individual credentials"
+  echo ""
   echo "Examples:"
   echo "  strut my-app secrets hydrate --env prod      # template -> .prod.env"
   echo "  strut my-app secrets push --env prod"
-  echo "  strut my-app secrets pull --env prod"
+  echo "  strut my-app secrets status --env prod"
   echo "  strut my-app secrets diff --env prod"
-  echo "  strut my-app secrets validate --env prod"
-  echo "  strut my-app secrets push --env staging --dry-run"
   echo ""
 }
 
@@ -616,6 +628,181 @@ _secrets_hydrate() {
   ok "Hydrated $out_file ($resolved_count resolved, $literal_count literal)"
 }
 
+# _secrets_status (reads CMD_*)
+# Show the state of the secrets pipeline for the current stack.
+_secrets_status() {
+  local stack="$CMD_STACK"
+  local stack_dir="$CMD_STACK_DIR"
+  local env_name="${CMD_ENV_NAME:-prod}"
+
+  print_banner "Secrets Status: $stack ($env_name)"
+
+  # ── Local env ────────────────────────────────────────────────────────────
+  local local_env
+  if local_env=$(_secrets_resolve_local_env "$stack_dir" "$env_name"); then
+    local var_count modified_ago perms
+    var_count=$(grep -c "^[A-Za-z_]" "$local_env" 2>/dev/null || echo 0)
+    perms=$(stat -f '%Lp' "$local_env" 2>/dev/null || stat -c '%a' "$local_env" 2>/dev/null || echo "?")
+
+    # Calculate time since last modification
+    local mod_ts now_ts diff_secs
+    mod_ts=$(stat -f '%m' "$local_env" 2>/dev/null || stat -c '%Y' "$local_env" 2>/dev/null || echo 0)
+    now_ts=$(date +%s)
+    diff_secs=$((now_ts - mod_ts))
+    if [ "$diff_secs" -lt 60 ]; then
+      modified_ago="just now"
+    elif [ "$diff_secs" -lt 3600 ]; then
+      modified_ago="$((diff_secs / 60))m ago"
+    elif [ "$diff_secs" -lt 86400 ]; then
+      modified_ago="$((diff_secs / 3600))h ago"
+    else
+      modified_ago="$((diff_secs / 86400))d ago"
+    fi
+
+    local location_label
+    if [[ "$local_env" == "$stack_dir"* ]]; then
+      location_label="stack-level"
+    else
+      location_label="project-level"
+    fi
+
+    echo "  Local env:   $local_env ($location_label)"
+    echo "               $var_count vars, mode $perms, modified $modified_ago"
+  else
+    echo "  Local env:   (not found)"
+    echo "               Expected: $stack_dir/.$env_name.env or $CLI_ROOT/.$env_name.env"
+  fi
+
+  # ── Template ─────────────────────────────────────────────────────────────
+  local template="" cand
+  for cand in \
+    "$stack_dir/.${env_name}.env.template" \
+    "$CLI_ROOT/.${env_name}.env.template" \
+    "$stack_dir/.env.template" \
+    "$CLI_ROOT/.env.template"; do
+    if [ -f "$cand" ]; then template="$cand"; break; fi
+  done
+
+  if [ -n "$template" ]; then
+    local ref_count=0 literal_count=0 line key value scheme
+    while IFS= read -r line || [ -n "$line" ]; do
+      [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]] && continue
+      if [[ "$line" =~ ^([A-Za-z_][A-Za-z0-9_]*)=(.*)$ ]]; then
+        value="${BASH_REMATCH[2]}"
+        if secrets_reference_scheme "$value" >/dev/null 2>&1; then
+          ref_count=$((ref_count + 1))
+        else
+          literal_count=$((literal_count + 1))
+        fi
+      fi
+    done < "$template"
+    echo "  Template:    $template"
+    echo "               $ref_count references, $literal_count literals"
+  else
+    echo "  Template:    (none found)"
+  fi
+
+  # ── Remote env ───────────────────────────────────────────────────────────
+  # Source connection info
+  local conn_env="$CLI_ROOT/.${env_name}.env"
+  if [ -f "$conn_env" ]; then
+    set -a; source "$conn_env" 2>/dev/null; set +a
+  fi
+  if [ -n "$local_env" ] && [ -f "$local_env" ] && [ "$local_env" != "$conn_env" ]; then
+    set -a; source "$local_env" 2>/dev/null; set +a
+  fi
+
+  local vps_host="${VPS_HOST:-}"
+  if [ -n "$vps_host" ]; then
+    local vps_user="${VPS_USER:-ubuntu}"
+    local vps_port="${VPS_PORT:-22}"
+    local vps_ssh_key="${VPS_SSH_KEY:-}"
+    local deploy_dir="${VPS_DEPLOY_DIR:-/home/$vps_user/strut}"
+    local remote_path
+    remote_path=$(_secrets_resolve_remote_path "$deploy_dir" "$env_name")
+
+    local ssh_opts
+    ssh_opts=$(build_ssh_opts -p "$vps_port" -k "$vps_ssh_key" --batch -t 5)
+
+    local remote_var_count
+    # shellcheck disable=SC2029
+    remote_var_count=$(ssh $ssh_opts "$vps_user@$vps_host" "grep -c '^[A-Za-z_]' '$remote_path' 2>/dev/null" 2>/dev/null || echo "")
+
+    if [ -n "$remote_var_count" ]; then
+      echo "  Remote env:  $vps_user@$vps_host:$remote_path"
+      echo "               $remote_var_count vars"
+
+      # Quick sync check (compare var counts as a rough indicator)
+      if [ -n "$local_env" ] && [ -f "$local_env" ]; then
+        local local_count
+        local_count=$(grep -c "^[A-Za-z_]" "$local_env" 2>/dev/null || echo 0)
+        if [ "$local_count" = "$remote_var_count" ]; then
+          echo "  Sync:        ✓ var counts match ($local_count)"
+        else
+          echo "  Sync:        ⚠ local has $local_count vars, remote has $remote_var_count"
+          echo "               Run 'strut $stack secrets diff --env $env_name' for details"
+        fi
+      fi
+    else
+      echo "  Remote env:  $vps_user@$vps_host:$remote_path (unreachable or not found)"
+    fi
+  else
+    echo "  Remote env:  (no VPS_HOST configured)"
+  fi
+
+  # ── Required vars ────────────────────────────────────────────────────────
+  local required_file="$stack_dir/required_vars"
+  if [ -f "$required_file" ]; then
+    local total_required=0 present=0 missing_vars=()
+    while IFS= read -r var; do
+      [[ -z "$var" || "$var" =~ ^[[:space:]]*# ]] && continue
+      var=$(echo "$var" | tr -d '[:space:]')
+      total_required=$((total_required + 1))
+      if [ -n "$local_env" ] && [ -f "$local_env" ]; then
+        local val
+        val=$(grep "^${var}=" "$local_env" 2>/dev/null | head -1 | cut -d= -f2-)
+        if [ -n "$val" ]; then
+          present=$((present + 1))
+        else
+          missing_vars+=("$var")
+        fi
+      fi
+    done < "$required_file"
+
+    if [ ${#missing_vars[@]} -eq 0 ]; then
+      echo "  Required:    $present/$total_required present ✓"
+    else
+      echo "  Required:    $present/$total_required present ✗"
+      echo "               Missing: ${missing_vars[*]}"
+    fi
+  else
+    echo "  Required:    (no required_vars file)"
+  fi
+
+  # ── Deploy key ───────────────────────────────────────────────────────────
+  local host_alias=""
+  topology_load 2>/dev/null || true
+  if topology_has_host "$stack" 2>/dev/null; then
+    host_alias="${_TOPO_STACK_HOST[$stack]:-}"
+  elif [ -n "$vps_host" ]; then
+    host_alias="$vps_host"
+  fi
+
+  if [ -n "$host_alias" ]; then
+    local deploy_keys
+    deploy_keys=$(find "$HOME/.ssh" -maxdepth 1 -name "strut_${host_alias}_*" -not -name "*.pub" 2>/dev/null || true)
+    if [ -n "$deploy_keys" ]; then
+      local key_count
+      key_count=$(echo "$deploy_keys" | wc -l | tr -d ' ')
+      echo "  Deploy keys: $key_count found for $host_alias"
+    else
+      echo "  Deploy keys: none (run 'strut $stack ssh:keygen --name ci' to generate)"
+    fi
+  fi
+
+  echo ""
+}
+
 # ── Dispatch ──────────────────────────────────────────────────────────────────
 
 cmd_secrets() {
@@ -628,6 +815,7 @@ cmd_secrets() {
     pull)     _secrets_pull "$@" ;;
     diff)     _secrets_diff "$@" ;;
     validate) _secrets_validate "$@" ;;
+    status)   _secrets_status "$@" ;;
     ""|help|--help|-h) _usage_secrets ;;
     *)
       error "Unknown secrets subcommand: $subcmd"

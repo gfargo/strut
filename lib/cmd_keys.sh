@@ -50,6 +50,11 @@ _usage_keys() {
   echo "  strut my-stack keys test"
   echo "  strut my-stack keys ssh:add alice --generate --dry-run"
   echo ""
+  echo "See also:"
+  echo "  strut <stack> secrets push     Sync .env to VPS after rotation"
+  echo "  strut <stack> ssh:keygen       Generate a deploy keypair"
+  echo "  strut <stack> ci:init          Bootstrap CI/CD secrets"
+  echo ""
 }
 
 # cmd_keys [subcommand] [username] [args...] (reads CMD_*)

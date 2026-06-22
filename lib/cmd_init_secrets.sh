@@ -232,6 +232,11 @@ _usage_init_secrets() {
   echo "  strut langfuse init-secrets --env prod"
   echo "  strut my-app init-secrets --dry-run"
   echo "  strut my-app init-secrets --env staging --force"
+  echo ""
+  echo "See also:"
+  echo "  strut <stack> secrets hydrate   Fetch values from an external secret manager"
+  echo "  strut <stack> secrets push      Upload the generated .env to VPS"
+  echo ""
 }
 
 cmd_init_secrets() {
