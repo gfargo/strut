@@ -1377,6 +1377,247 @@ _secrets_export() {
   esac
 }
 
+# ── Lock / Unlock ─────────────────────────────────────────────────────────────
+
+# _secrets_detect_backend — print "age" or "gpg"; return 1 if neither available
+_secrets_detect_backend() {
+  if command -v age &>/dev/null; then
+    echo "age"
+  elif command -v gpg &>/dev/null; then
+    echo "gpg"
+  else
+    return 1
+  fi
+}
+
+# _secrets_lock — encrypt a .env file at rest using age or gpg
+_secrets_lock() {
+  local stack="$CMD_STACK"
+  local stack_dir="$CMD_STACK_DIR"
+  local env_name="${CMD_ENV_NAME:-prod}"
+  local dry_run="${DRY_RUN:-false}"
+  local backend=""
+  local identity_flag=""
+  local recipients_flag=""
+  local keep=false
+  local force=false
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --backend)    backend="$2";         shift 2 ;;
+      --identity)   identity_flag="$2";   shift 2 ;;
+      --recipients) recipients_flag="$2"; shift 2 ;;
+      --keep)       keep=true;            shift ;;
+      --force)      force=true;           shift ;;
+      *)            shift ;;
+    esac
+  done
+
+  # Find local env file
+  local local_env
+  if ! local_env=$(_secrets_resolve_local_env "$stack_dir" "$env_name"); then
+    fail "No local env file found for '$env_name'. Expected: $stack_dir/.${env_name}.env"
+    return 1
+  fi
+
+  # Detect or validate backend
+  if [ -z "$backend" ]; then
+    if ! backend=$(_secrets_detect_backend); then
+      fail "No encryption backend available. Install 'age' (recommended) or 'gpg'."
+      return 1
+    fi
+  fi
+  case "$backend" in
+    age|gpg) ;;
+    *) fail "Unknown backend: '$backend'. Use 'age' or 'gpg'."; return 1 ;;
+  esac
+
+  local env_dir
+  env_dir=$(dirname "$local_env")
+  local encrypted_file="$env_dir/.${env_name}.env.${backend}"
+
+  print_banner "Secrets Lock"
+  log "Stack: $stack | Env: $env_name | Backend: $backend"
+  log "Input:  $local_env"
+  log "Output: $encrypted_file"
+  echo ""
+
+  # Guard against clobbering existing encrypted file
+  if [ -f "$encrypted_file" ] && [ "$force" != "true" ]; then
+    warn "Encrypted file already exists: $encrypted_file"
+    warn "Use --force to overwrite."
+    return 1
+  fi
+
+  if [ "$dry_run" = "true" ]; then
+    echo -e "${YELLOW}[DRY-RUN] Would encrypt: $local_env → $encrypted_file${NC}"
+    [ "$keep" = "false" ] && echo -e "${YELLOW}[DRY-RUN] Would remove: $local_env${NC}"
+    echo -e "${YELLOW}[DRY-RUN] No changes made.${NC}"
+    return 0
+  fi
+
+  local tmp_encrypted="${encrypted_file}.tmp"
+
+  if [ "$backend" = "age" ]; then
+    # Resolve recipients file
+    local rcpts_file="" rcpts_is_temp=false
+    if [ -n "$recipients_flag" ]; then
+      [ -f "$recipients_flag" ] || { fail "Recipients file not found: $recipients_flag"; return 1; }
+      rcpts_file="$recipients_flag"
+    elif [ -f "$stack_dir/.strut-recipients" ]; then
+      rcpts_file="$stack_dir/.strut-recipients"
+    elif [ -f "$CLI_ROOT/.strut-recipients" ]; then
+      rcpts_file="$CLI_ROOT/.strut-recipients"
+    elif [ -f "$HOME/.ssh/id_ed25519.pub" ]; then
+      rcpts_file=$(mktemp)
+      rcpts_is_temp=true
+      cp "$HOME/.ssh/id_ed25519.pub" "$rcpts_file"
+      warn "No .strut-recipients found — encrypting to self via ~/.ssh/id_ed25519.pub"
+    elif [ -f "$HOME/.ssh/id_rsa.pub" ]; then
+      rcpts_file=$(mktemp)
+      rcpts_is_temp=true
+      cp "$HOME/.ssh/id_rsa.pub" "$rcpts_file"
+      warn "No .strut-recipients found — encrypting to self via ~/.ssh/id_rsa.pub"
+    else
+      fail "No age recipients configured. Create .strut-recipients with age/SSH public keys, or ensure ~/.ssh/id_ed25519.pub exists."
+      return 1
+    fi
+
+    age -e -R "$rcpts_file" -o "$tmp_encrypted" "$local_env"
+    local exit_code=$?
+    [ "$rcpts_is_temp" = "true" ] && rm -f "$rcpts_file"
+    if [ "$exit_code" -ne 0 ]; then
+      rm -f "$tmp_encrypted"
+      fail "age encryption failed"
+      return 1
+    fi
+
+  elif [ "$backend" = "gpg" ]; then
+    gpg --batch --yes --armor --symmetric --output "$tmp_encrypted" "$local_env" || {
+      rm -f "$tmp_encrypted"
+      fail "gpg encryption failed"
+      return 1
+    }
+  fi
+
+  mv "$tmp_encrypted" "$encrypted_file"
+  chmod 600 "$encrypted_file"
+  ok "Encrypted: $encrypted_file"
+
+  if [ "$keep" = "false" ]; then
+    rm -f "$local_env"
+    ok "Removed plaintext: $local_env"
+  fi
+
+  echo ""
+  log "Safe to commit: $encrypted_file"
+  log "Unlock: strut $stack secrets unlock --env $env_name"
+}
+
+# _secrets_unlock — decrypt a .env.age or .env.gpg file back to plaintext
+_secrets_unlock() {
+  local stack="$CMD_STACK"
+  local stack_dir="$CMD_STACK_DIR"
+  local env_name="${CMD_ENV_NAME:-prod}"
+  local dry_run="${DRY_RUN:-false}"
+  local identity_flag=""
+  local keep=false
+  local force=false
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --identity) identity_flag="$2"; shift 2 ;;
+      --keep)     keep=true;          shift ;;
+      --force)    force=true;         shift ;;
+      *)          shift ;;
+    esac
+  done
+
+  # Find encrypted file — stack-level before project-level, age before gpg
+  local encrypted_file="" backend=""
+  for b in age gpg; do
+    for d in "$stack_dir" "$CLI_ROOT"; do
+      local candidate="$d/.${env_name}.env.${b}"
+      if [ -f "$candidate" ]; then
+        encrypted_file="$candidate"
+        backend="$b"
+        break 2
+      fi
+    done
+  done
+
+  if [ -z "$encrypted_file" ]; then
+    fail "No encrypted env file found for '$env_name'. Expected .${env_name}.env.age or .${env_name}.env.gpg"
+    return 1
+  fi
+
+  local env_dir
+  env_dir=$(dirname "$encrypted_file")
+  local output_env="$env_dir/.${env_name}.env"
+
+  print_banner "Secrets Unlock"
+  log "Stack: $stack | Env: $env_name | Backend: $backend"
+  log "Input:  $encrypted_file"
+  log "Output: $output_env"
+  echo ""
+
+  # Guard against clobbering existing plaintext
+  if [ -f "$output_env" ] && [ "$force" != "true" ]; then
+    warn "Plaintext env file already exists: $output_env"
+    warn "Use --force to overwrite."
+    return 1
+  fi
+
+  if [ "$dry_run" = "true" ]; then
+    echo -e "${YELLOW}[DRY-RUN] Would decrypt: $encrypted_file → $output_env${NC}"
+    [ "$keep" = "false" ] && echo -e "${YELLOW}[DRY-RUN] Would remove: $encrypted_file${NC}"
+    echo -e "${YELLOW}[DRY-RUN] No changes made.${NC}"
+    return 0
+  fi
+
+  local tmp_output="${output_env}.tmp"
+
+  if [ "$backend" = "age" ]; then
+    # Resolve identity
+    local id_file="${identity_flag:-}"
+    [ -z "$id_file" ] && id_file="${STRUT_AGE_IDENTITY:-}"
+    if [ -z "$id_file" ]; then
+      for candidate in "$HOME/.age/key.txt" "$HOME/.ssh/id_ed25519" "$HOME/.ssh/id_rsa"; do
+        [ -f "$candidate" ] && { id_file="$candidate"; break; }
+      done
+    fi
+    if [ -z "$id_file" ]; then
+      fail "No age identity found. Use --identity <file>, set STRUT_AGE_IDENTITY, or ensure ~/.age/key.txt / ~/.ssh/id_ed25519 exists."
+      return 1
+    fi
+
+    age -d -i "$id_file" -o "$tmp_output" "$encrypted_file" || {
+      rm -f "$tmp_output"
+      fail "age decryption failed. Verify your identity can decrypt this file."
+      return 1
+    }
+
+  elif [ "$backend" = "gpg" ]; then
+    gpg --batch --yes --output "$tmp_output" --decrypt "$encrypted_file" || {
+      rm -f "$tmp_output"
+      fail "gpg decryption failed"
+      return 1
+    }
+  fi
+
+  mv "$tmp_output" "$output_env"
+  chmod 600 "$output_env"
+  ok "Decrypted: $output_env"
+
+  if [ "$keep" = "false" ]; then
+    rm -f "$encrypted_file"
+    ok "Removed encrypted file: $encrypted_file"
+  fi
+
+  echo ""
+  ok "Secrets unlocked — run 'strut $stack secrets push --env $env_name' to sync."
+}
+
 # ── Dispatch ──────────────────────────────────────────────────────────────────
 
 cmd_secrets() {
@@ -1390,6 +1631,8 @@ cmd_secrets() {
     diff)     _secrets_diff "$@" ;;
     validate) _secrets_validate "$@" ;;
     status)   _secrets_status "$@" ;;
+    lock)     _secrets_lock "$@" ;;
+    unlock)   _secrets_unlock "$@" ;;
     rotate)   _secrets_rotate "$@" ;;
     template) _secrets_template "$@" ;;
     export)   _secrets_export "$@" ;;
