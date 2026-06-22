@@ -113,7 +113,7 @@ teardown() { common_teardown; }
   cmd_ssh_keygen --name perms-test --no-authorize
 
   local private_perms
-  private_perms=$(stat -c '%a' "$HOME/.ssh/strut_permhost_perms-test" 2>/dev/null || stat -f '%Lp' "$HOME/.ssh/strut_permhost_perms-test" 2>/dev/null)
+  private_perms=$(stat -c '%a' "$HOME/.ssh/strut_permhost_perms-test" 2>/dev/null || stat -f '%OLp' "$HOME/.ssh/strut_permhost_perms-test" 2>/dev/null)
   [ "$private_perms" = "600" ]
 }
 

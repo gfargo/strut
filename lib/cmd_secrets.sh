@@ -142,10 +142,12 @@ _secrets_push() {
   local env_name="${CMD_ENV_NAME:-prod}"
   local dry_run="${DRY_RUN:-false}"
   local force=false
+  local skip_validation=false
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --force) force=true; shift ;;
+      --skip-validation) skip_validation=true; shift ;;
       *) shift ;;
     esac
   done
@@ -181,12 +183,21 @@ _secrets_push() {
   local remote_path
   remote_path=$(_secrets_resolve_remote_path "$deploy_dir" "$env_name")
 
-  # Validate required vars before pushing
-  if ! _secrets_validate_required_vars "$local_env" "$stack_dir"; then
-    echo ""
-    warn "Push aborted — fill in missing variables first."
-    warn "Use: strut $stack init-secrets --env $env_name"
-    return 1
+  # Validate secrets before pushing (skippable with --skip-validation)
+  if [ "$skip_validation" != "true" ]; then
+    local _push_val_ok=true
+    _secrets_validate_required_vars "$local_env" "$stack_dir" || _push_val_ok=false
+    _secrets_check_content "$local_env" || _push_val_ok=false
+    if [ "$_push_val_ok" = "false" ]; then
+      echo ""
+      warn "Push aborted — fix validation issues first."
+      warn "Use 'strut $stack init-secrets --env $env_name' or 'secrets hydrate' to populate."
+      warn "Pass --skip-validation to bypass (not recommended)."
+      return 1
+    fi
+  else
+    warn "WARNING: --skip-validation active — placeholder, weak-secret, and unresolved-ref checks bypassed."
+    warn "         Only skip validation if you are certain the env file is correct before deploying."
   fi
 
   local ssh_opts
@@ -480,6 +491,74 @@ _secrets_diff() {
   rm -f "$tmp_remote"
 }
 
+# _secrets_check_content <env_file>
+# Checks env file values for unresolved provider references, placeholder values,
+# and weak secrets in password-like keys.
+# Returns 0 if all OK, 1 if issues found.
+_secrets_check_content() {
+  local env_file="$1"
+  local issues=()
+
+  while IFS= read -r line || [ -n "$line" ]; do
+    [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]] && continue
+    [[ "$line" =~ ^([A-Za-z_][A-Za-z0-9_]*)=(.*)$ ]] || continue
+    local key="${BASH_REMATCH[1]}" val="${BASH_REMATCH[2]}"
+    # Strip surrounding single or double quotes (common .env quoting styles)
+    [[ "$val" == \"*\" ]] && val="${val:1:${#val}-2}"
+    [[ "$val" == \'*\' ]] && val="${val:1:${#val}-2}"
+
+    # Unresolved provider references (should be resolved by `secrets hydrate` first)
+    case "$val" in
+      vault://*|exec://*|file://*)
+        issues+=("$key: unresolved provider reference (${val%%://*}://…)")
+        continue
+        ;;
+    esac
+
+    # Placeholder patterns (mirrors _secrets_is_placeholder in cmd_init_secrets.sh)
+    local is_ph=false
+    case "$val" in
+      ''|change-me*|changeme*|CHANGEME*|Change-Me*) is_ph=true ;;
+      your.*|your-*|YOUR_*|YOUR-*) is_ph=true ;;
+      xxxx*|XXXX*|xxx*|XXX*) is_ph=true ;;
+      ghp_xxx*) is_ph=true ;;
+      replace-*|REPLACE_*|replace_*) is_ph=true ;;
+      todo*|TODO*|fixme*|FIXME*) is_ph=true ;;
+      example*|EXAMPLE*) is_ph=true ;;
+      placeholder*|PLACEHOLDER*) is_ph=true ;;
+    esac
+    if $is_ph; then
+      issues+=("$key: placeholder value")
+      continue
+    fi
+
+    # Weak secrets in password/secret/token-like keys
+    local key_lower
+    key_lower=$(echo "$key" | tr '[:upper:]' '[:lower:]')
+    case "$key_lower" in
+      *password*|*passwd*|*secret*|*token*)
+        local val_lower
+        val_lower=$(echo "$val" | tr '[:upper:]' '[:lower:]')
+        case "$val_lower" in
+          password|password1|changeme|change-me|secret|secret123|admin|test|12345*|qwerty|letmein)
+            issues+=("$key: weak/known-bad value")
+            ;;
+        esac
+        ;;
+    esac
+  done < "$env_file"
+
+  if [ ${#issues[@]} -gt 0 ]; then
+    error "Content issues found (${#issues[@]}):"
+    for issue in "${issues[@]}"; do
+      echo "  • $issue"
+    done
+    return 1
+  fi
+
+  return 0
+}
+
 # _secrets_validate (reads CMD_*)
 _secrets_validate() {
   local stack="$CMD_STACK"
@@ -495,13 +574,21 @@ _secrets_validate() {
 
   log "Validating: $local_env"
 
-  if _secrets_validate_required_vars "$local_env" "$stack_dir"; then
-    local var_count
-    var_count=$(grep -cE '^[A-Za-z_][A-Za-z0-9_]*=' "$local_env" 2>/dev/null || echo "0")
-    ok "All required variables present ($var_count total vars)"
-  else
+  local fail_count=0
+
+  # 1. Required vars presence
+  _secrets_validate_required_vars "$local_env" "$stack_dir" || fail_count=$((fail_count + 1))
+
+  # 2. Content quality: placeholders, weak secrets, unresolved references
+  _secrets_check_content "$local_env" || fail_count=$((fail_count + 1))
+
+  if [ "$fail_count" -gt 0 ]; then
     return 1
   fi
+
+  local var_count
+  var_count=$(grep -cE '^[A-Za-z_][A-Za-z0-9_]*=' "$local_env" 2>/dev/null || echo "0")
+  ok "Validation passed ($var_count vars, required present, no placeholders or weak values)"
 }
 
 # _secrets_hydrate (reads CMD_*)
@@ -629,6 +716,26 @@ _secrets_hydrate() {
   chmod 600 "$out_file"
   echo ""
   ok "Hydrated $out_file ($resolved_count resolved, $literal_count literal)"
+
+  # Post-hydration: warn if any required_vars entries are unset in the output
+  local rv_file="$stack_dir/required_vars"
+  if [ -f "$rv_file" ]; then
+    local missing_rv=()
+    while IFS= read -r var || [ -n "$var" ]; do
+      [[ -z "$var" || "$var" =~ ^[[:space:]]*# ]] && continue
+      var=$(echo "$var" | tr -d '[:space:]')
+      local rv_val
+      rv_val=$(grep "^${var}=" "$out_file" 2>/dev/null | head -1 | cut -d= -f2-)
+      [ -z "$rv_val" ] && missing_rv+=("$var")
+    done < "$rv_file"
+    if [ ${#missing_rv[@]} -gt 0 ]; then
+      warn "Post-hydration: ${#missing_rv[@]} required var(s) not set in output:"
+      for v in "${missing_rv[@]}"; do
+        echo "  • $v"
+      done
+      warn "Run 'strut $stack secrets validate --env $env_name' before push."
+    fi
+  fi
 }
 
 # _secrets_status (reads CMD_*)
@@ -645,7 +752,7 @@ _secrets_status() {
   if local_env=$(_secrets_resolve_local_env "$stack_dir" "$env_name"); then
     local var_count modified_ago perms
     var_count=$(grep -c "^[A-Za-z_]" "$local_env" 2>/dev/null || echo 0)
-    perms=$(stat -c '%a' "$local_env" 2>/dev/null || stat -f '%Lp' "$local_env" 2>/dev/null || echo "?")
+    perms=$(stat -c '%a' "$local_env" 2>/dev/null || stat -f '%OLp' "$local_env" 2>/dev/null || echo "?")
 
     # Calculate time since last modification
     local mod_ts now_ts diff_secs
