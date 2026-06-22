@@ -131,6 +131,39 @@ teardown() { common_teardown; }
   [[ "$output" == *"VPS_HOST not set"* ]] || [[ "$output" == *"skipping"* ]] || true
 }
 
+@test "secrets rotate: --restart fails and exits non-zero when SSH restart fails" {
+  export CMD_STACK="my-app"
+  export CMD_STACK_DIR="$TEST_TMP/stacks/my-app"
+  mkdir -p "$CMD_STACK_DIR"
+  export VPS_HOST="10.0.0.1"
+
+  # Stub validate and push to succeed; SSH always fails
+  _secrets_validate() { return 0; }
+  _secrets_push()     { return 0; }
+  ssh()               { return 1; }
+  export -f _secrets_validate _secrets_push ssh
+
+  run _secrets_rotate --restart 2>&1
+  [ "$status" -ne 0 ]
+  [[ "$output" != *"Containers restarted"* ]]
+  [[ "$output" == *"restart failed"* ]] || [[ "$output" == *"WARN"* ]]
+}
+
+@test "secrets rotate: --restart does not report success on SSH failure" {
+  export CMD_STACK="my-app"
+  export CMD_STACK_DIR="$TEST_TMP/stacks/my-app"
+  mkdir -p "$CMD_STACK_DIR"
+  export VPS_HOST="10.0.0.1"
+
+  _secrets_validate() { return 0; }
+  _secrets_push()     { return 0; }
+  ssh()               { return 1; }
+  export -f _secrets_validate _secrets_push ssh
+
+  output=$(_secrets_rotate --restart 2>&1 || true)
+  [[ "$output" != *"OK: Containers restarted"* ]]
+}
+
 # ── no env file ───────────────────────────────────────────────────────────────
 
 @test "secrets rotate: propagates validate failure" {

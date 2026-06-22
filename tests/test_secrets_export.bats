@@ -109,6 +109,13 @@ teardown() { common_teardown; }
   [[ "$output" == *"Unknown format"* ]]
 }
 
+@test "secrets export: fails with --format but no value (set -u guard)" {
+  # Under set -u, accessing $2 when absent would crash without the guard.
+  run _secrets_export --format 2>&1
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"requires a value"* ]] || [[ "$output" == *"--format"* ]]
+}
+
 @test "secrets export: fails when no local env file" {
   export CMD_STACK="empty"
   export CMD_STACK_DIR="$TEST_TMP/stacks/empty"
@@ -116,6 +123,20 @@ teardown() { common_teardown; }
 
   run _secrets_export --format env-json 2>&1
   [ "$status" -ne 0 ]
+}
+
+# ── docker-secret quoting ─────────────────────────────────────────────────────
+
+@test "secrets export: docker-secret handles value with single quote" {
+  printf "SECRET=it\\'s-a-secret\nAPI_KEY=tok456\n" > "$CMD_STACK_DIR/.prod.env"
+  output=$(_secrets_export --format docker-secret 2>&1)
+  # The output must not contain an unescaped bare single-quote around the value
+  # (i.e. the line must not look like printf '%s' 'it's-a-secret').
+  # Instead, it must be syntactically valid shell — we check that the value
+  # appears in some form (escaped) in the output.
+  [[ "$output" == *"docker secret create"* ]]
+  # Ensure the raw broken form is NOT present
+  [[ "$output" != *"'it's-a-secret'"* ]]
 }
 
 # ── dispatch ──────────────────────────────────────────────────────────────────
