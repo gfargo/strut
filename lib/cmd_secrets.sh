@@ -27,8 +27,9 @@ _usage_secrets() {
   echo "  diff       Show differences between local and remote .env"
   echo "  validate   Check required_vars are present before push"
   echo "  status     Show the secrets pipeline state for this stack"
-  echo "  lock       Encrypt .env at rest (.prod.env → .prod.env.age)"
-  echo "  unlock     Decrypt .env.age/.env.gpg back to plaintext (.prod.env)"
+  echo "  rotate     Re-hydrate/re-generate, validate, push, and optionally restart"
+  echo "  template   Reverse-engineer a .env.template from an existing .env"
+  echo "  export     Export .env to docker-secret, k8s-secret, or env-json format"
   echo ""
   echo "Options:"
   echo "  --env <name>   Environment name (default: prod)"
@@ -152,10 +153,12 @@ _secrets_push() {
   local env_name="${CMD_ENV_NAME:-prod}"
   local dry_run="${DRY_RUN:-false}"
   local force=false
+  local skip_validation=false
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --force) force=true; shift ;;
+      --skip-validation) skip_validation=true; shift ;;
       *) shift ;;
     esac
   done
@@ -206,12 +209,21 @@ _secrets_push() {
   local remote_path
   remote_path=$(_secrets_resolve_remote_path "$deploy_dir" "$env_name")
 
-  # Validate required vars before pushing
-  if ! _secrets_validate_required_vars "$local_env" "$stack_dir"; then
-    echo ""
-    warn "Push aborted — fill in missing variables first."
-    warn "Use: strut $stack init-secrets --env $env_name"
-    return 1
+  # Validate secrets before pushing (skippable with --skip-validation)
+  if [ "$skip_validation" != "true" ]; then
+    local _push_val_ok=true
+    _secrets_validate_required_vars "$local_env" "$stack_dir" || _push_val_ok=false
+    _secrets_check_content "$local_env" || _push_val_ok=false
+    if [ "$_push_val_ok" = "false" ]; then
+      echo ""
+      warn "Push aborted — fix validation issues first."
+      warn "Use 'strut $stack init-secrets --env $env_name' or 'secrets hydrate' to populate."
+      warn "Pass --skip-validation to bypass (not recommended)."
+      return 1
+    fi
+  else
+    warn "WARNING: --skip-validation active — placeholder, weak-secret, and unresolved-ref checks bypassed."
+    warn "         Only skip validation if you are certain the env file is correct before deploying."
   fi
 
   local ssh_opts
@@ -505,6 +517,74 @@ _secrets_diff() {
   rm -f "$tmp_remote"
 }
 
+# _secrets_check_content <env_file>
+# Checks env file values for unresolved provider references, placeholder values,
+# and weak secrets in password-like keys.
+# Returns 0 if all OK, 1 if issues found.
+_secrets_check_content() {
+  local env_file="$1"
+  local issues=()
+
+  while IFS= read -r line || [ -n "$line" ]; do
+    [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]] && continue
+    [[ "$line" =~ ^([A-Za-z_][A-Za-z0-9_]*)=(.*)$ ]] || continue
+    local key="${BASH_REMATCH[1]}" val="${BASH_REMATCH[2]}"
+    # Strip surrounding single or double quotes (common .env quoting styles)
+    [[ "$val" == \"*\" ]] && val="${val:1:${#val}-2}"
+    [[ "$val" == \'*\' ]] && val="${val:1:${#val}-2}"
+
+    # Unresolved provider references (should be resolved by `secrets hydrate` first)
+    case "$val" in
+      vault://*|exec://*|file://*)
+        issues+=("$key: unresolved provider reference (${val%%://*}://…)")
+        continue
+        ;;
+    esac
+
+    # Placeholder patterns (mirrors _secrets_is_placeholder in cmd_init_secrets.sh)
+    local is_ph=false
+    case "$val" in
+      ''|change-me*|changeme*|CHANGEME*|Change-Me*) is_ph=true ;;
+      your.*|your-*|YOUR_*|YOUR-*) is_ph=true ;;
+      xxxx*|XXXX*|xxx*|XXX*) is_ph=true ;;
+      ghp_xxx*) is_ph=true ;;
+      replace-*|REPLACE_*|replace_*) is_ph=true ;;
+      todo*|TODO*|fixme*|FIXME*) is_ph=true ;;
+      example*|EXAMPLE*) is_ph=true ;;
+      placeholder*|PLACEHOLDER*) is_ph=true ;;
+    esac
+    if $is_ph; then
+      issues+=("$key: placeholder value")
+      continue
+    fi
+
+    # Weak secrets in password/secret/token-like keys
+    local key_lower
+    key_lower=$(echo "$key" | tr '[:upper:]' '[:lower:]')
+    case "$key_lower" in
+      *password*|*passwd*|*secret*|*token*)
+        local val_lower
+        val_lower=$(echo "$val" | tr '[:upper:]' '[:lower:]')
+        case "$val_lower" in
+          password|password1|changeme|change-me|secret|secret123|admin|test|12345*|qwerty|letmein)
+            issues+=("$key: weak/known-bad value")
+            ;;
+        esac
+        ;;
+    esac
+  done < "$env_file"
+
+  if [ ${#issues[@]} -gt 0 ]; then
+    error "Content issues found (${#issues[@]}):"
+    for issue in "${issues[@]}"; do
+      echo "  • $issue"
+    done
+    return 1
+  fi
+
+  return 0
+}
+
 # _secrets_validate (reads CMD_*)
 _secrets_validate() {
   local stack="$CMD_STACK"
@@ -520,13 +600,21 @@ _secrets_validate() {
 
   log "Validating: $local_env"
 
-  if _secrets_validate_required_vars "$local_env" "$stack_dir"; then
-    local var_count
-    var_count=$(grep -cE '^[A-Za-z_][A-Za-z0-9_]*=' "$local_env" 2>/dev/null || echo "0")
-    ok "All required variables present ($var_count total vars)"
-  else
+  local fail_count=0
+
+  # 1. Required vars presence
+  _secrets_validate_required_vars "$local_env" "$stack_dir" || fail_count=$((fail_count + 1))
+
+  # 2. Content quality: placeholders, weak secrets, unresolved references
+  _secrets_check_content "$local_env" || fail_count=$((fail_count + 1))
+
+  if [ "$fail_count" -gt 0 ]; then
     return 1
   fi
+
+  local var_count
+  var_count=$(grep -cE '^[A-Za-z_][A-Za-z0-9_]*=' "$local_env" 2>/dev/null || echo "0")
+  ok "Validation passed ($var_count vars, required present, no placeholders or weak values)"
 }
 
 # _secrets_hydrate (reads CMD_*)
@@ -654,6 +742,26 @@ _secrets_hydrate() {
   chmod 600 "$out_file"
   echo ""
   ok "Hydrated $out_file ($resolved_count resolved, $literal_count literal)"
+
+  # Post-hydration: warn if any required_vars entries are unset in the output
+  local rv_file="$stack_dir/required_vars"
+  if [ -f "$rv_file" ]; then
+    local missing_rv=()
+    while IFS= read -r var || [ -n "$var" ]; do
+      [[ -z "$var" || "$var" =~ ^[[:space:]]*# ]] && continue
+      var=$(echo "$var" | tr -d '[:space:]')
+      local rv_val
+      rv_val=$(grep "^${var}=" "$out_file" 2>/dev/null | head -1 | cut -d= -f2-)
+      [ -z "$rv_val" ] && missing_rv+=("$var")
+    done < "$rv_file"
+    if [ ${#missing_rv[@]} -gt 0 ]; then
+      warn "Post-hydration: ${#missing_rv[@]} required var(s) not set in output:"
+      for v in "${missing_rv[@]}"; do
+        echo "  • $v"
+      done
+      warn "Run 'strut $stack secrets validate --env $env_name' before push."
+    fi
+  fi
 }
 
 # _secrets_status (reads CMD_*)
@@ -670,11 +778,11 @@ _secrets_status() {
   if local_env=$(_secrets_resolve_local_env "$stack_dir" "$env_name"); then
     local var_count modified_ago perms
     var_count=$(grep -c "^[A-Za-z_]" "$local_env" 2>/dev/null || echo 0)
-    perms=$(stat -f '%Lp' "$local_env" 2>/dev/null || stat -c '%a' "$local_env" 2>/dev/null || echo "?")
+    perms=$(stat -c '%a' "$local_env" 2>/dev/null || stat -f '%OLp' "$local_env" 2>/dev/null || echo "?")
 
     # Calculate time since last modification
     local mod_ts now_ts diff_secs
-    mod_ts=$(stat -f '%m' "$local_env" 2>/dev/null || stat -c '%Y' "$local_env" 2>/dev/null || echo 0)
+    mod_ts=$(stat -c '%Y' "$local_env" 2>/dev/null || stat -f '%m' "$local_env" 2>/dev/null || echo 0)
     now_ts=$(date +%s)
     diff_secs=$((now_ts - mod_ts))
     if [ "$diff_secs" -lt 60 ]; then
@@ -831,245 +939,442 @@ _secrets_status() {
   echo ""
 }
 
-# ── Lock / Unlock ─────────────────────────────────────────────────────────────
-
-# _secrets_detect_backend — print "age" or "gpg"; return 1 if neither available
-_secrets_detect_backend() {
-  if command -v age &>/dev/null; then
-    echo "age"
-  elif command -v gpg &>/dev/null; then
-    echo "gpg"
-  else
-    return 1
-  fi
-}
-
-# _secrets_lock — encrypt a .env file at rest using age or gpg
-_secrets_lock() {
+# _secrets_rotate (reads CMD_*)
+# Re-hydrate or re-generate secrets, validate, push to VPS, and optionally restart containers.
+_secrets_rotate() {
   local stack="$CMD_STACK"
   local stack_dir="$CMD_STACK_DIR"
   local env_name="${CMD_ENV_NAME:-prod}"
   local dry_run="${DRY_RUN:-false}"
-  local backend=""
-  local identity_flag=""
-  local recipients_flag=""
-  local keep=false
+  local restart=false
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --restart)  restart=true; shift ;;
+      --dry-run)  dry_run=true; shift ;;
+      *) shift ;;
+    esac
+  done
+
+  print_banner "Secrets Rotate"
+  log "Stack: $stack | Env: $env_name"
+  echo ""
+
+  # Locate template to determine rotation strategy
+  local template="" cand
+  for cand in \
+    "$stack_dir/.${env_name}.env.template" \
+    "$CLI_ROOT/.${env_name}.env.template" \
+    "$stack_dir/.env.template" \
+    "$CLI_ROOT/.env.template"; do
+    if [ -f "$cand" ]; then template="$cand"; break; fi
+  done
+
+  # Step 1: re-hydrate or re-generate
+  local step_label="[1/4]"
+  if [ -n "$template" ]; then
+    # Scan for provider references
+    local has_refs=false
+    local _line _value
+    while IFS= read -r _line || [ -n "$_line" ]; do
+      [[ -z "$_line" || "$_line" =~ ^[[:space:]]*# ]] && continue
+      [[ "$_line" =~ ^[A-Za-z_][A-Za-z0-9_]*=(.*)$ ]] || continue
+      _value="${BASH_REMATCH[1]}"
+      if secrets_reference_scheme "$_value" >/dev/null 2>&1; then
+        has_refs=true
+        break
+      fi
+    done < "$template"
+
+    if [ "$has_refs" = "true" ]; then
+      log "$step_label Hydrating secrets from provider references..."
+      if [ "$dry_run" = "true" ]; then
+        log "[DRY-RUN] Would run: secrets hydrate --force"
+      else
+        _secrets_hydrate --force
+      fi
+    else
+      log "$step_label Re-generating secrets from template..."
+      if [ "$dry_run" = "true" ]; then
+        log "[DRY-RUN] Would run: init-secrets --force"
+      else
+        cmd_init_secrets --force
+      fi
+    fi
+  else
+    log "$step_label No template found — skipping re-generation"
+    log "          Create a .env.template to enable automated secret rotation."
+  fi
+
+  # Step 2: validate
+  log "[2/4] Validating secrets..."
+  if [ "$dry_run" = "true" ]; then
+    log "[DRY-RUN] Would run: secrets validate"
+  else
+    _secrets_validate || return 1
+  fi
+
+  # Step 3: push
+  log "[3/4] Pushing secrets to VPS..."
+  if [ "$dry_run" = "true" ]; then
+    log "[DRY-RUN] Would run: secrets push --force"
+  else
+    _secrets_push --force || return 1
+  fi
+
+  # Step 4: optional container restart
+  if [ "$restart" = "true" ]; then
+    log "[4/4] Restarting containers on VPS..."
+
+    # Load VPS connection info
+    local conn_env="$CLI_ROOT/.${env_name}.env"
+    [ -f "$conn_env" ] || conn_env=$(_secrets_resolve_local_env "$stack_dir" "$env_name" 2>/dev/null || echo "")
+    if [ -n "$conn_env" ] && [ -f "$conn_env" ]; then
+      local _vh="${VPS_HOST:-}" _vu="${VPS_USER:-}" _vp="${VPS_PORT:-}" _vk="${VPS_SSH_KEY:-}" _vd="${VPS_DEPLOY_DIR:-}"
+      set -a; source "$conn_env" 2>/dev/null; set +a
+      [ -n "$_vh" ] && export VPS_HOST="$_vh"
+      [ -n "$_vu" ] && export VPS_USER="$_vu"
+      [ -n "$_vp" ] && export VPS_PORT="$_vp"
+      [ -n "$_vk" ] && export VPS_SSH_KEY="$_vk"
+      [ -n "$_vd" ] && export VPS_DEPLOY_DIR="$_vd"
+    fi
+
+    local vps_host="${VPS_HOST:-}"
+    local vps_user="${VPS_USER:-ubuntu}"
+    local vps_port="${VPS_PORT:-22}"
+    local vps_ssh_key="${VPS_SSH_KEY:-}"
+    local deploy_dir="${VPS_DEPLOY_DIR:-/home/$vps_user/strut}"
+
+    [ -n "$vps_host" ] || { warn "VPS_HOST not set — skipping container restart"; return 0; }
+
+    local ssh_opts
+    ssh_opts=$(build_ssh_opts -p "$vps_port" -k "$vps_ssh_key" --batch)
+
+    if [ "$dry_run" = "true" ]; then
+      log "[DRY-RUN] Would run: ssh ... docker compose -p $stack restart"
+    else
+      # shellcheck disable=SC2029
+      if ssh $ssh_opts "$vps_user@$vps_host" \
+        "cd '$deploy_dir' && docker compose -p '$stack' restart"; then
+        ok "Containers restarted"
+      else
+        warn "Container restart failed"
+        return 1
+      fi
+    fi
+  else
+    log "[4/4] Skipping restart (use --restart to restart containers after push)"
+  fi
+
+  echo ""
+  if [ "$dry_run" = "true" ]; then
+    echo -e "${YELLOW}[DRY-RUN] No changes made.${NC}"
+  else
+    ok "Secrets rotated for $stack ($env_name)"
+  fi
+}
+
+# _secrets_template (reads CMD_*)
+# Reverse-engineer a .env.template from an existing .env file.
+_secrets_template() {
+  local stack="$CMD_STACK"
+  local stack_dir="$CMD_STACK_DIR"
+  local env_name="${CMD_ENV_NAME:-prod}"
+  local dry_run="${DRY_RUN:-false}"
   local force=false
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      --backend)    backend="$2";         shift 2 ;;
-      --identity)   identity_flag="$2";   shift 2 ;;
-      --recipients) recipients_flag="$2"; shift 2 ;;
-      --keep)       keep=true;            shift ;;
-      --force)      force=true;           shift ;;
-      *)            shift ;;
+      --force)    force=true; shift ;;
+      --dry-run)  dry_run=true; shift ;;
+      *) shift ;;
     esac
   done
+
+  # Find existing env file to read
+  local local_env
+  if ! local_env=$(_secrets_resolve_local_env "$stack_dir" "$env_name"); then
+    fail "No local env file found for '$env_name'. Expected: $stack_dir/.${env_name}.env or $CLI_ROOT/.${env_name}.env"
+    return 1
+  fi
+
+  local out_file="$stack_dir/.env.template"
+
+  print_banner "Secrets Template"
+  log "Stack: $stack | Env: $env_name"
+  log "Source: $local_env"
+  log "Output: $out_file"
+  echo ""
+
+  if [ -f "$out_file" ] && [ "$force" != "true" ] && [ "$dry_run" != "true" ]; then
+    warn "Template already exists: $out_file"
+    warn "Use --force to overwrite."
+    return 1
+  fi
+
+  # Helper: detect if a value looks like a generated secret (not a human value)
+  _is_generated_secret() {
+    local key="$1" val="$2"
+    # Long hex string (≥32 chars, only hex)
+    if [[ ${#val} -ge 32 ]] && [[ "$val" =~ ^[0-9a-f]+$ ]]; then
+      return 0
+    fi
+    # Long base64-ish string (≥32 chars)
+    if [[ ${#val} -ge 32 ]] && [[ "$val" =~ ^[A-Za-z0-9+/]+=*$ ]]; then
+      return 0
+    fi
+    # Key name strongly implies a secret
+    local key_lower
+    key_lower=$(echo "$key" | tr '[:upper:]' '[:lower:]')
+    case "$key_lower" in
+      *secret*|*password*|*passwd*|*salt*|*jwt*|*encryption*)
+        return 0 ;;
+    esac
+    return 1
+  }
+
+  # Helper: detect if a value looks like a structured literal to keep as-is
+  _is_literal_value() {
+    local val="$1"
+    # URLs
+    [[ "$val" =~ ^https?:// ]] && return 0
+    # DB connection strings
+    [[ "$val" =~ ^(postgresql|mysql|redis|mongodb):// ]] && return 0
+    # IP addresses
+    [[ "$val" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+ ]] && return 0
+    # Port numbers or pure integers
+    [[ "$val" =~ ^[0-9]+$ ]] && return 0
+    # Booleans / common config strings
+    case "$val" in
+      true|false|yes|no|on|off|enabled|disabled) return 0 ;;
+    esac
+    return 1
+  }
+
+  # Helper: suggest generation hint for key
+  _suggest_hint() {
+    local key="$1" val="$2"
+    local key_lower
+    key_lower=$(echo "$key" | tr '[:upper:]' '[:lower:]')
+    # Infer byte length from value length (hex: len/2 bytes)
+    if [[ "$val" =~ ^[0-9a-f]+$ ]] && [[ ${#val} -ge 32 ]]; then
+      echo "# Generate with: openssl rand -hex $(( ${#val} / 2 ))"
+      return
+    fi
+    if [[ "$val" =~ ^[A-Za-z0-9+/]+=*$ ]] && [[ ${#val} -ge 32 ]]; then
+      echo "# Generate with: openssl rand -base64 32"
+      return
+    fi
+    case "$key_lower" in
+      *secret*|*jwt*)     echo "# Generate with: openssl rand -hex 32" ;;
+      *password*|*passwd*) echo "# Generate with: openssl rand -hex 16" ;;
+      *salt*)             echo "# Generate with: openssl rand -hex 16" ;;
+      *key*|*token*)      echo "# Generate with: openssl rand -hex 24" ;;
+      *encryption*)       echo "# Generate with: openssl rand -hex 32" ;;
+      *)                  echo "" ;;
+    esac
+  }
+
+  # Process the env file and build the template
+  local generated_count=0 literal_count=0 placeholder_count=0
+  local output_lines=()
+
+  while IFS= read -r line || [ -n "$line" ]; do
+    # Pass through comments and blank lines
+    if [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]]; then
+      output_lines+=("$line")
+      continue
+    fi
+
+    if [[ "$line" =~ ^([A-Za-z_][A-Za-z0-9_]*)=(.*)$ ]]; then
+      local key="${BASH_REMATCH[1]}"
+      local val="${BASH_REMATCH[2]}"
+
+      if _is_literal_value "$val"; then
+        # Keep literal values as-is
+        output_lines+=("${key}=${val}")
+        literal_count=$((literal_count + 1))
+      elif _is_generated_secret "$key" "$val"; then
+        # Replace with placeholder + generation hint
+        local hint
+        hint=$(_suggest_hint "$key" "$val")
+        [ -n "$hint" ] && output_lines+=("$hint")
+        output_lines+=("${key}=change-me")
+        generated_count=$((generated_count + 1))
+      else
+        local key_lower
+        key_lower=$(echo "$key" | tr '[:upper:]' '[:lower:]')
+        case "$key_lower" in
+          *token*|*api_key*|*apikey*|*access_key*)
+            output_lines+=("${key}=change-me")
+            placeholder_count=$((placeholder_count + 1))
+            ;;
+          *)
+            # Non-secret: keep as literal reference
+            output_lines+=("${key}=${val}")
+            literal_count=$((literal_count + 1))
+            ;;
+        esac
+      fi
+    else
+      output_lines+=("$line")
+    fi
+  done < "$local_env"
+
+  if [ "$dry_run" = "true" ]; then
+    echo -e "${YELLOW}[DRY-RUN] Generated template contents:${NC}"
+    echo "─────────────────────────────────────────"
+    local l
+    for l in "${output_lines[@]}"; do echo "$l"; done
+    echo "─────────────────────────────────────────"
+    echo ""
+    log "Would write: $out_file"
+    log "  $generated_count var(s) → change-me (generated secrets)"
+    log "  $placeholder_count var(s) → change-me (API keys / tokens)"
+    log "  $literal_count var(s) → kept as literals"
+    echo -e "${YELLOW}[DRY-RUN] No file written.${NC}"
+    return 0
+  fi
+
+  # Write output file
+  local tmp_out
+  tmp_out=$(mktemp "$(dirname "$out_file")/.template.XXXXXX") || { fail "Could not create temp file"; return 1; }
+  trap 'rm -f "$tmp_out"' RETURN
+  local l
+  for l in "${output_lines[@]}"; do printf '%s\n' "$l"; done > "$tmp_out"
+  mv "$tmp_out" "$out_file"
+  trap - RETURN
+
+  ok "Template written: $out_file"
+  echo ""
+  log "$generated_count var(s) → change-me (generated secrets)"
+  log "$placeholder_count var(s) → change-me (API keys / tokens)"
+  log "$literal_count var(s) → kept as literals"
+  echo ""
+  log "Next: edit $out_file to add vault:// or exec:// references, then:"
+  log "  strut $stack secrets hydrate --env $env_name"
+}
+
+# _secrets_export (reads CMD_*)
+# Export the local .env to another format: docker-secret, k8s-secret, or env-json.
+_secrets_export() {
+  local stack="$CMD_STACK"
+  local stack_dir="$CMD_STACK_DIR"
+  local env_name="${CMD_ENV_NAME:-prod}"
+  local format=""
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --format)
+        if [ $# -lt 2 ] || [ -z "${2:-}" ]; then
+          error "--format requires a value. Choose: docker-secret, k8s-secret, env-json"
+          return 1
+        fi
+        format="$2"; shift 2
+        ;;
+      --format=*) format="${1#--format=}"; shift ;;
+      *) shift ;;
+    esac
+  done
+
+  if [ -z "$format" ]; then
+    error "Missing --format. Choose: docker-secret, k8s-secret, env-json"
+    return 1
+  fi
+
+  case "$format" in
+    docker-secret|k8s-secret|env-json) ;;
+    *)
+      error "Unknown format '$format'. Choose: docker-secret, k8s-secret, env-json"
+      return 1
+      ;;
+  esac
 
   # Find local env file
   local local_env
   if ! local_env=$(_secrets_resolve_local_env "$stack_dir" "$env_name"); then
-    fail "No local env file found for '$env_name'. Expected: $stack_dir/.${env_name}.env"
+    fail "No local env file found for '$env_name'. Expected: $stack_dir/.${env_name}.env or $CLI_ROOT/.${env_name}.env"
     return 1
   fi
 
-  # Detect or validate backend
-  if [ -z "$backend" ]; then
-    if ! backend=$(_secrets_detect_backend); then
-      fail "No encryption backend available. Install 'age' (recommended) or 'gpg'."
-      return 1
-    fi
-  fi
-  case "$backend" in
-    age|gpg) ;;
-    *) fail "Unknown backend: '$backend'. Use 'age' or 'gpg'."; return 1 ;;
-  esac
+  # Collect key=value pairs (skip comments / blanks)
+  local keys=() vals=()
+  local line
+  while IFS= read -r line || [ -n "$line" ]; do
+    [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]] && continue
+    [[ "$line" =~ ^([A-Za-z_][A-Za-z0-9_]*)=(.*)$ ]] || continue
+    keys+=("${BASH_REMATCH[1]}")
+    vals+=("${BASH_REMATCH[2]}")
+  done < "$local_env"
 
-  local env_dir
-  env_dir=$(dirname "$local_env")
-  local encrypted_file="$env_dir/.${env_name}.env.${backend}"
+  local count=${#keys[@]}
+  [ "$count" -eq 0 ] && { warn "No variables found in $local_env"; return 1; }
 
-  print_banner "Secrets Lock"
-  log "Stack: $stack | Env: $env_name | Backend: $backend"
-  log "Input:  $local_env"
-  log "Output: $encrypted_file"
-  echo ""
-
-  # Guard against clobbering existing encrypted file
-  if [ -f "$encrypted_file" ] && [ "$force" != "true" ]; then
-    warn "Encrypted file already exists: $encrypted_file"
-    warn "Use --force to overwrite."
-    return 1
-  fi
-
-  if [ "$dry_run" = "true" ]; then
-    echo -e "${YELLOW}[DRY-RUN] Would encrypt: $local_env → $encrypted_file${NC}"
-    [ "$keep" = "false" ] && echo -e "${YELLOW}[DRY-RUN] Would remove: $local_env${NC}"
-    echo -e "${YELLOW}[DRY-RUN] No changes made.${NC}"
-    return 0
-  fi
-
-  local tmp_encrypted="${encrypted_file}.tmp"
-
-  if [ "$backend" = "age" ]; then
-    # Resolve recipients file
-    local rcpts_file="" rcpts_is_temp=false
-    if [ -n "$recipients_flag" ]; then
-      [ -f "$recipients_flag" ] || { fail "Recipients file not found: $recipients_flag"; return 1; }
-      rcpts_file="$recipients_flag"
-    elif [ -f "$stack_dir/.strut-recipients" ]; then
-      rcpts_file="$stack_dir/.strut-recipients"
-    elif [ -f "$CLI_ROOT/.strut-recipients" ]; then
-      rcpts_file="$CLI_ROOT/.strut-recipients"
-    elif [ -f "$HOME/.ssh/id_ed25519.pub" ]; then
-      rcpts_file=$(mktemp)
-      rcpts_is_temp=true
-      cp "$HOME/.ssh/id_ed25519.pub" "$rcpts_file"
-      warn "No .strut-recipients found — encrypting to self via ~/.ssh/id_ed25519.pub"
-    elif [ -f "$HOME/.ssh/id_rsa.pub" ]; then
-      rcpts_file=$(mktemp)
-      rcpts_is_temp=true
-      cp "$HOME/.ssh/id_rsa.pub" "$rcpts_file"
-      warn "No .strut-recipients found — encrypting to self via ~/.ssh/id_rsa.pub"
-    else
-      fail "No age recipients configured. Create .strut-recipients with age/SSH public keys, or ensure ~/.ssh/id_ed25519.pub exists."
-      return 1
-    fi
-
-    age -e -R "$rcpts_file" -o "$tmp_encrypted" "$local_env"
-    local exit_code=$?
-    [ "$rcpts_is_temp" = "true" ] && rm -f "$rcpts_file"
-    if [ "$exit_code" -ne 0 ]; then
-      rm -f "$tmp_encrypted"
-      fail "age encryption failed"
-      return 1
-    fi
-
-  elif [ "$backend" = "gpg" ]; then
-    gpg --batch --yes --armor --symmetric --output "$tmp_encrypted" "$local_env" || {
-      rm -f "$tmp_encrypted"
-      fail "gpg encryption failed"
-      return 1
-    }
-  fi
-
-  mv "$tmp_encrypted" "$encrypted_file"
-  chmod 600 "$encrypted_file"
-  ok "Encrypted: $encrypted_file"
-
-  if [ "$keep" = "false" ]; then
-    rm -f "$local_env"
-    ok "Removed plaintext: $local_env"
-  fi
-
-  echo ""
-  log "Safe to commit: $encrypted_file"
-  log "Unlock: strut $stack secrets unlock --env $env_name"
-}
-
-# _secrets_unlock — decrypt a .env.age or .env.gpg file back to plaintext
-_secrets_unlock() {
-  local stack="$CMD_STACK"
-  local stack_dir="$CMD_STACK_DIR"
-  local env_name="${CMD_ENV_NAME:-prod}"
-  local dry_run="${DRY_RUN:-false}"
-  local identity_flag=""
-  local keep=false
-  local force=false
-
-  while [[ $# -gt 0 ]]; do
-    case "$1" in
-      --identity) identity_flag="$2"; shift 2 ;;
-      --keep)     keep=true;          shift ;;
-      --force)    force=true;         shift ;;
-      *)          shift ;;
-    esac
-  done
-
-  # Find encrypted file — stack-level before project-level, age before gpg
-  local encrypted_file="" backend=""
-  for b in age gpg; do
-    for d in "$stack_dir" "$CLI_ROOT"; do
-      local candidate="$d/.${env_name}.env.${b}"
-      if [ -f "$candidate" ]; then
-        encrypted_file="$candidate"
-        backend="$b"
-        break 2
-      fi
-    done
-  done
-
-  if [ -z "$encrypted_file" ]; then
-    fail "No encrypted env file found for '$env_name'. Expected .${env_name}.env.age or .${env_name}.env.gpg"
-    return 1
-  fi
-
-  local env_dir
-  env_dir=$(dirname "$encrypted_file")
-  local output_env="$env_dir/.${env_name}.env"
-
-  print_banner "Secrets Unlock"
-  log "Stack: $stack | Env: $env_name | Backend: $backend"
-  log "Input:  $encrypted_file"
-  log "Output: $output_env"
-  echo ""
-
-  # Guard against clobbering existing plaintext
-  if [ -f "$output_env" ] && [ "$force" != "true" ]; then
-    warn "Plaintext env file already exists: $output_env"
-    warn "Use --force to overwrite."
-    return 1
-  fi
-
-  if [ "$dry_run" = "true" ]; then
-    echo -e "${YELLOW}[DRY-RUN] Would decrypt: $encrypted_file → $output_env${NC}"
-    [ "$keep" = "false" ] && echo -e "${YELLOW}[DRY-RUN] Would remove: $encrypted_file${NC}"
-    echo -e "${YELLOW}[DRY-RUN] No changes made.${NC}"
-    return 0
-  fi
-
-  local tmp_output="${output_env}.tmp"
-
-  if [ "$backend" = "age" ]; then
-    # Resolve identity
-    local id_file="${identity_flag:-}"
-    [ -z "$id_file" ] && id_file="${STRUT_AGE_IDENTITY:-}"
-    if [ -z "$id_file" ]; then
-      for candidate in "$HOME/.age/key.txt" "$HOME/.ssh/id_ed25519" "$HOME/.ssh/id_rsa"; do
-        [ -f "$candidate" ] && { id_file="$candidate"; break; }
+  case "$format" in
+    docker-secret)
+      echo "# Docker Swarm: create secrets from $local_env ($env_name)"
+      echo "# Run each line or adapt for docker-compose.yml secrets section."
+      echo ""
+      local i
+      for i in "${!keys[@]}"; do
+        local k="${keys[$i]}" v="${vals[$i]}"
+        local secret_name v_safe
+        secret_name=$(echo "${stack}_${k}" | tr '[:upper:]' '[:lower:]' | tr '_' '-')
+        # Use %q so values containing single quotes (or other special chars) are safe
+        printf -v v_safe '%q' "$v"
+        printf "printf '%%s' %s | docker secret create %s -\n" "$v_safe" "$secret_name"
       done
-    fi
-    if [ -z "$id_file" ]; then
-      fail "No age identity found. Use --identity <file>, set STRUT_AGE_IDENTITY, or ensure ~/.age/key.txt / ~/.ssh/id_ed25519 exists."
-      return 1
-    fi
+      echo ""
+      echo "# docker-compose.yml secrets section:"
+      echo "# secrets:"
+      for i in "${!keys[@]}"; do
+        local k="${keys[$i]}"
+        local secret_name
+        secret_name=$(echo "${stack}_${k}" | tr '[:upper:]' '[:lower:]' | tr '_' '-')
+        echo "#   ${k,,}:"
+        echo "#     external: true"
+        echo "#     name: $secret_name"
+      done
+      ;;
 
-    age -d -i "$id_file" -o "$tmp_output" "$encrypted_file" || {
-      rm -f "$tmp_output"
-      fail "age decryption failed. Verify your identity can decrypt this file."
-      return 1
-    }
+    k8s-secret)
+      local secret_name
+      secret_name=$(echo "$stack-$env_name" | tr '[:upper:]' '[:lower:]' | tr '_' '-')
+      echo "# Kubernetes Secret manifest for $stack ($env_name)"
+      echo "# Apply with: kubectl apply -f -"
+      echo "---"
+      echo "apiVersion: v1"
+      echo "kind: Secret"
+      echo "metadata:"
+      echo "  name: $secret_name"
+      echo "type: Opaque"
+      echo "data:"
+      local i
+      for i in "${!keys[@]}"; do
+        local k="${keys[$i]}" v="${vals[$i]}"
+        local encoded
+        encoded=$(printf '%s' "$v" | base64 | tr -d '\n')
+        printf "  %s: %s\n" "$k" "$encoded"
+      done
+      ;;
 
-  elif [ "$backend" = "gpg" ]; then
-    gpg --batch --yes --output "$tmp_output" --decrypt "$encrypted_file" || {
-      rm -f "$tmp_output"
-      fail "gpg decryption failed"
-      return 1
-    }
-  fi
-
-  mv "$tmp_output" "$output_env"
-  chmod 600 "$output_env"
-  ok "Decrypted: $output_env"
-
-  if [ "$keep" = "false" ]; then
-    rm -f "$encrypted_file"
-    ok "Removed encrypted file: $encrypted_file"
-  fi
-
-  echo ""
-  ok "Secrets unlocked — run 'strut $stack secrets push --env $env_name' to sync."
+    env-json)
+      echo "{"
+      local i last=$((count - 1))
+      for i in "${!keys[@]}"; do
+        local k="${keys[$i]}" v="${vals[$i]}"
+        # Escape backslashes and double quotes in values
+        v="${v//\\/\\\\}"
+        v="${v//\"/\\\"}"
+        if [ "$i" -lt "$last" ]; then
+          printf '  "%s": "%s",\n' "$k" "$v"
+        else
+          printf '  "%s": "%s"\n' "$k" "$v"
+        fi
+      done
+      echo "}"
+      ;;
+  esac
 }
 
 # ── Dispatch ──────────────────────────────────────────────────────────────────
@@ -1085,8 +1390,9 @@ cmd_secrets() {
     diff)     _secrets_diff "$@" ;;
     validate) _secrets_validate "$@" ;;
     status)   _secrets_status "$@" ;;
-    lock)     _secrets_lock "$@" ;;
-    unlock)   _secrets_unlock "$@" ;;
+    rotate)   _secrets_rotate "$@" ;;
+    template) _secrets_template "$@" ;;
+    export)   _secrets_export "$@" ;;
     ""|help|--help|-h) _usage_secrets ;;
     *)
       error "Unknown secrets subcommand: $subcmd"

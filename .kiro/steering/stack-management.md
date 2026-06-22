@@ -130,6 +130,28 @@ strut <stack> backup postgres --env prod --dry-run
 strut <stack> rollback --env prod --dry-run
 ```
 
+## Secrets Provider System
+
+Template values written as `<scheme>://<ref>` are resolved at `secrets hydrate` time through the pluggable provider system in `lib/secrets_providers.sh`. Anything else is copied verbatim.
+
+### Built-in schemes
+
+| Scheme | Resolves via | Example |
+|--------|-------------|---------|
+| `vault://` | Bitwarden/Vaultwarden `bw` CLI | `DB_PASSWORD=vault://my-db-item` |
+| `exec://` | stdout of a shell command | `DB_PASSWORD=exec://aws secretsmanager get-secret-value ...` |
+| `file://` | contents of a file | `DB_PASSWORD=file:///run/secrets/db-password` |
+
+### Adding a custom provider
+
+1. Define `secrets_provider__<scheme>() { local target="$1"; ... }` — print the resolved value to stdout, call `fail` on error.
+2. Optionally define `secrets_provider__<scheme>_check()` — return non-zero if the required CLI or credentials are absent (runs before resolution begins).
+3. Append `<scheme>` to the `SECRETS_PROVIDERS` env variable (default: `vault exec file`).
+
+Source the file that defines these functions before invoking `secrets hydrate`, or place them in a project-local hook that `strut` picks up.
+
+Full contract and worked examples: [Secrets Management wiki](https://github.com/gfargo/strut/wiki/Secrets-Management)
+
 ## Local vs VPS Execution
 
 - `deploy` — runs locally (local Docker), or on VPS if SSH'd in
