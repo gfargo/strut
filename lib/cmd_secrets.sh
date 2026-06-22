@@ -1028,9 +1028,13 @@ _secrets_rotate() {
       log "[DRY-RUN] Would run: ssh ... docker compose -p $stack restart"
     else
       # shellcheck disable=SC2029
-      ssh $ssh_opts "$vps_user@$vps_host" \
-        "cd '$deploy_dir' && docker compose -p '$stack' restart" || warn "Container restart failed"
-      ok "Containers restarted"
+      if ssh $ssh_opts "$vps_user@$vps_host" \
+        "cd '$deploy_dir' && docker compose -p '$stack' restart"; then
+        ok "Containers restarted"
+      else
+        warn "Container restart failed"
+        return 1
+      fi
     fi
   else
     log "[4/4] Skipping restart (use --restart to restart containers after push)"
@@ -1235,7 +1239,13 @@ _secrets_export() {
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      --format) format="$2"; shift 2 ;;
+      --format)
+        if [ $# -lt 2 ] || [ -z "${2:-}" ]; then
+          error "--format requires a value. Choose: docker-secret, k8s-secret, env-json"
+          return 1
+        fi
+        format="$2"; shift 2
+        ;;
       --format=*) format="${1#--format=}"; shift ;;
       *) shift ;;
     esac
@@ -1282,9 +1292,11 @@ _secrets_export() {
       local i
       for i in "${!keys[@]}"; do
         local k="${keys[$i]}" v="${vals[$i]}"
-        local secret_name
+        local secret_name v_safe
         secret_name=$(echo "${stack}_${k}" | tr '[:upper:]' '[:lower:]' | tr '_' '-')
-        printf "printf '%%s' '%s' | docker secret create %s -\n" "$v" "$secret_name"
+        # Use %q so values containing single quotes (or other special chars) are safe
+        printf -v v_safe '%q' "$v"
+        printf "printf '%%s' %s | docker secret create %s -\n" "$v_safe" "$secret_name"
       done
       echo ""
       echo "# docker-compose.yml secrets section:"
