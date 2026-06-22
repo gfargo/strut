@@ -54,6 +54,17 @@ EOF
   [[ "$output" == *"placeholder"* ]]
 }
 
+@test "check_content: detects quoted placeholder (DB_PASSWORD=\"changeme\")" {
+  cat > "$TEST_TMP/.prod.env" <<'EOF'
+DB_PASSWORD="changeme"
+VPS_HOST=1.2.3.4
+EOF
+  run _secrets_check_content "$TEST_TMP/.prod.env"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"DB_PASSWORD"* ]]
+  [[ "$output" == *"placeholder"* ]]
+}
+
 @test "check_content: detects xxxx placeholder" {
   cat > "$TEST_TMP/.prod.env" <<'EOF'
 API_KEY=xxxx
@@ -125,6 +136,17 @@ EOF
   run _secrets_check_content "$TEST_TMP/.prod.env"
   [ "$status" -eq 1 ]
   [[ "$output" == *"API_TOKEN"* ]]
+  [[ "$output" == *"unresolved"* ]]
+}
+
+@test "check_content: detects unresolved file:// reference" {
+  cat > "$TEST_TMP/.prod.env" <<'EOF'
+VPS_HOST=1.2.3.4
+DB_PASSWORD=file:///run/secrets/db-password
+EOF
+  run _secrets_check_content "$TEST_TMP/.prod.env"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"DB_PASSWORD"* ]]
   [[ "$output" == *"unresolved"* ]]
 }
 
