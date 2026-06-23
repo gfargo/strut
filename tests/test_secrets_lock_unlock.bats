@@ -76,7 +76,13 @@ teardown() { common_teardown; }
 @test "_secrets_detect_backend: fails when neither backend available" {
   unset -f age
   unset -f gpg
+  # PATH must be restricted so real gpg/age binaries (present on many CI systems) are not found
+  local empty_bin="$TEST_TMP/empty-bin"
+  mkdir -p "$empty_bin"
+  local saved_PATH="$PATH"
+  PATH="$empty_bin"
   run _secrets_detect_backend
+  PATH="$saved_PATH"
   [ "$status" -ne 0 ]
 }
 
@@ -105,8 +111,13 @@ teardown() { common_teardown; }
 
   unset -f age
   unset -f gpg
-
+  # PATH must be restricted so real gpg/age binaries (present on many CI systems) are not found
+  local empty_bin="$TEST_TMP/empty-bin"
+  mkdir -p "$empty_bin"
+  local saved_PATH="$PATH"
+  PATH="$empty_bin"
   run _secrets_lock
+  PATH="$saved_PATH"
   [ "$status" -ne 0 ]
   [[ "$output" =~ "No encryption backend" ]]
 }
