@@ -443,7 +443,8 @@ _secrets_diff() {
   fi
 
   # Fetch remote to tmp
-  local tmp_remote="/tmp/strut-secrets-diff-remote-$$"
+  local tmp_remote
+  tmp_remote=$(mktemp "${TMPDIR:-/tmp}/strut-secrets-diff-XXXXXX") || { fail "Could not create temp file"; return 1; }
   local scp_opts="-o StrictHostKeyChecking=no -o ConnectTimeout=10"
   [[ -n "$vps_port" && "$vps_port" != "22" ]] && scp_opts="$scp_opts -P $vps_port"
   [[ -n "$vps_ssh_key" ]] && scp_opts="$scp_opts -o IdentitiesOnly=yes -i $vps_ssh_key"

@@ -241,7 +241,7 @@ teardown() {
   for n in 1 2 3 4 5 6 7 8 9 10; do
     # Build a comma-separated list of n hosts
     local hosts
-    hosts=$(seq 1 "$n" | sed 's/.*/host&.example.com/' | paste -sd ',')
+    hosts=$(seq 1 "$n" | sed 's/.*/host&.example.com/' | paste -sd ',' -)
     local actual_count
     actual_count=$(_registry_host_list "" "$hosts" | wc -l | tr -d ' ')
     [ "$actual_count" -eq "$n" ] || {
