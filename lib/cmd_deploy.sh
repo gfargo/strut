@@ -114,11 +114,20 @@ _usage_rebuild() {
   echo ""
 }
 
-# cmd_release (no args — reads CMD_*)
+# cmd_release [--strict] (reads CMD_*)
 cmd_release() {
   local stack="$CMD_STACK"
   local env_file="$CMD_ENV_FILE"
   local services="$CMD_SERVICES"
+
+  # Parse release-specific flags
+  local args=("${CMD_ARGS[@]+"${CMD_ARGS[@]}"}")
+  for arg in "${args[@]+"${args[@]}"}"; do
+    case "$arg" in
+      --strict) export MIGRATION_FAILURE_MODE="halt" ;;
+    esac
+  done
+
   validate_env_file "$env_file" VPS_HOST
   vps_release "$stack" "$env_file" "$services"
 }

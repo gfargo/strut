@@ -428,19 +428,32 @@ vps_release() {
 
   # Step 2: Run Postgres migrations
   log "[2/6] Running Postgres migrations..."
+  local migration_mode="${MIGRATION_FAILURE_MODE:-warn}"
   # shellcheck disable=SC2029
-  ssh $ssh_opts "$vps_user@$vps_host" "
+  if ! ssh $ssh_opts "$vps_user@$vps_host" "
     cd '$deploy_dir'
     ./strut $stack migrate postgres --env $env_name
-  " || warn "Postgres migration failed or no migrations to apply"
+  "; then
+    if [ "$migration_mode" = "halt" ]; then
+      fail "Postgres migration failed — halting release (MIGRATION_FAILURE_MODE=halt)"
+    else
+      warn "Postgres migration failed or no migrations to apply"
+    fi
+  fi
 
   # Step 3: Run Neo4j migrations
   log "[3/6] Running Neo4j migrations..."
   # shellcheck disable=SC2029
-  ssh $ssh_opts "$vps_user@$vps_host" "
+  if ! ssh $ssh_opts "$vps_user@$vps_host" "
     cd '$deploy_dir'
     ./strut $stack migrate neo4j --env $env_name
-  " || warn "Neo4j migration failed or no migrations to apply"
+  "; then
+    if [ "$migration_mode" = "halt" ]; then
+      fail "Neo4j migration failed — halting release (MIGRATION_FAILURE_MODE=halt)"
+    else
+      warn "Neo4j migration failed or no migrations to apply"
+    fi
+  fi
 
   # Step 4: Pull latest images
   log "[4/6] Pulling latest container images..."
