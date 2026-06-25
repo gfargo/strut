@@ -312,6 +312,7 @@ ssh_mux_enabled() {
 #
 # Best-effort: we scan for control sockets matching our pid prefix and ask ssh
 # to exit each master. Called from the strut entrypoint's EXIT trap.
+# Also GCs orphaned sockets from crashed strut processes.
 ssh_mux_cleanup() {
   ssh_mux_enabled || return 0
   local dir="${STRUT_SSH_CONTROL_DIR:-/tmp}"
@@ -322,6 +323,32 @@ ssh_mux_cleanup() {
     [ -S "$sock" ] || continue
     ssh -O exit -o ControlPath="$sock" "placeholder" >/dev/null 2>&1 || true
     rm -f "$sock" 2>/dev/null || true
+  done
+
+  # GC: remove orphaned sockets from crashed processes (best-effort)
+  _ssh_mux_gc "$dir"
+}
+
+# _ssh_mux_gc <dir> — remove strut mux sockets whose owning PID is dead
+#
+# Called during cleanup. Scans for all strut-mux-* sockets and removes those
+# whose PID prefix is no longer alive. Silent on permission errors.
+_ssh_mux_gc() {
+  local dir="$1"
+  local sock pid
+  for sock in "$dir"/strut-mux-*; do
+    [ -S "$sock" ] || continue
+    # Extract PID from filename: strut-mux-<pid>-<hash>
+    local basename="${sock##*/}"
+    pid="${basename#strut-mux-}"
+    pid="${pid%%-*}"
+    # Skip our own PID (already handled above) and non-numeric
+    [[ "$pid" =~ ^[0-9]+$ ]] || continue
+    [ "$pid" = "$$" ] && continue
+    # If the owning PID is dead, remove the orphaned socket
+    if ! kill -0 "$pid" 2>/dev/null; then
+      rm -f "$sock" 2>/dev/null || true
+    fi
   done
 }
 
@@ -362,11 +389,20 @@ build_ssh_opts() {
   [[ "$batch" == true ]] && opts="$opts -o BatchMode=yes"
   [[ "$tty" == true ]] && opts="-t $opts"
   [[ "$keepalive" == true ]] && opts="$opts -o ServerAliveInterval=5 -o ServerAliveCountMax=2"
-  [[ -n "$ssh_key" ]] && opts="$opts -o IdentitiesOnly=yes -i $ssh_key"
+  if [[ -n "$ssh_key" ]]; then
+    # Reject key paths with spaces — SSH -i with unquoted word-split opts can't handle them
+    if [[ "$ssh_key" == *" "* ]]; then
+      echo "ERROR: SSH key path contains spaces: $ssh_key" >&2
+      echo "ERROR: Rename or symlink the key to a path without spaces." >&2
+      return 1
+    fi
+    opts="$opts -o IdentitiesOnly=yes -i $ssh_key"
+  fi
 
   if [[ "$no_mux" != true ]] && ssh_mux_enabled; then
     local ctl_path
     ctl_path=$(ssh_mux_control_path)
+    # ControlPath value is safe — ssh_mux_control_path uses /tmp + fixed-length names
     opts="$opts -o ControlMaster=auto -o ControlPath=$ctl_path -o ControlPersist=60s"
   fi
 
