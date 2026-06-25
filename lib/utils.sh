@@ -284,16 +284,19 @@ confirm() {
 
 # ssh_mux_control_path — emit the ssh ControlPath template used by this process
 #
-# Returns a per-pid, per-user, per-host template path in TMPDIR (or /tmp). ssh
-# substitutes %r/%h/%p at connect time, so one template covers every host
-# reached during a single strut invocation.
+# Returns a per-pid, per-connection template path. ssh substitutes the tokens at
+# connect time. We use %C (a fixed-length SHA1 hash of %l%h%p%r) instead of the
+# verbose %r@%h:%p pattern, which prevents exceeding the ~104-char sun_path
+# limit on macOS where $TMPDIR is already ~49 chars long.
 #
-# Respects STRUT_SSH_CONTROL_DIR to override the directory for tests.
+# The directory defaults to /tmp (short, writable) rather than $TMPDIR to keep
+# the total socket path well under the BSD/macOS limit. Override with
+# STRUT_SSH_CONTROL_DIR for tests or custom setups.
 ssh_mux_control_path() {
-  local dir="${STRUT_SSH_CONTROL_DIR:-${TMPDIR:-/tmp}}"
+  local dir="${STRUT_SSH_CONTROL_DIR:-/tmp}"
   # Strip trailing slash for clean concatenation
   dir="${dir%/}"
-  echo "$dir/strut-ssh-$$-%r@%h:%p"
+  echo "$dir/strut-mux-$$-%C"
 }
 
 # ssh_mux_enabled — 0 (true) if SSH connection multiplexing is enabled
@@ -307,20 +310,17 @@ ssh_mux_enabled() {
 
 # ssh_mux_cleanup — close any master connections opened by this process
 #
-# Best-effort: we don't know which hosts were contacted, so we scan for control
-# sockets matching our pid prefix and ask ssh to exit each master. Called from
-# the strut entrypoint's EXIT trap.
+# Best-effort: we scan for control sockets matching our pid prefix and ask ssh
+# to exit each master. Called from the strut entrypoint's EXIT trap.
 ssh_mux_cleanup() {
   ssh_mux_enabled || return 0
-  local dir="${STRUT_SSH_CONTROL_DIR:-${TMPDIR:-/tmp}}"
+  local dir="${STRUT_SSH_CONTROL_DIR:-/tmp}"
   dir="${dir%/}"
   local sock
-  # Sockets are named strut-ssh-<pid>-<user>@<host>:<port>
-  for sock in "$dir"/strut-ssh-"$$"-*; do
+  # Sockets are named strut-mux-<pid>-<hash> (the %C expansion)
+  for sock in "$dir"/strut-mux-"$$"-*; do
     [ -S "$sock" ] || continue
-    # Extract user@host:port from filename suffix
-    local suffix="${sock##*/strut-ssh-$$-}"
-    ssh -O exit -o ControlPath="$sock" "$suffix" >/dev/null 2>&1 || true
+    ssh -O exit -o ControlPath="$sock" "placeholder" >/dev/null 2>&1 || true
     rm -f "$sock" 2>/dev/null || true
   done
 }
