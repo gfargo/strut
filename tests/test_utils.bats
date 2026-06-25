@@ -173,14 +173,14 @@ _load_utils() {
   _load_utils
   result=$(build_ssh_opts)
   # Socket name should embed the current shell pid
-  [[ "$result" == *"strut-ssh-$$-"* ]]
+  [[ "$result" == *"strut-mux-$$-"* ]]
 }
 
-@test "build_ssh_opts: ControlPath contains ssh substitutions" {
+@test "build_ssh_opts: ControlPath uses %C hash token (short, fixed-length)" {
   _load_utils
   result=$(build_ssh_opts)
-  # ssh expands %r/%h/%p per target; we just emit the template
-  [[ "$result" == *"%r@%h:%p"* ]]
+  # %C is a fixed-length hash of %l%h%p%r — avoids sun_path overflow on macOS
+  [[ "$result" == *"%C"* ]]
 }
 
 @test "build_ssh_opts: --no-mux suppresses ControlMaster options" {
@@ -211,7 +211,7 @@ _load_utils() {
   _load_utils
   STRUT_SSH_CONTROL_DIR="$TEST_TMP/sockets"
   result=$(ssh_mux_control_path)
-  [[ "$result" == "$TEST_TMP/sockets/strut-ssh-$$-%r@%h:%p" ]]
+  [[ "$result" == "$TEST_TMP/sockets/strut-mux-$$-%C" ]]
 }
 
 @test "ssh_mux_control_path: strips trailing slash from dir" {
@@ -220,7 +220,27 @@ _load_utils() {
   result=$(ssh_mux_control_path)
   # No double slash in the output
   [[ "$result" != *"//"* ]]
-  [[ "$result" == "$TEST_TMP/sockets/strut-ssh-$$-%r@%h:%p" ]]
+  [[ "$result" == "$TEST_TMP/sockets/strut-mux-$$-%C" ]]
+}
+
+@test "ssh_mux_control_path: defaults to /tmp (short path for macOS sun_path)" {
+  _load_utils
+  unset STRUT_SSH_CONTROL_DIR
+  result=$(ssh_mux_control_path)
+  [[ "$result" == "/tmp/strut-mux-$$-%C" ]]
+}
+
+@test "ssh_mux_control_path: total path length stays under sun_path limit" {
+  _load_utils
+  unset STRUT_SSH_CONTROL_DIR
+  result=$(ssh_mux_control_path)
+  # %C expands to a 40-char hex SHA1 hash at runtime. Simulate the worst case:
+  # /tmp/strut-mux-<max_pid>-<40_char_hash>
+  # max pid on macOS is 99999 (5 digits)
+  local simulated="/tmp/strut-mux-99999-$(printf '%0.s0' {1..40})"
+  local len=${#simulated}
+  # BSD sun_path limit is 104; leave margin for any OpenSSH suffix
+  [ "$len" -lt 100 ]
 }
 
 @test "ssh_mux_enabled: returns 0 by default" {
@@ -253,7 +273,7 @@ _load_utils() {
   # Stub ssh so we don't attempt a real connection
   ssh() { return 0; }
   export -f ssh
-  local fake="$STRUT_SSH_CONTROL_DIR/strut-ssh-$$-ubuntu@example.com:22"
+  local fake="$STRUT_SSH_CONTROL_DIR/strut-mux-$$-abcdef1234567890abcdef1234567890abcdef12"
   # Create an actual socket using python? Simpler: skip the -S check by using
   # a regular file and accepting the loop skips it. Instead, verify cleanup
   # doesn't error on the directory.
