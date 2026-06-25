@@ -306,7 +306,7 @@ check_missed_backups() {
         # Check if backup is overdue (expected interval + 2 hours grace period)
         if [ $time_diff -gt $((expected_interval + two_hours)) ]; then
           warn "Missed backup detected for $service"
-          log "  Last backup: $(date -d "@$backup_time" 2>/dev/null || date -r "$backup_time" 2>/dev/null)"
+          log "  Last backup: $(date -d "@$backup_time" 2>/dev/null || date -r "$backup_time" 2>/dev/null || echo "unknown")"
           log "  Expected interval: $((expected_interval / 3600)) hours"
           log "  Time since last backup: $((time_diff / 3600)) hours"
 
@@ -345,11 +345,20 @@ get_next_backup_time() {
   # For daily backups (most common case)
   if [ "$day" = "*" ] && [ "$month" = "*" ] && [ "$weekday" = "*" ]; then
     local next_time
-    next_time=$(date -d "today $hour:$minute" +"%Y-%m-%d %H:%M" 2>/dev/null)
+    # GNU date: date -d "today HH:MM"; macOS: use current date with specified time
+    next_time=$(date -d "today $hour:$minute" +"%Y-%m-%d %H:%M" 2>/dev/null \
+      || date -j -f "%Y-%m-%d %H:%M" "$(date +%Y-%m-%d) $hour:$minute" +"%Y-%m-%d %H:%M" 2>/dev/null \
+      || echo "")
 
     # If time has passed today, show tomorrow
-    if [ "$(date +%s)" -gt "$(date -d "$next_time" +%s 2>/dev/null)" ]; then
-      next_time=$(date -d "tomorrow $hour:$minute" +"%Y-%m-%d %H:%M" 2>/dev/null)
+    local next_epoch
+    next_epoch=$(date -d "$next_time" +%s 2>/dev/null \
+      || date -j -f "%Y-%m-%d %H:%M" "$next_time" +%s 2>/dev/null \
+      || echo "0")
+    if [ "$(date +%s)" -gt "$next_epoch" ]; then
+      next_time=$(date -d "tomorrow $hour:$minute" +"%Y-%m-%d %H:%M" 2>/dev/null \
+        || date -j -v+1d -f "%Y-%m-%d %H:%M" "$(date +%Y-%m-%d) $hour:$minute" +"%Y-%m-%d %H:%M" 2>/dev/null \
+        || echo "")
     fi
 
     echo "$next_time"

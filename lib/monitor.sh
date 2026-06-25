@@ -345,25 +345,25 @@ monitoring_alert_channel_add_email() {
 
   # Use sed to update or add variables
   if grep -q "^ALERT_EMAIL_TO=" "$env_file"; then
-    sed -i "s|^ALERT_EMAIL_TO=.*|ALERT_EMAIL_TO=$to_email|" "$env_file"
+    sed -i.bak "s|^ALERT_EMAIL_TO=.*|ALERT_EMAIL_TO=$to_email|" "$env_file" && rm -f "$env_file.bak"
   else
     echo "ALERT_EMAIL_TO=$to_email" >> "$env_file"
   fi
 
   if grep -q "^ALERT_EMAIL_FROM=" "$env_file"; then
-    sed -i "s|^ALERT_EMAIL_FROM=.*|ALERT_EMAIL_FROM=$from_email|" "$env_file"
+    sed -i.bak "s|^ALERT_EMAIL_FROM=.*|ALERT_EMAIL_FROM=$from_email|" "$env_file" && rm -f "$env_file.bak"
   else
     echo "ALERT_EMAIL_FROM=$from_email" >> "$env_file"
   fi
 
   if grep -q "^RESEND_API_KEY=" "$env_file"; then
-    sed -i "s|^RESEND_API_KEY=.*|RESEND_API_KEY=$api_key|" "$env_file"
+    sed -i.bak "s|^RESEND_API_KEY=.*|RESEND_API_KEY=$api_key|" "$env_file" && rm -f "$env_file.bak"
   else
     echo "RESEND_API_KEY=$api_key" >> "$env_file"
   fi
 
   if grep -q "^ALERT_EMAIL_ENABLED=" "$env_file"; then
-    sed -i "s|^ALERT_EMAIL_ENABLED=.*|ALERT_EMAIL_ENABLED=true|" "$env_file"
+    sed -i.bak "s|^ALERT_EMAIL_ENABLED=.*|ALERT_EMAIL_ENABLED=true|" "$env_file" && rm -f "$env_file.bak"
   else
     echo "ALERT_EMAIL_ENABLED=true" >> "$env_file"
   fi
@@ -419,13 +419,13 @@ monitoring_alert_channel_add_slack() {
 
   # Update .env file
   if grep -q "^SLACK_WEBHOOK_URL=" "$env_file"; then
-    sed -i "s|^SLACK_WEBHOOK_URL=.*|SLACK_WEBHOOK_URL=$webhook_url|" "$env_file"
+    sed -i.bak "s|^SLACK_WEBHOOK_URL=.*|SLACK_WEBHOOK_URL=$webhook_url|" "$env_file" && rm -f "$env_file.bak"
   else
     echo "SLACK_WEBHOOK_URL=$webhook_url" >> "$env_file"
   fi
 
   if grep -q "^ALERT_SLACK_ENABLED=" "$env_file"; then
-    sed -i "s|^ALERT_SLACK_ENABLED=.*|ALERT_SLACK_ENABLED=true|" "$env_file"
+    sed -i.bak "s|^ALERT_SLACK_ENABLED=.*|ALERT_SLACK_ENABLED=true|" "$env_file" && rm -f "$env_file.bak"
   else
     echo "ALERT_SLACK_ENABLED=true" >> "$env_file"
   fi
@@ -474,13 +474,13 @@ monitoring_alert_channel_add_webhook() {
 
   # Update .env file
   if grep -q "^ALERT_WEBHOOK_URL=" "$env_file"; then
-    sed -i "s|^ALERT_WEBHOOK_URL=.*|ALERT_WEBHOOK_URL=$webhook_url|" "$env_file"
+    sed -i.bak "s|^ALERT_WEBHOOK_URL=.*|ALERT_WEBHOOK_URL=$webhook_url|" "$env_file" && rm -f "$env_file.bak"
   else
     echo "ALERT_WEBHOOK_URL=$webhook_url" >> "$env_file"
   fi
 
   if grep -q "^ALERT_WEBHOOK_ENABLED=" "$env_file"; then
-    sed -i "s|^ALERT_WEBHOOK_ENABLED=.*|ALERT_WEBHOOK_ENABLED=true|" "$env_file"
+    sed -i.bak "s|^ALERT_WEBHOOK_ENABLED=.*|ALERT_WEBHOOK_ENABLED=true|" "$env_file" && rm -f "$env_file.bak"
   else
     echo "ALERT_WEBHOOK_ENABLED=true" >> "$env_file"
   fi
@@ -528,7 +528,7 @@ monitoring_alert_channel_test() {
     "description": "This is a test alert to verify your alert channel configuration. If you receive this, your alerts are working correctly!"
   },
   "startsAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
-  "endsAt": "$(date -u -d '+5 minutes' +%Y-%m-%dT%H:%M:%SZ)"
+  "endsAt": "$(date -u -d '+5 minutes' +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -v+5M +%Y-%m-%dT%H:%M:%SZ 2>/dev/null)"
 }]
 EOF
 )

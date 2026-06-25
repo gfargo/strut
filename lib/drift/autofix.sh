@@ -35,7 +35,7 @@ drift_autofix_enable() {
   if [ -f "$config_file" ]; then
     # Update existing config
     if grep -q "^DRIFT_AUTOFIX_ENABLED=" "$config_file"; then
-      sed -i "s|^DRIFT_AUTOFIX_ENABLED=.*|DRIFT_AUTOFIX_ENABLED=true|" "$config_file"
+      sed -i.bak "s|^DRIFT_AUTOFIX_ENABLED=.*|DRIFT_AUTOFIX_ENABLED=true|" "$config_file" && rm -f "$config_file.bak"
     else
       echo "DRIFT_AUTOFIX_ENABLED=true" >>"$config_file"
     fi
@@ -102,7 +102,7 @@ drift_autofix_disable() {
   # Update config file
   if [ -f "$config_file" ]; then
     if grep -q "^DRIFT_AUTOFIX_ENABLED=" "$config_file"; then
-      sed -i "s|^DRIFT_AUTOFIX_ENABLED=.*|DRIFT_AUTOFIX_ENABLED=false|" "$config_file"
+      sed -i.bak "s|^DRIFT_AUTOFIX_ENABLED=.*|DRIFT_AUTOFIX_ENABLED=false|" "$config_file" && rm -f "$config_file.bak"
     else
       echo "DRIFT_AUTOFIX_ENABLED=false" >>"$config_file"
     fi
