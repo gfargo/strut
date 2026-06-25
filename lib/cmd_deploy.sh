@@ -168,11 +168,15 @@ cmd_deploy() {
     fi
     if ! lock_acquire_local "$stack" "$_env_key" "deploy"; then
       if lock_is_stale_local "$stack" "$_env_key"; then
-        warn "Existing deploy lock appears stale — retry with --force-unlock"
+        warn "Existing deploy lock is stale (owner process dead) — auto-breaking"
+        lock_force_break_local "$stack" "$_env_key" || true
+        if ! lock_acquire_local "$stack" "$_env_key" "deploy"; then
+          fail "Deploy lock held — aborting (could not reacquire after breaking stale lock)"
+        fi
       else
         warn "Re-run with --force-unlock if you're sure the previous deploy is gone"
+        fail "Deploy lock held — aborting"
       fi
-      fail "Deploy lock held — aborting"
     fi
     # Ensure lock is released no matter how we exit. Register with the
     # entrypoint's unified cleanup chain so we don't clobber other traps.

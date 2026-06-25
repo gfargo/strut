@@ -377,7 +377,7 @@ _secrets_pull() {
     return 1
   fi
 
-  # Download
+  # Download to temp file first, then atomically rename (prevents partial file on interrupt)
   log "Downloading..."
   local scp_opts="-o StrictHostKeyChecking=no -o ConnectTimeout=10"
   [[ -n "$vps_port" && "$vps_port" != "22" ]] && scp_opts="$scp_opts -P $vps_port"
@@ -388,8 +388,13 @@ _secrets_pull() {
     scp_opts="$scp_opts -o ControlMaster=auto -o ControlPath=$ctl_path -o ControlPersist=60s"
   fi
 
+  local tmp_pull
+  tmp_pull=$(mktemp "${local_env}.XXXXXX") || fail "Could not create temp file"
+  trap 'rm -f "$tmp_pull" 2>/dev/null' RETURN
+
   # shellcheck disable=SC2086
-  scp $scp_opts "$vps_user@$vps_host:$remote_path" "$local_env" || fail "Download failed"
+  scp $scp_opts "$vps_user@$vps_host:$remote_path" "$tmp_pull" || { rm -f "$tmp_pull"; fail "Download failed"; }
+  mv "$tmp_pull" "$local_env"
   chmod 600 "$local_env"
   ok "Env file downloaded: $local_env"
 }
@@ -442,9 +447,10 @@ _secrets_diff() {
     return 0
   fi
 
-  # Fetch remote to tmp
+  # Fetch remote to tmp — ensure cleanup even on failure (security: secrets on disk)
   local tmp_remote
   tmp_remote=$(mktemp "${TMPDIR:-/tmp}/strut-secrets-diff-XXXXXX") || { fail "Could not create temp file"; return 1; }
+  trap 'rm -f "$tmp_remote" 2>/dev/null' RETURN
   local scp_opts="-o StrictHostKeyChecking=no -o ConnectTimeout=10"
   [[ -n "$vps_port" && "$vps_port" != "22" ]] && scp_opts="$scp_opts -P $vps_port"
   [[ -n "$vps_ssh_key" ]] && scp_opts="$scp_opts -o IdentitiesOnly=yes -i $vps_ssh_key"
