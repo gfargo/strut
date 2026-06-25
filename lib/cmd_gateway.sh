@@ -161,6 +161,10 @@ _gateway_deploy() {
 
   local ssh_opts
   ssh_opts=$(build_ssh_opts -p "$_GW_PORT" -k "$_GW_KEY" --batch)
+  # SCP uses -P (uppercase) for port, not -p like SSH
+  local scp_opts="-o StrictHostKeyChecking=no -o ConnectTimeout=10"
+  [[ -n "$_GW_PORT" && "$_GW_PORT" != "22" ]] && scp_opts="$scp_opts -P $_GW_PORT"
+  [[ -n "$_GW_KEY" ]] && scp_opts="$scp_opts -o IdentitiesOnly=yes -i $_GW_KEY"
   local remote_path="${GATEWAY_CADDY_PATH:-/etc/caddy/Caddyfile}"
 
   print_banner "Gateway Deploy: $host_alias"
@@ -172,7 +176,7 @@ _gateway_deploy() {
   if [ "$dry_run" = "true" ]; then
     echo -e "${YELLOW}[DRY-RUN] Execution plan:${NC}"
     run_cmd "Backup current Caddyfile" ssh $ssh_opts "$_GW_USER@$_GW_HOST" "sudo cp $remote_path ${remote_path}.bak"
-    run_cmd "Upload new Caddyfile" scp $ssh_opts "$caddyfile" "$_GW_USER@$_GW_HOST:/tmp/Caddyfile.new"
+    run_cmd "Upload new Caddyfile" scp $scp_opts "$caddyfile" "$_GW_USER@$_GW_HOST:/tmp/Caddyfile.new"
     run_cmd "Install Caddyfile" ssh $ssh_opts "$_GW_USER@$_GW_HOST" "sudo mv /tmp/Caddyfile.new $remote_path"
     run_cmd "Validate config" ssh $ssh_opts "$_GW_USER@$_GW_HOST" "sudo caddy validate --config $remote_path"
     run_cmd "Reload Caddy" ssh $ssh_opts "$_GW_USER@$_GW_HOST" "sudo systemctl reload caddy"
@@ -187,7 +191,7 @@ _gateway_deploy() {
   ssh $ssh_opts "$_GW_USER@$_GW_HOST" "sudo cp '$remote_path' '${remote_path}.bak' 2>/dev/null || true"
 
   log "[2/4] Uploading new Caddyfile..."
-  scp $ssh_opts "$caddyfile" "$_GW_USER@$_GW_HOST:/tmp/Caddyfile.new" || fail "Upload failed"
+  scp $scp_opts "$caddyfile" "$_GW_USER@$_GW_HOST:/tmp/Caddyfile.new" || fail "Upload failed"
   # shellcheck disable=SC2029
   ssh $ssh_opts "$_GW_USER@$_GW_HOST" "sudo mv /tmp/Caddyfile.new '$remote_path'" || fail "Install failed"
   ok "Caddyfile installed"
