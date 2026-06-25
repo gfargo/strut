@@ -474,6 +474,18 @@ $hint"
   done
 }
 
+# _validate_no_spaces <path> <label>
+#
+# Fails with a clear error if <path> contains spaces. Used by compose command
+# builders and SSH helpers that rely on word-split invocation patterns.
+_validate_no_spaces() {
+  local path="$1" label="${2:-path}"
+  if [[ "$path" == *" "* ]]; then
+    fail "The $label path contains spaces: '$path'. strut requires paths without spaces."
+  fi
+  return 0
+}
+
 # ── Compose command builders ──────────────────────────────────────────────────
 
 # resolve_compose_cmd <stack> <env_file> [services_profile]
@@ -494,6 +506,10 @@ resolve_compose_cmd() {
   local services_profile="${3:-}"
   local cli_root="${CLI_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
   local compose_file="$cli_root/stacks/$stack/docker-compose.yml"
+
+  # Validate paths don't contain spaces (word-split pattern can't handle them)
+  _validate_no_spaces "$env_file" "env file" || return 1
+  _validate_no_spaces "$compose_file" "compose file" || return 1
 
   local env_name
   env_name=$(extract_env_name "$env_file")
@@ -533,6 +549,10 @@ resolve_local_compose_cmd() {
   [ -f "$compose_file" ] || compose_file="$stack_dir/docker-compose.yml"
 
   local env_local="$stack_dir/.env.local"
+
+  # Validate paths don't contain spaces (word-split pattern can't handle them)
+  _validate_no_spaces "$compose_file" "compose file" || return 1
+  [ -f "$env_local" ] && { _validate_no_spaces "$env_local" "env file" || return 1; }
 
   local cmd="docker compose -f $compose_file"
   [ -f "$env_local" ] && cmd="$cmd --env-file $env_local"
