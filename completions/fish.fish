@@ -43,7 +43,8 @@ end
 function __strut_groups
     set -l root (__strut_project_root); or return 0
     test -f "$root/groups.conf"; or return 0
-    awk -F'=' '/^[a-zA-Z_][a-zA-Z0-9_-]*=/{print $1}' "$root/groups.conf" 2>/dev/null
+    # Group names are INI section headers: [group-name]
+    awk -F'[][]' '/^[[:space:]]*#/{next} /^[[:space:]]*\[[^]]+\][[:space:]]*$/{print $2}' "$root/groups.conf" 2>/dev/null
 end
 
 # Position helpers — fish gives us the whole tokenized command

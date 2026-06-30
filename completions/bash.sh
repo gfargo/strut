@@ -58,7 +58,8 @@ _strut_groups() {
   local root
   root=$(_strut_find_project_root) || return 0
   [ -f "$root/groups.conf" ] || return 0
-  awk -F'=' '/^[a-zA-Z_][a-zA-Z0-9_-]*=/{print $1}' "$root/groups.conf" 2>/dev/null
+  # Group names are INI section headers: [group-name]
+  awk -F'[][]' '/^[[:space:]]*#/{next} /^[[:space:]]*\[[^]]+\][[:space:]]*$/{print $2}' "$root/groups.conf" 2>/dev/null
 }
 
 _strut_completions() {
