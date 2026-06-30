@@ -1,0 +1,68 @@
+# ==================================================
+# .github/workflows/strut-deploy.yml — VPS deploy via strut GitHub Action
+# ==================================================
+# Template: deploy a strut-managed stack to a VPS on every push to main.
+#
+# Required secrets (Settings → Secrets and variables → Actions):
+#   STRUT_HOST       — VPS hostname or IP address
+#   STRUT_SSH_KEY    — Private SSH key (the public key must be in ~/.ssh/authorized_keys on the VPS)
+#
+# Optional secrets for registry access (e.g. GHCR):
+#   GH_PAT           — GitHub PAT with read:packages scope
+
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      dry-run:
+        description: 'Preview the deployment plan without making changes'
+        required: false
+        default: 'false'
+        type: boolean
+
+jobs:
+  deploy:
+    name: Release to VPS
+    runs-on: ubuntu-latest
+    concurrency:
+      group: deploy-prod
+      cancel-in-progress: false
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy with strut
+        uses: gfargo/strut-action@v1
+        with:
+          stack: my-app                          # ← replace with your stack name
+          command: release
+          env: prod
+          host: ${{ secrets.STRUT_HOST }}
+          ssh-key: ${{ secrets.STRUT_SSH_KEY }}
+          # Optional: pin to a specific strut release
+          # version: v0.28.0
+          # Optional: pass extra env vars needed on the runner for the release
+          # env-vars: |
+          #   GH_PAT=${{ secrets.GH_PAT }}
+          # Optional: dry-run on manual trigger
+          dry-run: ${{ github.event.inputs.dry-run || 'false' }}
+
+  health:
+    name: Health check
+    runs-on: ubuntu-latest
+    needs: deploy
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check stack health
+        uses: gfargo/strut-action@v1
+        with:
+          stack: my-app                          # ← replace with your stack name
+          command: health
+          env: prod
+          host: ${{ secrets.STRUT_HOST }}
+          ssh-key: ${{ secrets.STRUT_SSH_KEY }}
