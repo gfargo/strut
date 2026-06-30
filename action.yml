@@ -1,0 +1,164 @@
+# ==================================================
+# action.yml — strut Deploy — composite GitHub Action
+# ==================================================
+# Installs a pinned strut, loads the SSH key, materializes the env file,
+# then runs the requested strut command against a VPS in one workflow step.
+#
+# Usage:
+#   - uses: gfargo/strut-action@v1
+#     with:
+#       stack: my-app
+#       command: release
+#       env: prod
+#       host: ${{ secrets.STRUT_HOST }}
+#       ssh-key: ${{ secrets.STRUT_SSH_KEY }}
+#
+# See https://github.com/gfargo/strut/wiki/GitHub-Action for full docs.
+
+name: 'strut Deploy'
+description: 'Deploy Docker stacks to a VPS using strut — SSH key + env handled securely, one step replaces the full release pipeline'
+author: 'gfargo'
+branding:
+  icon: 'upload-cloud'
+  color: 'blue'
+
+inputs:
+  stack:
+    description: 'Stack name — must match a subdirectory under stacks/ in your project'
+    required: true
+  command:
+    description: 'strut command to run: release (recommended for CI), ship, health, or deploy (self-hosted only)'
+    required: false
+    default: 'release'
+  env:
+    description: 'Environment name — resolves to .<env>.env in the project root (e.g. prod → .prod.env)'
+    required: false
+    default: 'prod'
+  services:
+    description: 'Services profile passed as --services <profile> (optional)'
+    required: false
+    default: ''
+  strict:
+    description: 'Pass --strict to release — treat migration failures as fatal'
+    required: false
+    default: 'false'
+  dry-run:
+    description: 'Pass --dry-run — print the execution plan without making changes'
+    required: false
+    default: 'false'
+  version:
+    description: 'strut branch or tag to install (e.g. main, v0.28.0). A tag pins the exact release.'
+    required: false
+    default: 'main'
+  host:
+    description: 'VPS hostname or IP address (sets VPS_HOST) — pass as a repository secret'
+    required: true
+  ssh-key:
+    description: 'Private SSH key contents for VPS access (sets VPS_SSH_KEY) — pass as a repository secret'
+    required: true
+  ssh-port:
+    description: 'SSH port on the VPS (sets VPS_PORT)'
+    required: false
+    default: '22'
+  user:
+    description: 'SSH user on the VPS (sets VPS_USER)'
+    required: false
+    default: 'ubuntu'
+  deploy-dir:
+    description: 'Deployment directory on the VPS (sets VPS_DEPLOY_DIR). Defaults to /home/<user>/strut'
+    required: false
+    default: ''
+  env-vars:
+    description: 'Extra environment variables as newline-separated KEY=VALUE pairs (e.g. GH_PAT, REGISTRY_TOKEN)'
+    required: false
+    default: ''
+
+runs:
+  using: composite
+  steps:
+    # ── 1. Install strut at the requested version ─────────────────────────────
+    - name: Install strut
+      shell: bash
+      env:
+        STRUT_BRANCH: ${{ inputs.version }}
+      run: |
+        set -euo pipefail
+        curl -fsSL https://raw.githubusercontent.com/gfargo/strut/main/install.sh | bash
+        # Ensure ~/.local/bin is on PATH for runners where /usr/local/bin is not writable
+        echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+    # ── 2. Confirm the installed version appears in the action log ─────────────
+    - name: Verify strut version
+      shell: bash
+      run: strut --version
+
+    # ── 3. Write SSH key to a file with tight permissions ─────────────────────
+    #  build_ssh_opts (lib/utils.sh) requires a file path in VPS_SSH_KEY,
+    #  not an in-memory key. RUNNER_TEMP has no spaces — required by strut.
+    - name: Write SSH key
+      shell: bash
+      env:
+        STRUT_SSH_KEY_CONTENTS: ${{ inputs.ssh-key }}
+      run: |
+        set -euo pipefail
+        key_file="${RUNNER_TEMP}/strut_deploy_key"
+        printf '%s\n' "$STRUT_SSH_KEY_CONTENTS" > "$key_file"
+        chmod 600 "$key_file"
+        echo "STRUT_KEY_FILE=$key_file" >> "$GITHUB_ENV"
+
+    # ── 4. Materialize the env file strut expects ─────────────────────────────
+    #  resolve_env_file (strut:415) returns $CLI_ROOT/.<env>.env, so for
+    #  env=prod the file must be named .prod.env in the project root.
+    #  Values are written via printf, never echoed to stdout.
+    - name: Materialize env file
+      shell: bash
+      env:
+        INPUT_HOST: ${{ inputs.host }}
+        INPUT_USER: ${{ inputs.user }}
+        INPUT_PORT: ${{ inputs.ssh-port }}
+        INPUT_DEPLOY_DIR: ${{ inputs.deploy-dir }}
+        INPUT_ENV_VARS: ${{ inputs.env-vars }}
+        INPUT_ENV_NAME: ${{ inputs.env }}
+      run: |
+        set -euo pipefail
+        echo "::add-mask::$INPUT_HOST"
+        env_file="./.${INPUT_ENV_NAME}.env"
+        {
+          printf 'VPS_HOST=%s\n' "$INPUT_HOST"
+          printf 'VPS_USER=%s\n' "${INPUT_USER:-ubuntu}"
+          printf 'VPS_PORT=%s\n' "${INPUT_PORT:-22}"
+          printf 'VPS_SSH_KEY=%s\n' "$STRUT_KEY_FILE"
+          if [ -n "$INPUT_DEPLOY_DIR" ]; then
+            printf 'VPS_DEPLOY_DIR=%s\n' "$INPUT_DEPLOY_DIR"
+          fi
+          if [ -n "$INPUT_ENV_VARS" ]; then
+            printf '%s\n' "$INPUT_ENV_VARS"
+          fi
+        } > "$env_file"
+        chmod 600 "$env_file"
+
+    # ── 5. Execute the strut command ──────────────────────────────────────────
+    #  Inputs are passed via env vars (not inline expressions) to prevent
+    #  shell injection if an input contains metacharacters.
+    - name: Run strut command
+      shell: bash
+      env:
+        INPUT_STACK: ${{ inputs.stack }}
+        INPUT_COMMAND: ${{ inputs.command }}
+        INPUT_ENV: ${{ inputs.env }}
+        INPUT_SERVICES: ${{ inputs.services }}
+        INPUT_STRICT: ${{ inputs.strict }}
+        INPUT_DRY_RUN: ${{ inputs.dry-run }}
+      run: |
+        set -euo pipefail
+        args=("$INPUT_STACK" "$INPUT_COMMAND" --env "$INPUT_ENV")
+        if [ -n "$INPUT_SERVICES" ]; then
+          args+=(--services "$INPUT_SERVICES")
+        fi
+        if [ "$INPUT_STRICT" = "true" ]; then
+          args+=(--strict)
+        fi
+        if [ "$INPUT_DRY_RUN" = "true" ]; then
+          args+=(--dry-run)
+        fi
+        strut "${args[@]}"
