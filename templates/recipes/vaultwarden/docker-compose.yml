@@ -1,0 +1,16 @@
+services:
+  vaultwarden:
+    image: vaultwarden/server:latest
+    container_name: STACK_NAME_PLACEHOLDER-vaultwarden
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    environment:
+      - ADMIN_TOKEN=${ADMIN_TOKEN}
+      - SIGNUPS_ALLOWED=${SIGNUPS_ALLOWED:-false}
+      - WEBSOCKET_ENABLED=${WEBSOCKET_ENABLED:-true}
+    volumes:
+      - vw_data:/data
+
+volumes:
+  vw_data:
