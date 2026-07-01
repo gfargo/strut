@@ -1,7 +1,6 @@
 # rollback.tape — Instant recovery from a bad deploy
-# Used for: Safety messaging, "what if it breaks?" section
-#
-# Story: Deploy goes wrong → health check fails → rollback → instant recovery.
+# Story: Health check fails → rollback → instant recovery.
+# Output driven by hidden shim (shims/rollback.sh).
 
 Set Shell "bash"
 Set FontSize 20
@@ -15,42 +14,12 @@ Output ../output/gif/rollback.gif
 
 Hide
 Type `export PS1="~/project $ "` Enter
+Type "source shims/rollback.sh" Enter
 Type "clear" Enter
 Show
 
-# ── Failed deploy ─────────────────────────────────────────────────────────────
 Sleep 600ms
-Type "strut my-app health --env prod"
-Sleep 200ms
-Enter
-Sleep 500ms
-Type@0ms "printf '  \\033[32m●\\033[0m postgres   healthy\n'"
-Enter
-Sleep 150ms
-Type@0ms "printf '  \\033[32m●\\033[0m redis      healthy\n'"
-Enter
-Sleep 150ms
-Type@0ms "printf '  \\033[31m●\\033[0m api        unhealthy (502)\n'"
-Enter
-Sleep 300ms
-Type@0ms "printf '\\033[1;31m✗ 1/3 services failing\\033[0m\n'"
-Enter
-Sleep 2000ms
-
-# ── Rollback ──────────────────────────────────────────────────────────────────
-Type "strut my-app rollback --env prod"
-Sleep 200ms
-Enter
-Sleep 400ms
-Type@0ms "printf '→ Rolling back to previous release (v2.3.1)...\n'"
-Enter
-Sleep 800ms
-Type@0ms "printf '→ Restoring containers...\n'"
-Enter
-Sleep 600ms
-Type@0ms "printf '→ Health check: 3/3 healthy\n'"
-Enter
-Sleep 300ms
-Type@0ms "printf '\\033[1;33m✓ Rolled back in 4s\\033[0m\n'"
-Enter
+Type "strut my-app health --env prod" Enter
 Sleep 2500ms
+Type "strut my-app rollback --env prod" Enter
+Sleep 3000ms

@@ -69,23 +69,30 @@ Output ../output/gif/my-demo.gif    # GIF output
 # or: Screenshot ../output/png/my-still.png   # PNG still
 
 # ── Hidden setup (not recorded) ───────────────────────────
+# Source a per-tape shim that defines a fake strut() printing canned
+# output, so typed commands never run real strut (no infra, no errors).
 Hide
 Type `export PS1="~/project $ "` Enter
+Type "source shims/my-demo.sh" Enter
 Type "clear" Enter
 Show
 
 # ── The scene ─────────────────────────────────────────────
+# Type only the real-looking command — the shim prints the output.
 Sleep 800ms
-Type "strut my-app deploy --env prod"
-Sleep 300ms
-Enter
-# ... simulated output via printf ...
+Type "strut my-app deploy --env prod" Enter
+Sleep 3000ms
 ```
+
+Each tape has a matching `shims/<name>.sh` that defines `strut()` to
+dispatch on the command and `printf` the intended output (with `sleep`s
+for staged reveal). See `shims/hero-deploy.sh` for the canonical example.
 
 ### Key conventions
 
 - **Output paths** are relative to the tape file: `../output/gif/` and `../output/png/`
-- **Simulated output** uses `printf` with ANSI codes (no live VPS needed)
+- **Output comes from a shim** (`shims/<name>.sh`), never the real CLI — no live VPS, no stray errors, no visible `printf` lines
+- **Embedded quotes** in a typed command (e.g. `-m 'msg'`) need a backtick Type: `` Type `strut ... -m 'msg'` `` then `Enter` on the next line
 - **Gold accent** for success: `\\033[1;33m✓ text\\033[0m`
 - **Red** for errors/warnings: `\\033[1;31m✗ text\\033[0m`
 - **Green dots** for status: `\\033[32m●\\033[0m`
@@ -154,21 +161,25 @@ Set FontSize 16    # smaller font → smaller canvas (VHS auto-sizes)
 
 ### Current output sizes
 
-| File | Raw | Optimized | Duration |
-|------|-----|-----------|----------|
-| hero-deploy.gif | ~1.1 MB | ~1.0 MB | ~15s |
-| backup-restore.gif | ~670 KB | ~627 KB | ~12s |
-| drift-detect.gif | ~514 KB | ~484 KB | ~11s |
-| health-status.png | — | 304 KB | (still) |
+| File | Optimized | Notes |
+|------|-----------|-------|
+| hero-deploy.gif | ~132 KB | init → scaffold → deploy |
+| ship.gif | ~32 KB | commit → push → rebuild |
+| local-dev.gif | ~120 KB | start → sync-db → logs |
+| rollback.gif | ~76 KB | failed health → rollback |
+| drift-detect.gif | ~96 KB | detect → fix |
+| backup-restore.gif | ~100 KB | backup → verify |
+| health-status.png | ~88 KB | (still) |
 
-These are already web-viable. For aggressive reduction, trim Sleep durations
-and increase TypingSpeed first.
+Sizes dropped sharply after moving to shims (no error output or visible
+`printf` frames). For aggressive reduction, trim Sleep durations and increase
+TypingSpeed first.
 
 ## Design Decisions
 
 - **Deterministic**: tapes pin timing, theme, cursor blink, and prompt
 - **Brand-aligned**: Catppuccin Mocha maps well to our Charcoal/Bone/Gold palette
-- **No real infra**: tapes simulate strut output via printf — no SSH, no Docker, no VPS
+- **No real infra**: a hidden per-tape `strut()` shim prints canned output — no SSH, no Docker, no VPS, and no stray errors from real commands
 - **Web-ready**: all GIFs are losslessly optimized as a pipeline step
 - **Regenerable**: run `./bin/record.sh` anytime to rebuild all assets from source
 
@@ -193,15 +204,17 @@ Full DSL: https://github.com/charmbracelet/vhs
 
 ## Troubleshooting
 
-**"command not found: strut"** in the tape output  
-Expected — tapes use `printf` to simulate output rather than running real strut commands. The `Type "strut ..."` line types the command visually; the `printf` on the next line fakes the output.
+**Real strut errors in the GIF (e.g. "Project already initialized", "Env file not found")**  
+The tape's `strut()` shim didn't load, so the typed command ran the *real* strut against the fixture. Ensure the Hide block sources the shim (`Type "source shims/<name>.sh" Enter`) and that a matching `shims/<name>.sh` exists and defines `strut()` for that command.
 
-**GIF shows the printf commands being typed**  
-Make sure the `printf` lines execute after `Enter` (the command prompt runs them). The viewer sees: typed command → output appears.
+**GIF shows `printf` commands being typed**  
+That's the old pattern. Move the output into the shim's `strut()` function so the scene types only the real command.
+
+**`recording failed: failed to type key -`**  
+The typed command has embedded quotes (e.g. `-m 'msg'`) that broke VHS's `Type "..."` parsing. Use a backtick Type instead: `` Type `strut ... -m 'msg'` `` with `Enter` on the next line.
 
 **Screenshot is empty / shows loading state**  
-Increase the `Sleep` before `Screenshot`. The terminal needs time to render output.
+Increase the `Sleep` before `Screenshot`. The terminal needs time to render output. Also ensure the trailing `Sleep` after a command is ≥ the shim's total internal `sleep` time, or the recording ends before the output finishes.
 
 **Artifacts in tapes/ directory (stacks/, strut.conf)**  
-These are created when VHS actually executes typed strut commands during recording.
-They're gitignored via `bin/tapes/.gitignore`.
+`bin/tapes/` intentionally contains a fixture project (`strut.conf`, `stacks/my-app/`). Generated runtime artifacts are gitignored via `bin/tapes/.gitignore`.
