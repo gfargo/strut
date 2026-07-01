@@ -223,3 +223,39 @@ teardown() {
   [ -f "$target/nginx/nginx.conf" ]
   [ ! -d "$target/caddy" ]
 }
+
+# ── Recipe library consistency ────────────────────────────────────────────────
+# Guards every official recipe (not just the default scaffold): each must carry
+# NAME + DESCRIPTION in recipe.conf, a docker-compose.yml, and a required_vars
+# file whose entries all appear as keys in .env.template.
+@test "recipes: every official recipe is internally consistent" {
+  local recipes_dir="$CLI_ROOT/templates/recipes"
+  [ -d "$recipes_dir" ]
+
+  local recipe
+  for recipe in "$recipes_dir"/*/; do
+    [ -d "$recipe" ] || continue
+    local name
+    name=$(basename "$recipe")
+
+    [ -f "$recipe/recipe.conf" ]        || { echo "FAIL: $name missing recipe.conf"; return 1; }
+    [ -f "$recipe/docker-compose.yml" ] || { echo "FAIL: $name missing docker-compose.yml"; return 1; }
+    grep -qE '^NAME=.'        "$recipe/recipe.conf" || { echo "FAIL: $name recipe.conf missing NAME"; return 1; }
+    grep -qE '^DESCRIPTION=.'  "$recipe/recipe.conf" || { echo "FAIL: $name recipe.conf missing DESCRIPTION"; return 1; }
+
+    # required_vars (if present) must be a subset of .env.template keys.
+    if [ -f "$recipe/required_vars" ]; then
+      [ -f "$recipe/.env.template" ] || { echo "FAIL: $name has required_vars but no .env.template"; return 1; }
+      local env_keys
+      env_keys=$(grep -E '^[A-Za-z_][A-Za-z0-9_]*=' "$recipe/.env.template" | sed 's/=.*//')
+      local var
+      while IFS= read -r var; do
+        [ -z "$var" ] && continue
+        echo "$env_keys" | grep -qx "$var" || {
+          echo "FAIL: $name — required_var '$var' not in .env.template"
+          return 1
+        }
+      done < "$recipe/required_vars"
+    fi
+  done
+}

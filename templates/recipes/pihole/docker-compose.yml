@@ -1,0 +1,20 @@
+services:
+  pihole:
+    image: pihole/pihole:latest
+    container_name: STACK_NAME_PLACEHOLDER-pihole
+    restart: unless-stopped
+    ports:
+      - "53:53/tcp"
+      - "53:53/udp"
+      - "80:80/tcp"
+    environment:
+      - TZ=${TZ:-UTC}
+      - FTLCONF_webserver_api_password=${PIHOLE_PASSWORD}
+      - FTLCONF_dns_upstreams=${PIHOLE_DNS:-1.1.1.1;1.0.0.1}
+    volumes:
+      - pihole_etc:/etc/pihole
+    cap_add:
+      - SYS_NICE
+
+volumes:
+  pihole_etc:
