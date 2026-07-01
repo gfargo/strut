@@ -1,0 +1,23 @@
+services:
+  valheim:
+    image: lloesche/valheim-server:latest
+    container_name: STACK_NAME_PLACEHOLDER-valheim
+    restart: unless-stopped
+    ports:
+      - "2456:2456/udp"
+      - "2457:2457/udp"
+      - "2458:2458/udp"
+    environment:
+      - SERVER_NAME=${SERVER_NAME}
+      - WORLD_NAME=${WORLD_NAME}
+      - SERVER_PASS=${SERVER_PASS}
+      - SERVER_PUBLIC=${SERVER_PUBLIC:-true}
+    volumes:
+      - valheim_config:/config
+      - valheim_data:/opt/valheim
+    cap_add:
+      - SYS_NICE
+
+volumes:
+  valheim_config:
+  valheim_data:

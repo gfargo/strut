@@ -1,0 +1,15 @@
+services:
+  factorio:
+    image: factoriotools/factorio:stable
+    container_name: STACK_NAME_PLACEHOLDER-factorio
+    restart: unless-stopped
+    ports:
+      - "34197:34197/udp"
+    environment:
+      - PORT=${FACTORIO_PORT:-34197}
+      - SAVE_NAME=${SAVE_NAME:-world}
+    volumes:
+      - factorio_data:/factorio
+
+volumes:
+  factorio_data:

@@ -1,0 +1,12 @@
+services:
+  kuma:
+    image: louislam/uptime-kuma:latest
+    container_name: STACK_NAME_PLACEHOLDER-kuma
+    restart: unless-stopped
+    ports:
+      - "3001:3001"
+    volumes:
+      - uptimekuma_data:/app/data
+
+volumes:
+  uptimekuma_data:

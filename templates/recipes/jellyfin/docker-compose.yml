@@ -1,0 +1,18 @@
+services:
+  jellyfin:
+    image: jellyfin/jellyfin:latest
+    container_name: STACK_NAME_PLACEHOLDER-jellyfin
+    restart: unless-stopped
+    ports:
+      - "8096:8096"
+    environment:
+      - TZ=${TZ:-UTC}
+    volumes:
+      - jellyfin_config:/config
+      - jellyfin_cache:/cache
+      - jellyfin_media:/media
+
+volumes:
+  jellyfin_config:
+  jellyfin_cache:
+  jellyfin_media:
