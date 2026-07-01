@@ -1,0 +1,20 @@
+services:
+  mc:
+    image: itzg/minecraft-server:latest
+    container_name: STACK_NAME_PLACEHOLDER-mc
+    restart: unless-stopped
+    ports:
+      - "25565:25565"
+    environment:
+      - EULA=${EULA}
+      - VERSION=${MC_VERSION:-LATEST}
+      - MEMORY=${MC_MEMORY:-2G}
+      - MOTD=${MC_MOTD:-}
+      - DIFFICULTY=${MC_DIFFICULTY:-normal}
+    volumes:
+      - mc_data:/data
+    stdin_open: true
+    tty: true
+
+volumes:
+  mc_data:
