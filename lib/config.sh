@@ -100,8 +100,23 @@ _preprocess_config() {
 # Walks up from $PWD looking for strut.conf. Sets PROJECT_ROOT when found.
 # Returns 1 if not found (commands like `strut init` don't need it).
 #
+# STRUT_PROJECT override: if set to a directory containing strut.conf, use it
+# directly instead of walking up from $PWD. Falls back to walk-up when
+# STRUT_PROJECT is set but lacks a strut.conf (allows gradual migration).
+#
 # Side effects: Sets and exports PROJECT_ROOT
 find_project_root() {
+  # Honor explicit project root override (e.g. set STRUT_PROJECT to a
+  # space-free symlink when the real project path contains spaces).
+  if [ -n "${STRUT_PROJECT:-}" ]; then
+    if [ -f "$STRUT_PROJECT/strut.conf" ]; then
+      PROJECT_ROOT="$STRUT_PROJECT"
+      export PROJECT_ROOT
+      return 0
+    fi
+    # STRUT_PROJECT set but no strut.conf there — fall through to walk-up
+  fi
+
   local dir="$PWD"
   while [ "$dir" != "/" ]; do
     if [ -f "$dir/strut.conf" ]; then

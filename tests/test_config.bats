@@ -276,3 +276,53 @@ EOF
     [ "$STRUT_HOME" = "$real_dir" ]
   )
 }
+
+# ── STRUT_PROJECT override ────────────────────────────────────────────────────
+
+@test "find_project_root: STRUT_PROJECT overrides walk-up when strut.conf exists" {
+  _load_config
+
+  local proj_dir="$TEST_TMP/myproject"
+  local other_dir="$TEST_TMP/other"
+  mkdir -p "$proj_dir" "$other_dir"
+  echo "# test" > "$proj_dir/strut.conf"
+
+  (
+    cd "$other_dir"  # no strut.conf here — walk-up would fail
+    unset PROJECT_ROOT
+    STRUT_PROJECT="$proj_dir" find_project_root
+    [ "$PROJECT_ROOT" = "$proj_dir" ]
+  )
+}
+
+@test "find_project_root: STRUT_PROJECT falls back to walk-up when strut.conf absent" {
+  _load_config
+
+  local proj_dir="$TEST_TMP/walkup_proj"
+  local alt_dir="$TEST_TMP/alt_no_conf"
+  mkdir -p "$proj_dir" "$alt_dir"
+  echo "# test" > "$proj_dir/strut.conf"
+  # alt_dir has no strut.conf; walk-up from proj_dir should succeed
+
+  (
+    cd "$proj_dir"
+    unset PROJECT_ROOT
+    STRUT_PROJECT="$alt_dir" find_project_root
+    [ "$PROJECT_ROOT" = "$proj_dir" ]
+  )
+}
+
+@test "find_project_root: STRUT_PROJECT empty string does not prevent walk-up" {
+  _load_config
+
+  local proj_dir="$TEST_TMP/walkup_proj2"
+  mkdir -p "$proj_dir"
+  echo "# test" > "$proj_dir/strut.conf"
+
+  (
+    cd "$proj_dir"
+    unset PROJECT_ROOT
+    STRUT_PROJECT="" find_project_root
+    [ "$PROJECT_ROOT" = "$proj_dir" ]
+  )
+}

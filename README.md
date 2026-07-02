@@ -133,6 +133,25 @@ The action installs a pinned strut, writes the SSH key to a `600`-permissions fi
 
 See [GitHub Action](https://github.com/gfargo/strut/wiki/GitHub-Action) for the full input reference, pinning instructions, and examples. A starter workflow is available in [`templates/.github/workflows/strut-deploy.yml`](templates/.github/workflows/strut-deploy.yml).
 
+## Known Limitations
+
+**Project paths must not contain spaces.** strut's compose and SSH command
+builders use word-split path expansion. A project root like
+`/Users/me/My Projects/infra` will cause truncated, confusing errors.
+
+Workarounds:
+- Create a space-free symlink: `ln -s "/path/with spaces/infra" ~/strut-project`
+- Or set `STRUT_PROJECT` to the symlink: `STRUT_PROJECT=~/strut-project strut <stack> <cmd>`
+
+**macOS SSH ControlPath** — if you hit `unix_listener: path "..." too long for
+Unix domain socket`, the installed build may predate the `/tmp/%C` fix. Run
+`strut upgrade` to get the current build. As an escape hatch:
+
+```bash
+STRUT_SSH_NO_MUX=1 strut <stack> <cmd>          # disable mux entirely
+STRUT_SSH_CONTROL_DIR=/tmp strut <stack> <cmd>   # explicit short socket dir
+```
+
 ---
 
 ## Testing

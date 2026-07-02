@@ -214,6 +214,14 @@ done
 # eaten.
 if [ "${#_tui_preserved[@]}" -eq 0 ]; then
   set --
+  # Guard: check for spaces before TUI dispatch (TUI launches stack commands)
+  if [ -n "${PROJECT_ROOT:-}" ] && [[ "$PROJECT_ROOT" == *" "* ]]; then
+    echo -e "${RED}✗${NC}  strut project path must not contain spaces: '$PROJECT_ROOT'" >&2
+    echo    "   Workaround: create a symlink from a space-free path:" >&2
+    echo    "     ln -s \"$PROJECT_ROOT\" ~/strut-project" >&2
+    echo    "   Or set STRUT_PROJECT to the symlink directory and run from anywhere." >&2
+    exit 1
+  fi
   if [ "$_TUI_DISABLED" != "true" ] && [ "${STRUT_NO_TUI:-}" != "1" ]; then
     if [ "$_TUI_FORCE" = "true" ] || [ -t 0 ]; then
       if $_TUI_PRINT; then
@@ -315,6 +323,19 @@ usage() {
   echo "                     (also honored via STRUT_YES=1)"
   echo "  --no-tui           Disable interactive TUI when called with no args"
   echo "                     (also honored via STRUT_NO_TUI=1)"
+  echo ""
+  echo "Environment variables:"
+  echo "  STRUT_PROJECT          Override the project root (must contain strut.conf)."
+  echo "                         Useful when your project path contains spaces:"
+  echo "                           ln -s \"/path/with spaces\" ~/strut-project"
+  echo "                           STRUT_PROJECT=~/strut-project strut <stack> <cmd>"
+  echo "  STRUT_SSH_NO_MUX=1     Disable SSH connection multiplexing (debug auth issues)."
+  echo "  STRUT_SSH_CONTROL_DIR  Override the SSH mux socket directory (default: /tmp)."
+  echo ""
+  echo "Known limitations:"
+  echo "  Project paths must not contain spaces. strut's compose/ssh command builders"
+  echo "  rely on word-split expansion; paths with spaces cause truncated errors."
+  echo "  Use STRUT_PROJECT (see above) or a space-free symlink as a workaround."
   echo ""
   echo "Audit Commands:"
   echo "  audit <vps-host> [vps-user] [ssh-key] [ssh-port]                 Audit VPS and generate report"
@@ -664,6 +685,25 @@ if [ -n "${1:-}" ] && plugins_has "$1" && [ ! -d "$CLI_ROOT/stacks/$1" ]; then
   shift
   plugins_run "$_plugin_name" "$@"
   exit $?
+fi
+
+# Guard: fail early when the resolved project root contains spaces.
+# Top-level commands (--version, init, upgrade, etc.) have already exited
+# above, so this only fires for stack commands that actually need the project.
+# compose/ssh command builders word-split paths; spaces produce truncated,
+# confusing errors deep in the pipeline. Catch it here, once, clearly.
+# Workaround: set STRUT_PROJECT to a space-free symlink of the project dir.
+if [ -n "${STRUT_HOME:-}" ] && [[ "$STRUT_HOME" == *" "* ]]; then
+  echo -e "${RED}✗${NC}  strut engine path must not contain spaces: '$STRUT_HOME'" >&2
+  echo    "   Reinstall strut under a space-free path (e.g. ~/.strut or /opt/strut)." >&2
+  exit 1
+fi
+if [ -n "${PROJECT_ROOT:-}" ] && [[ "$PROJECT_ROOT" == *" "* ]]; then
+  echo -e "${RED}✗${NC}  strut project path must not contain spaces: '$PROJECT_ROOT'" >&2
+  echo    "   Workaround: create a symlink from a space-free path:" >&2
+  echo    "     ln -s \"$PROJECT_ROOT\" ~/strut-project" >&2
+  echo    "   Or set STRUT_PROJECT to the symlink directory and run from anywhere." >&2
+  exit 1
 fi
 
 STACK="${1:-}"
