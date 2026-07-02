@@ -145,8 +145,11 @@ EOF
 # ── _deploy_volguard tests ────────────────────────────────────────────────────
 # These tests stub diff_fetch_remote and diff_detect_destructive so no SSH
 # is attempted. The guard is tested as a pure function.
+# All volguard tests override CLI_ROOT to TEST_TMP so the compose file lookup
+# finds the test fixtures (not the repo's real stacks/).
 
 @test "_deploy_volguard: skips guard when env file has no VPS_HOST" {
+  export CLI_ROOT="$TEST_TMP"
   cat > "$TEST_TMP/.nohost.env" <<'EOF'
 APP_SECRET=abc
 EOF
@@ -156,6 +159,7 @@ EOF
 }
 
 @test "_deploy_volguard: skips guard when compose file is absent" {
+  export CLI_ROOT="$TEST_TMP"
   # Remove the compose file
   rm -f "$TEST_TMP/stacks/test-stack/docker-compose.yml"
   run _deploy_volguard "test-stack" "$TEST_TMP/.test.env" "false"
@@ -163,6 +167,7 @@ EOF
 }
 
 @test "_deploy_volguard: skips guard when remote env is empty (new stack)" {
+  export CLI_ROOT="$TEST_TMP"
   # Stub diff_fetch_remote to return empty (remote doesn't exist yet)
   diff_fetch_remote() { echo ""; }
   export -f diff_fetch_remote
@@ -172,6 +177,7 @@ EOF
 }
 
 @test "_deploy_volguard: aborts when destructive changes detected without flag" {
+  export CLI_ROOT="$TEST_TMP"
   # Compose with a volume-defining var
   cat > "$TEST_TMP/stacks/test-stack/docker-compose.yml" <<'EOF'
 services:
@@ -191,13 +197,14 @@ EOF
   diff_fetch_remote() { echo "VPS_HOST=example.com"; }
   export -f diff_fetch_remote
 
-  run _deploy_volguard "test-stack" "$TEST_TMP/.test.env" "false"
+  run _deploy_volguard "test-stack" "$TEST_TMP/.test.env" "false" < /dev/null
   [ "$status" -ne 0 ]
   [[ "$output" == *"INSTALL_DIR"* ]] || [[ "$output" == *"abort"* ]] || \
     [[ "$output" == *"data-destructive"* ]] || [[ "$output" == *"DATA-DESTRUCTIVE"* ]]
 }
 
 @test "_deploy_volguard: proceeds when --confirm-data-move is true" {
+  export CLI_ROOT="$TEST_TMP"
   cat > "$TEST_TMP/stacks/test-stack/docker-compose.yml" <<'EOF'
 services:
   db:
@@ -219,6 +226,7 @@ EOF
 }
 
 @test "_deploy_volguard: dry-run warns but returns 0" {
+  export CLI_ROOT="$TEST_TMP"
   cat > "$TEST_TMP/stacks/test-stack/docker-compose.yml" <<'EOF'
 services:
   db:
@@ -242,6 +250,7 @@ EOF
 }
 
 @test "_deploy_volguard: no destructive changes → returns 0" {
+  export CLI_ROOT="$TEST_TMP"
   # Local and remote envs are identical (no dangerous diff)
   cat > "$TEST_TMP/.test.env" <<'EOF'
 VPS_HOST=example.com
@@ -278,6 +287,7 @@ LOG_LEVEL=info"; }
 }
 
 @test "cmd_rebuild: aborts on destructive INSTALL_DIR change without --confirm-data-move" {
+  export CLI_ROOT="$TEST_TMP"
   cat > "$TEST_TMP/stacks/test-stack/docker-compose.yml" <<'EOF'
 services:
   db:
@@ -296,7 +306,7 @@ EOF
   diff_fetch_remote() { echo "VPS_HOST=example.com"; }
   export -f diff_fetch_remote
 
-  run cmd_rebuild
+  run cmd_rebuild < /dev/null
   [ "$status" -ne 0 ]
   # Guard fires before deploy_stack is reached
   [[ "$output" != *"deploy_stack"* ]]
@@ -305,6 +315,7 @@ EOF
 }
 
 @test "cmd_rebuild: proceeds with --confirm-data-move on destructive change" {
+  export CLI_ROOT="$TEST_TMP"
   cat > "$TEST_TMP/stacks/test-stack/docker-compose.yml" <<'EOF'
 services:
   db:
