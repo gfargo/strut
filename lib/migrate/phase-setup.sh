@@ -7,6 +7,14 @@
 # Phase 2: Setup strut on VPS
 set -euo pipefail
 
+# Ensure render_safe_clean_snippet is available (normally sourced via lib/deploy.sh
+# before this module, but guard for standalone use in tests).
+if ! declare -f render_safe_clean_snippet >/dev/null 2>&1; then
+  _phase_setup_deploy_lib="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/deploy.sh"
+  # shellcheck source=../deploy.sh
+  source "$_phase_setup_deploy_lib"
+fi
+
 migrate_phase_setup() {
   local vps_host="$1"
   local vps_user="$2"
@@ -27,8 +35,13 @@ migrate_phase_setup() {
     if confirm "Update existing installation?"; then
       log "Updating strut..."
       warn "Any local changes on the VPS will be discarded (hard reset to origin/main)"
+      local force_clean="${FORCE_CLEAN:-false}"
+      local safe_clean_snippet
+      safe_clean_snippet=$(render_safe_clean_snippet "$force_clean")
+      # Intentional: force_clean expands locally; remote vars stay escaped
+      # shellcheck disable=SC2029
       ssh_exec "$vps_user" "$vps_host" "$ssh_port" "$ssh_key" \
-        "cd $dest_dir && git fetch origin && git reset --hard origin/main && git clean -fd"
+        "cd $dest_dir && git fetch origin && git reset --hard origin/main && $safe_clean_snippet"
       ok "strut updated"
     else
       log "Using existing installation"

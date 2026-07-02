@@ -7,6 +7,7 @@
 #   --services <profile> | --services=<profile>
 #   --json
 #   --dry-run
+#   --force-clean
 #   --yes | -y   (also honored via STRUT_YES=1)
 #   --help | -h
 #
@@ -17,17 +18,19 @@ set -euo pipefail
 
 # parse_common_flags "$@"
 # Populates globals:
-#   FLAGS_ENV_NAME   — value of --env (empty if not set)
-#   FLAGS_SERVICES   — value of --services (empty if not set)
-#   FLAGS_JSON       — "--json" if flag present, empty otherwise
-#   FLAGS_DRY_RUN    — "true" if --dry-run present, "" otherwise
-#   FLAGS_HELP       — "true" if --help/-h present, "" otherwise
-#   FLAGS_POSITIONAL — array of remaining args (non-common flags and positionals)
+#   FLAGS_ENV_NAME    — value of --env (empty if not set)
+#   FLAGS_SERVICES    — value of --services (empty if not set)
+#   FLAGS_JSON        — "--json" if flag present, empty otherwise
+#   FLAGS_DRY_RUN     — "true" if --dry-run present, "" otherwise
+#   FLAGS_FORCE_CLEAN — "true" if --force-clean present, "" otherwise
+#   FLAGS_HELP        — "true" if --help/-h present, "" otherwise
+#   FLAGS_POSITIONAL  — array of remaining args (non-common flags and positionals)
 parse_common_flags() {
   FLAGS_ENV_NAME=""
   FLAGS_SERVICES=""
   FLAGS_JSON=""
   FLAGS_DRY_RUN=""
+  FLAGS_FORCE_CLEAN=""
   FLAGS_HELP=""
   FLAGS_HOST=""
   FLAGS_POSITIONAL=()
@@ -42,6 +45,7 @@ parse_common_flags() {
       --host)        FLAGS_HOST="${2:-}"; shift 2 ;;
       --json)        FLAGS_JSON="--json"; shift ;;
       --dry-run)     FLAGS_DRY_RUN="true"; shift ;;
+      --force-clean) FLAGS_FORCE_CLEAN="true"; shift ;;
       --yes|-y)      STRUT_YES=1; export STRUT_YES; shift ;;
       --help|-h)     FLAGS_HELP="true"; shift ;;
       *)             FLAGS_POSITIONAL+=("$1"); shift ;;

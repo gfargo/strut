@@ -309,6 +309,8 @@ usage() {
   echo "  --services <prof>  Service profile (messaging|ui|full)"
   echo "  --json             JSON output (where supported)"
   echo "  --dry-run          Preview destructive operations without executing"
+  echo "  --force-clean      Allow git clean to delete untracked files on VPS"
+  echo "                     (bypass the data-loss guard in release/update)"
   echo "  --yes, -y          Auto-approve confirmation prompts (safe in CI)"
   echo "                     (also honored via STRUT_YES=1)"
   echo "  --no-tui           Disable interactive TUI when called with no args"
@@ -693,6 +695,9 @@ SERVICES="$FLAGS_SERVICES"
 JSON_FLAG="$FLAGS_JSON"
 if [ "$FLAGS_DRY_RUN" = "true" ]; then
   DRY_RUN="true"; export DRY_RUN
+fi
+if [ "$FLAGS_FORCE_CLEAN" = "true" ]; then
+  FORCE_CLEAN="true"; export FORCE_CLEAN
 fi
 CMD_ARGS=("${FLAGS_POSITIONAL[@]+"${FLAGS_POSITIONAL[@]}"}")
 

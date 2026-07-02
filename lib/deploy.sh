@@ -15,6 +15,41 @@
 #   services_profile — optional Docker Compose profile (messaging|ui|full)
 set -euo pipefail
 
+# render_safe_clean_snippet <force_clean>
+#
+# Emits a remote-shell snippet (as a string) that performs a safe git clean:
+#   1. Dry-run git clean -fdn to detect what would be removed.
+#   2. If nothing: run git clean -fd normally.
+#   3. If something and force_clean=true: run git clean -fd (operator override).
+#   4. If something and force_clean=false: abort with guidance.
+#
+# The returned string is meant to be embedded inside an SSH heredoc where
+# local variables have already been expanded (consistent with the SC2029
+# disable comment already present in vps_update_repo).
+#
+# Usage: local snippet; snippet=$(render_safe_clean_snippet "false")
+render_safe_clean_snippet() {
+  local force_clean="${1:-false}"
+  cat <<SNIPPET
+__would_remove=\$(git clean -fdn)
+if [ -n "\$__would_remove" ]; then
+  if [ "$force_clean" = "true" ]; then
+    git clean -fd
+  else
+    echo 'ERROR: git clean would delete untracked paths in the checkout:' >&2
+    echo "\$__would_remove" >&2
+    echo '' >&2
+    echo 'These may be container data dirs or bind-mount sources living inside' >&2
+    echo 'the checkout. Move data outside the repo or gitignore the paths, then' >&2
+    echo 're-run. To override (data-loss risk), add --force-clean.' >&2
+    exit 1
+  fi
+else
+  git clean -fd
+fi
+SNIPPET
+}
+
 deploy_stack() {
   local stack="$1"
   local env_file="$2"
@@ -269,12 +304,18 @@ vps_update_repo() {
   local gh_pat="${GH_PAT:-}"
   local branch="${DEFAULT_BRANCH:-main}"
   local env_name; env_name=$(extract_env_name "$env_file")
+  local force_clean="${FORCE_CLEAN:-false}"
 
   local ssh_opts
   ssh_opts=$(build_ssh_opts -p "$vps_port" -k "$vps_ssh_key" --batch)
 
   log "Updating strut on $vps_user@$vps_host → $deploy_dir"
   warn "Any local changes on the VPS will be discarded (hard reset to origin/$branch)"
+
+  # Render the safe-clean snippet with the local force_clean value substituted
+  # in before the SSH call (local expansion is intentional here).
+  local safe_clean_snippet
+  safe_clean_snippet=$(render_safe_clean_snippet "$force_clean")
 
   # GH_PAT is passed into the remote shell and used via `git -c url.insteadOf`
   # so the fetch works regardless of whether the remote is SSH or HTTPS.
@@ -303,7 +344,7 @@ vps_update_repo() {
       fetch origin
     echo '--- Resetting to origin/$branch ---'
     git reset --hard origin/$branch
-    git clean -fd
+    $safe_clean_snippet
     echo '--- Updated HEAD ---'
     git log --oneline -1
     echo '--- Verifying strut binary ---'
