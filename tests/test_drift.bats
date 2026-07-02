@@ -238,3 +238,80 @@ EOF
     rm -rf "$CLI_ROOT/stacks/$stack"
   done
 }
+
+# ── on_drift_detected hook (via cmd_drift) ────────────────────────────────────
+
+@test "cmd_drift detect: fires on_drift_detected hook when drift_detect returns 1" {
+  source "$(dirname "$BATS_TEST_FILENAME")/test_helper/common.bash"
+
+  local strut_root="$CLI_ROOT"
+
+  # Create a fake LIB with a drift.sh that defines a drift-found stub
+  local fake_lib="$TEST_TMP/fake_lib_drift"
+  mkdir -p "$fake_lib"
+  cat > "$fake_lib/drift.sh" <<'FAKESCRIPT'
+drift_detect() { echo "drift detected"; return 1; }
+FAKESCRIPT
+
+  LIB="$fake_lib"
+  export LIB
+
+  # Capture fire_hook_or_warn calls
+  fire_hook_or_warn() { echo "fire_hook_or_warn $*"; return 0; }
+  export -f fire_hook_or_warn
+
+  validate_env_file() { return 0; }
+  export -f validate_env_file
+
+  # Need CMD_* vars
+  export CMD_STACK="mystack"
+  export CMD_STACK_DIR="$TEST_TMP/stacks/mystack"
+  export CMD_ENV_FILE="$TEST_TMP/.test.env"
+  export CMD_ENV_NAME="test"
+  export CMD_JSON=""
+  mkdir -p "$TEST_TMP/stacks/mystack"
+  touch "$TEST_TMP/.test.env"
+
+  source "$strut_root/lib/cmd_drift.sh"
+
+  run cmd_drift detect
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"fire_hook_or_warn"* ]]
+  [[ "$output" == *"on_drift_detected"* ]]
+}
+
+@test "cmd_drift detect: does NOT fire on_drift_detected when no drift" {
+  source "$(dirname "$BATS_TEST_FILENAME")/test_helper/common.bash"
+
+  local strut_root="$CLI_ROOT"
+
+  # Create a fake LIB with a drift.sh that defines a no-drift stub
+  local fake_lib="$TEST_TMP/fake_lib"
+  mkdir -p "$fake_lib"
+  cat > "$fake_lib/drift.sh" <<'FAKESCRIPT'
+drift_detect() { echo "no drift"; return 0; }
+FAKESCRIPT
+
+  LIB="$fake_lib"
+  export LIB
+
+  fire_hook_or_warn() { echo "fire_hook_or_warn $*"; return 0; }
+  export -f fire_hook_or_warn
+
+  validate_env_file() { return 0; }
+  export -f validate_env_file
+
+  export CMD_STACK="mystack"
+  export CMD_STACK_DIR="$TEST_TMP/stacks/mystack2"
+  export CMD_ENV_FILE="$TEST_TMP/.test2.env"
+  export CMD_ENV_NAME="test"
+  export CMD_JSON=""
+  mkdir -p "$TEST_TMP/stacks/mystack2"
+  touch "$TEST_TMP/.test2.env"
+
+  source "$strut_root/lib/cmd_drift.sh"
+
+  run cmd_drift detect
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"on_drift_detected"* ]]
+}

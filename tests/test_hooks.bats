@@ -79,7 +79,7 @@ EOF
 }
 
 @test "fire_hook: works for all event names" {
-  for event in pre_deploy post_deploy pre_backup post_backup on_health_fail on_drift_detected; do
+  for event in pre_deploy post_deploy pre_backup post_backup on_health_fail on_drift_detected pre_migrate post_migrate; do
     cat > "$STACK_DIR/hooks/${event}.sh" <<EOF
 #!/bin/bash
 echo "fired $event"

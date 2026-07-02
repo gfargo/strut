@@ -46,12 +46,15 @@ setup() {
   rollback_save_snapshot() { echo "rollback_save_snapshot $*"; }
   fire_hook() { echo "fire_hook $*"; return 0; }
   fire_hook_or_warn() { echo "fire_hook_or_warn $*"; }
+  fire_first_run_hook() { echo "fire_first_run_hook $*"; return 0; }
+  maybe_apply_db_schema() { echo "maybe_apply_db_schema $*"; return 0; }
   notify_event() { echo "notify_event $*"; }
   cmd_validate() { return 0; }
   run_cmd() { echo "RUN: $*"; }
   export -f fail ok warn log print_banner require_cmd extract_env_name \
             export_volume_paths _docker_sudo registry_login \
             rollback_save_snapshot fire_hook fire_hook_or_warn \
+            fire_first_run_hook maybe_apply_db_schema \
             notify_event cmd_validate run_cmd
 
   # Source the module under test.

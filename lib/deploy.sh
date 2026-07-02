@@ -272,6 +272,9 @@ $_hint"
   # Fire post_deploy lifecycle hook (non-fatal on failure)
   # First, run one-time first-run hook if needed (after services are up)
   fire_first_run_hook "$stack_dir" || warn "First-run hook failed — deploy continues"
+  # Apply DB schema (opt-in, idempotent) — runs after first_run so schema
+  # files can safely assume the service is up and first-time init is done.
+  maybe_apply_db_schema "$stack" "$compose_cmd" "$stack_dir"
   DEPLOY_STATUS="ok" fire_hook_or_warn post_deploy "$stack_dir"
 
   # Notification providers (Slack/Discord/webhook) subscribed to deploy.success

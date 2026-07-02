@@ -19,13 +19,16 @@ setup() {
   export_volume_paths() { :; }
   fire_hook() { return 0; }
   fire_hook_or_warn() { :; }
+  fire_first_run_hook() { :; }
+  maybe_apply_db_schema() { :; }
   notify_event() { :; }
   print_banner() { :; }
   require_cmd() { :; }
   is_running_on_vps() { return 0; }
   export -f registry_login docker_pull_stack rollback_save_snapshot \
-            export_volume_paths fire_hook fire_hook_or_warn notify_event \
-            print_banner require_cmd is_running_on_vps
+            export_volume_paths fire_hook fire_hook_or_warn \
+            fire_first_run_hook maybe_apply_db_schema \
+            notify_event print_banner require_cmd is_running_on_vps
 
   # Create stack structure
   mkdir -p "$TEST_TMP/stacks/hub"

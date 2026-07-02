@@ -385,7 +385,16 @@ cmd_health() {
   local compose_file="$stack_dir/docker-compose.yml"
   local compose_cmd
   compose_cmd=$(resolve_compose_cmd "$stack" "$env_file" "$services")
-  health_run_all "$stack" "$compose_cmd" "$compose_file" "$json_flag"
+
+  local health_rc=0
+  health_run_all "$stack" "$compose_cmd" "$compose_file" "$json_flag" || health_rc=$?
+
+  if [ "$health_rc" -ne 0 ]; then
+    # Fire on_health_fail hook (warn-only — never mask the original exit code)
+    HEALTH_STATUS="$health_rc" fire_hook_or_warn on_health_fail "$stack_dir"
+  fi
+
+  return "$health_rc"
 }
 
 # cmd_status (no args — reads CMD_*)

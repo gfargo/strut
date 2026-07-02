@@ -19,6 +19,8 @@ setup() {
   db_pull() { echo "db_pull $*"; }
   db_push() { echo "db_push $*"; }
   resolve_compose_cmd() { echo "echo COMPOSE"; }
+  fire_hook() { echo "fire_hook $*"; return 0; }
+  fire_hook_or_warn() { echo "fire_hook_or_warn $*"; return 0; }
   validate_subcommand() {
     local value="$1"; shift
     for v in "$@"; do [ "$value" = "$v" ] && return 0; done
@@ -27,9 +29,10 @@ setup() {
   }
   export -f postgres_apply_init_sql postgres_verify_schema \
             restore_postgres restore_mysql restore_neo4j restore_sqlite \
-            db_pull db_push resolve_compose_cmd validate_subcommand
+            db_pull db_push resolve_compose_cmd validate_subcommand \
+            fire_hook fire_hook_or_warn
 
-  mkdir -p "$TEST_TMP/stacks/test-stack"
+  mkdir -p "$TEST_TMP/stacks/test-stack/hooks"
   cat > "$TEST_TMP/.test.env" <<'EOF'
 VPS_HOST=
 EOF
@@ -176,4 +179,72 @@ teardown() {
   [ "$status" -eq 0 ]
   [[ "$output" == *"db_push"* ]]
   [[ "$output" == *"true"* ]]
+}
+
+# ── pre_migrate / post_migrate hooks ─────────────────────────────────────────
+
+@test "cmd_migrate_schema: fires pre_migrate hook before migration" {
+  # Use a real hook file rather than the stubbed fire_hook so we can observe order
+  local hook_log="$TEST_TMP/hook.log"
+  cat > "$CMD_STACK_DIR/hooks/pre_migrate.sh" <<EOF
+#!/usr/bin/env bash
+echo "pre_migrate fired" >> "$hook_log"
+EOF
+  chmod +x "$CMD_STACK_DIR/hooks/pre_migrate.sh"
+
+  # Restore fire_hook to real implementation for this test
+  source "$CLI_ROOT/lib/hooks.sh"
+  # Stub the docker run so no actual migration runs
+  docker() { echo "docker $*"; }
+  export -f docker
+
+  run cmd_migrate_schema postgres --status
+  # pre_migrate hook file was present and fire_hook ran it
+  [ -f "$hook_log" ]
+  grep -q "pre_migrate fired" "$hook_log"
+}
+
+@test "cmd_migrate_schema: pre_migrate hook failure aborts migration" {
+  cat > "$CMD_STACK_DIR/hooks/pre_migrate.sh" <<'EOF'
+#!/usr/bin/env bash
+echo "blocking pre_migrate"
+exit 1
+EOF
+  chmod +x "$CMD_STACK_DIR/hooks/pre_migrate.sh"
+
+  # Restore fire_hook to real implementation
+  source "$CLI_ROOT/lib/hooks.sh"
+  docker() { echo "SHOULD_NOT_BE_CALLED"; }
+  export -f docker
+
+  run cmd_migrate_schema postgres --status
+  [ "$status" -ne 0 ]
+  [[ "$output" != *"SHOULD_NOT_BE_CALLED"* ]]
+}
+
+@test "cmd_migrate_schema: fires post_migrate hook after migration (warn-only)" {
+  # No pre_migrate hook — no abort
+  # Stub docker so migration 'succeeds'
+  docker() { echo "docker migration ran"; }
+  export -f docker
+
+  # Required env vars for the postgres migration path
+  export MIGRATION_IMAGE="test/migrator:latest"
+  export POSTGRES_USER="test"
+  export POSTGRES_PASSWORD="test"
+  export POSTGRES_DB="testdb"
+
+  local hook_log="$TEST_TMP/post_hook.log"
+  cat > "$CMD_STACK_DIR/hooks/post_migrate.sh" <<EOF
+#!/usr/bin/env bash
+echo "post_migrate fired target=\${MIGRATE_TARGET:-unset}" >> "$hook_log"
+EOF
+  chmod +x "$CMD_STACK_DIR/hooks/post_migrate.sh"
+
+  source "$CLI_ROOT/lib/hooks.sh"
+
+  run cmd_migrate_schema postgres --status
+  [ -f "$hook_log" ]
+  grep -q "post_migrate fired" "$hook_log"
+  grep -q "target=postgres" "$hook_log"
 }

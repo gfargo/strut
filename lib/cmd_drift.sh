@@ -32,6 +32,7 @@ _usage_drift() {
 # cmd_drift [subcommand] [args...] (reads CMD_*)
 cmd_drift() {
   local stack="$CMD_STACK"
+  local stack_dir="$CMD_STACK_DIR"
   local env_file="$CMD_ENV_FILE"
   local env_name="$CMD_ENV_NAME"
   local json_flag="$CMD_JSON"
@@ -50,10 +51,20 @@ cmd_drift() {
 
   case "$target" in
     detect)
-      drift_detect "$stack" "$env_name"
+      local drift_rc=0
+      drift_detect "$stack" "$env_name" || drift_rc=$?
+      if [ "$drift_rc" -ne 0 ]; then
+        DRIFTED=1 fire_hook_or_warn on_drift_detected "$stack_dir"
+      fi
+      return "$drift_rc"
       ;;
     report)
-      drift_report "$stack" "$env_name" "$json_flag"
+      local drift_rc=0
+      drift_report "$stack" "$env_name" "$json_flag" || drift_rc=$?
+      if [ "$drift_rc" -ne 0 ]; then
+        DRIFTED=1 fire_hook_or_warn on_drift_detected "$stack_dir"
+      fi
+      return "$drift_rc"
       ;;
     diff)
       local diff_file="${1:-}"
@@ -69,7 +80,12 @@ cmd_drift() {
       drift_fix "$stack" "$env_name" "$fix_flag"
       ;;
     monitor)
-      drift_monitor "$stack" "$env_name" "${1:-}"
+      local drift_rc=0
+      drift_monitor "$stack" "$env_name" "${1:-}" || drift_rc=$?
+      if [ "$drift_rc" -ne 0 ]; then
+        DRIFTED=1 fire_hook_or_warn on_drift_detected "$stack_dir"
+      fi
+      return "$drift_rc"
       ;;
     history)
       local limit_flag=""

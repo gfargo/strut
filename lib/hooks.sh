@@ -9,17 +9,27 @@
 #
 # and strut fires them at the right moment.
 #
-# Events:
+# Events (all wired):
 #   pre_deploy         — before deploy_stack runs (can abort via non-zero)
 #   post_deploy        — after deploy_stack succeeds (warn-only on failure)
+#   first_run          — once per stack on first deploy (marker-gated)
 #   pre_backup         — before any backup runs (can abort)
 #   post_backup        — after backup succeeds (warn-only)
-#   on_health_fail     — after a health check fails (warn-only)
-#   on_drift_detected  — when drift is found (warn-only)
+#   pre_migrate        — before schema migration runs (can abort via non-zero)
+#   post_migrate       — after migration succeeds; MIGRATE_TARGET exported (warn-only)
+#   on_health_fail     — after a health check fails; HEALTH_STATUS exported (warn-only)
+#   on_drift_detected  — when drift is found; DRIFTED=1 exported (warn-only)
 #
 # Event env vars: whatever the caller has already exported — typically
 # CMD_STACK, CMD_ENV_NAME, CMD_STACK_DIR. Event-specific env vars
-# (DEPLOY_STATUS, UNHEALTHY_SERVICES, etc.) are listed per call site.
+# (DEPLOY_STATUS, UNHEALTHY_SERVICES, MIGRATE_TARGET, HEALTH_STATUS,
+# DRIFTED, etc.) are listed per call site.
+#
+# Idempotency contract for sql/init/*.sql (wired via RUN_DB_SCHEMA_ON_DEPLOY):
+#   All SQL files re-run on every deploy, so they MUST be self-idempotent:
+#   use IF NOT EXISTS, CREATE OR REPLACE, guarded cron.schedule calls, etc.
+#   Non-idempotent DDL will error under psql -v ON_ERROR_STOP=1.
+#   The deploy continues even if schema apply fails (warn-only).
 #
 # Naming: hook files may use either `pre_deploy.sh` (snake_case, preferred)
 # or `pre-deploy.sh` (legacy dash form, for backward compatibility with #18).

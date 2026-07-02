@@ -337,3 +337,41 @@ EOF
   [ "$status" -eq 0 ]
   [[ "$output" == *"deploy_stack"* ]]
 }
+
+# ── on_health_fail hook ───────────────────────────────────────────────────────
+
+@test "cmd_health: fires on_health_fail hook when health_run_all returns non-zero" {
+  # Override health_run_all to simulate failure
+  health_run_all() { echo "health_run_all $*"; return 1; }
+  export -f health_run_all
+
+  fire_hook_or_warn() { echo "fire_hook_or_warn $*"; return 0; }
+  export -f fire_hook_or_warn
+
+  run cmd_health
+  # Exit code must be preserved (1)
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"fire_hook_or_warn"* ]]
+  [[ "$output" == *"on_health_fail"* ]]
+}
+
+@test "cmd_health: does NOT fire on_health_fail when health_run_all succeeds" {
+  health_run_all() { echo "health_run_all $*"; return 0; }
+  export -f health_run_all
+
+  fire_hook_or_warn() { echo "fire_hook_or_warn $*"; return 0; }
+  export -f fire_hook_or_warn
+
+  run cmd_health
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"on_health_fail"* ]]
+}
+
+@test "cmd_health: preserves original exit code after firing on_health_fail" {
+  health_run_all() { return 2; }
+  fire_hook_or_warn() { return 0; }
+  export -f health_run_all fire_hook_or_warn
+
+  run cmd_health
+  [ "$status" -eq 2 ]
+}
