@@ -22,6 +22,8 @@ _usage_deploy() {
   echo "  --blue-green         Stand up new version alongside current, health-gate,"
   echo "                       swap proxy, drain old (overrides DEPLOY_MODE)"
   echo "  --standard           Force in-place deploy (overrides DEPLOY_MODE)"
+  echo "  --force-clean        Allow git clean to delete untracked VPS files"
+  echo "                       (bypass data-loss guard; use with caution)"
   echo "  --dry-run            Show execution plan without making changes"
   echo ""
   echo "Related commands:"
