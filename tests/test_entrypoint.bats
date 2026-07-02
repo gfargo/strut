@@ -11,6 +11,7 @@
 
 setup() {
   export CLI_ROOT="$(cd "$(dirname "$BATS_TEST_FILENAME")/.." && pwd)"
+  CLI="$CLI_ROOT/strut"
   TEST_TMP="$(mktemp -d)"
 }
 
@@ -104,4 +105,40 @@ _rand_version() {
   "
   [ "$status" -eq 0 ]
   [[ "$output" == *"install.sh"* ]]
+}
+
+# ── Spaced project root guard ─────────────────────────────────────────────────
+
+@test "spaced PROJECT_ROOT: fails immediately with clear message" {
+  local spaced_dir="$TEST_TMP/my project root"
+  mkdir -p "$spaced_dir"
+  echo "# strut.conf" > "$spaced_dir/strut.conf"
+
+  run bash -c "cd '$spaced_dir' && STRUT_NO_TUI=1 bash '$CLI' mystack deploy 2>&1"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"must not contain spaces"* ]]
+  [[ "$output" == *"$spaced_dir"* ]]
+}
+
+@test "spaced PROJECT_ROOT: --version works from spaced dir (exits before guard)" {
+  local spaced_dir="$TEST_TMP/my project root2"
+  mkdir -p "$spaced_dir"
+  echo "# strut.conf" > "$spaced_dir/strut.conf"
+
+  # --version exits inside the top-level case statement, before the spaces
+  # guard which is placed after the case. It must succeed.
+  run bash -c "cd '$spaced_dir' && bash '$CLI' --version 2>&1"
+  [ "$status" -eq 0 ]
+  [[ "$output" =~ ^[0-9]+\.[0-9]+\.[0-9]+ ]]
+}
+
+@test "space-free PROJECT_ROOT: no early failure" {
+  local clean_dir="$TEST_TMP/cleanproject"
+  mkdir -p "$clean_dir/stacks/mystack"
+  echo "# strut.conf" > "$clean_dir/strut.conf"
+
+  # Should get past the guard and fail only because the stack has no compose file
+  run bash -c "cd '$clean_dir' && STRUT_NO_TUI=1 bash '$CLI' mystack deploy 2>&1"
+  # The guard must NOT trigger — error must be something else (missing env/compose)
+  [[ "$output" != *"must not contain spaces"* ]]
 }
