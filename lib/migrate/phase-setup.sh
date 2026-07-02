@@ -38,10 +38,16 @@ migrate_phase_setup() {
       local force_clean="${FORCE_CLEAN:-false}"
       local safe_clean_snippet
       safe_clean_snippet=$(render_safe_clean_snippet "$force_clean")
-      # Intentional: force_clean expands locally; remote vars stay escaped
+      # Intentional: force_clean expands locally; remote vars stay escaped.
+      # Use set -e so cd/fetch/reset failures abort before the clean guard runs.
       # shellcheck disable=SC2029
-      ssh_exec "$vps_user" "$vps_host" "$ssh_port" "$ssh_key" \
-        "cd $dest_dir && git fetch origin && git reset --hard origin/main && $safe_clean_snippet"
+      ssh_exec "$vps_user" "$vps_host" "$ssh_port" "$ssh_key" "
+set -e
+cd '$dest_dir'
+git fetch origin
+git reset --hard origin/main
+$safe_clean_snippet
+"
       ok "strut updated"
     else
       log "Using existing installation"
