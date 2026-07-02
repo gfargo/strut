@@ -232,9 +232,28 @@ cmd_health() {
   local stack="$CMD_STACK"
   local stack_dir="$CMD_STACK_DIR"
   local env_file="$CMD_ENV_FILE"
+  local env_name="$CMD_ENV_NAME"
   local services="$CMD_SERVICES"
   local json_flag="$CMD_JSON"
 
+  # Prefer remote execution for stacks that map to a VPS host, so health
+  # checks reflect the actual running state rather than local Docker.
+  if [ -f "$env_file" ]; then
+    validate_env_file "$env_file"
+  fi
+  if should_dispatch_remote; then
+    local remote_args="health"
+    if [ -n "$json_flag" ]; then
+      remote_args="$remote_args --json"
+    fi
+    if [ -n "$services" ]; then
+      remote_args="$remote_args --services $services"
+    fi
+    run_remote_strut "$stack" "$env_name" "$remote_args"
+    return $?
+  fi
+
+  # Local path: run health checks against the local Docker daemon.
   [ -f "$env_file" ] && { set -a; source "$env_file"; set +a; } 2>/dev/null || true  # env file may not exist for local-only health checks
   local compose_file="$stack_dir/docker-compose.yml"
   local compose_cmd
@@ -246,10 +265,29 @@ cmd_health() {
 cmd_status() {
   local stack="$CMD_STACK"
   local env_file="$CMD_ENV_FILE"
+  local env_name="$CMD_ENV_NAME"
   local services="$CMD_SERVICES"
   validate_env_file "$env_file"
+
+  # Prefer remote execution for stacks that map to a VPS host, so status
+  # reflects the real remote containers instead of the (empty) local daemon.
+  if should_dispatch_remote; then
+    local remote_args="status"
+    if [ -n "$services" ]; then
+      remote_args="$remote_args --services $services"
+    fi
+    run_remote_strut "$stack" "$env_name" "$remote_args"
+    return $?
+  fi
+
+  # Local path: query the local Docker daemon and show where we're looking.
   local compose_cmd
   compose_cmd=$(resolve_compose_cmd "$stack" "$env_file" "$services")
+  # Extract the resolved project name for a clear "looking here" message.
+  local project_name
+  project_name=$(echo "$compose_cmd" | grep -oE '\-\-project\-name [^ ]+' | awk '{print $2}') || true
+  log "Querying local Docker daemon — host: local, project: ${project_name:-<unknown>}"
+  # shellcheck disable=SC2086
   $compose_cmd ps
 }
 

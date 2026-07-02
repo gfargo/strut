@@ -597,6 +597,74 @@ resolve_local_compose_cmd() {
   echo "$cmd"
 }
 
+# ── Remote introspection helpers ─────────────────────────────────────────────
+
+# should_dispatch_remote
+#
+# Returns 0 (true) when:
+#   - VPS_HOST is non-empty (env/topology has a remote target), AND
+#   - We are NOT already running on that host (avoids SSH-to-self recursion).
+#
+# Use this before any read-only introspection command (status, logs, health)
+# to decide whether to SSH to the remote or run locally.
+should_dispatch_remote() {
+  [ -n "${VPS_HOST:-}" ] || return 1
+  if is_running_on_vps; then
+    return 1
+  fi
+  return 0
+}
+
+# run_remote_strut <stack> <env_name> <remote_cmd_args>
+#
+# Executes  ./strut <stack> <remote_cmd_args> --env <env_name>  on the VPS
+# over SSH, reusing the same connection variables (_stop_remote uses).
+#
+# Variables read from the environment (set by validate_env_file upstream):
+#   VPS_HOST, VPS_USER (default: ubuntu), VPS_SSH_KEY, VPS_PORT (default: 22)
+#   VPS_DEPLOY_DIR (default: /home/$vps_user/strut)
+#
+# Extra build_ssh_opts flags can be passed after the three required args:
+#   run_remote_strut "$stack" "$env_name" "status" --tty --keepalive
+#
+# Honours DRY_RUN: prints the plan but does not execute.
+run_remote_strut() {
+  local stack="$1"
+  local env_name="$2"
+  local remote_cmd_args="$3"
+  shift 3
+  # Remaining args are extra build_ssh_opts flags (e.g. --tty --keepalive)
+  local extra_ssh_flags=("$@")
+
+  local vps_host="${VPS_HOST:-}"
+  local vps_user="${VPS_USER:-ubuntu}"
+  local vps_ssh_key="${VPS_SSH_KEY:-}"
+  local vps_port="${VPS_PORT:-22}"
+  local deploy_dir="${VPS_DEPLOY_DIR:-/home/$vps_user/strut}"
+
+  local ssh_opts
+  ssh_opts=$(build_ssh_opts -p "$vps_port" -k "$vps_ssh_key" --batch "${extra_ssh_flags[@]+"${extra_ssh_flags[@]}"}")
+
+  if [ "${DRY_RUN:-}" = "true" ]; then
+    echo ""
+    echo -e "${YELLOW}[DRY-RUN] Execution plan for remote ${remote_cmd_args%% *}:${NC}"
+    run_cmd "Run on VPS" ssh "$vps_user@$vps_host" \
+      "cd $deploy_dir && ./strut $stack $remote_cmd_args --env ${env_name:-prod}"
+    echo ""
+    echo -e "${YELLOW}[DRY-RUN] No changes made.${NC}"
+    return 0
+  fi
+
+  log "Running '$remote_cmd_args' for stack '$stack' on $vps_user@$vps_host..."
+
+  # shellcheck disable=SC2029,SC2086
+  ssh $ssh_opts "$vps_user@$vps_host" "
+    set -e
+    cd '$deploy_dir'
+    ./strut $stack $remote_cmd_args --env ${env_name:-prod}
+  " || { fail "Remote command failed — check VPS_HOST and SSH access"; return 1; }
+}
+
 # ── Subcommand validation ─────────────────────────────────────────────────────
 
 # validate_subcommand <value> <valid_cmd1> [valid_cmd2] ...
