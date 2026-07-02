@@ -34,6 +34,12 @@
 # Banner text shown in deploy/release output
 # BANNER_TEXT=strut
 
+# ── Update checks ──────────────────────────────────
+# Opt out of the "update available" hint printed to stderr on each run.
+# Set to 1 to suppress. Also suppressed automatically in CI (CI=1) and
+# when stderr is not a TTY.
+# STRUT_NO_UPDATE_CHECK=1
+
 # ── Includes ───────────────────────────────────────
 # Pull in shared config from another file. Base values load first,
 # child assignments below override. Relative paths resolve against
