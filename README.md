@@ -113,6 +113,28 @@ strut my-app domain api.example.com admin@example.com --env prod  # SSL setup
 
 ---
 
+## GitHub Action / CI Deploys
+
+Deploy a strut-managed stack from GitHub Actions in one step:
+
+```yaml
+- uses: actions/checkout@v4
+
+- uses: gfargo/strut-action@v1
+  with:
+    stack: my-app
+    command: release          # release | ship (see security note in wiki)
+    env: prod
+    host: ${{ secrets.STRUT_HOST }}
+    ssh-key: ${{ secrets.STRUT_SSH_KEY }}
+```
+
+The action installs a pinned strut, writes the SSH key to a `600`-permissions file, materializes the env file from inputs/secrets, and runs the requested command. SSH key and env values are never echoed to logs.
+
+See [GitHub Action](https://github.com/gfargo/strut/wiki/GitHub-Action) for the full input reference, pinning instructions, and examples. A starter workflow is available in [`templates/.github/workflows/strut-deploy.yml`](templates/.github/workflows/strut-deploy.yml).
+
+---
+
 ## Testing
 
 ```bash
