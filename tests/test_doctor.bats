@@ -212,3 +212,78 @@ teardown() {
   [[ "$output" == *"should be 600 or 400"* ]]
   [[ "$output" == *"chmod"* ]]
 }
+
+# ── --deep flag parsing ──────────────────────────────────────────────────────
+
+@test "cmd_doctor: --deep implies --check-vps" {
+  # Invoke via bash -c so cmd_doctor's early-return paths (--help) don't
+  # taint the test process. We only need to prove the parser dispatch.
+  run bash -c '
+    source "'"$CLI_ROOT"'/lib/utils.sh"
+    source "'"$CLI_ROOT"'/lib/cmd_doctor.sh"
+    # Stub every check so we can observe --deep without running SSH.
+    _doc_check_strut_version() { :; }
+    _doc_check_docker() { :; }
+    _doc_check_compose() { :; }
+    _doc_check_git() { :; }
+    _doc_check_gh() { :; }
+    _doc_check_ssh_key() { :; }
+    _doc_check_tool() { :; }
+    _doc_check_project() { :; }
+    _doc_check_vps() { echo "VPS_CHECK_CALLED"; }
+    cmd_doctor --deep 2>&1
+    echo "DEEP=$_DOC_VPS_DEEP"
+  '
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"VPS_CHECK_CALLED"* ]]
+  [[ "$output" == *"DEEP=true"* ]]
+}
+
+@test "cmd_doctor: base run does NOT invoke VPS checks" {
+  run bash -c '
+    source "'"$CLI_ROOT"'/lib/utils.sh"
+    source "'"$CLI_ROOT"'/lib/cmd_doctor.sh"
+    _doc_check_strut_version() { :; }
+    _doc_check_docker() { :; }
+    _doc_check_compose() { :; }
+    _doc_check_git() { :; }
+    _doc_check_gh() { :; }
+    _doc_check_ssh_key() { :; }
+    _doc_check_tool() { :; }
+    _doc_check_project() { :; }
+    _doc_check_vps() { echo "VPS_CHECK_CALLED"; }
+    cmd_doctor 2>&1
+    echo "DEEP=$_DOC_VPS_DEEP"
+  '
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"VPS_CHECK_CALLED"* ]]
+  [[ "$output" == *"DEEP=false"* ]]
+}
+
+@test "cmd_doctor: --check-vps alone leaves --deep off" {
+  run bash -c '
+    source "'"$CLI_ROOT"'/lib/utils.sh"
+    source "'"$CLI_ROOT"'/lib/cmd_doctor.sh"
+    _doc_check_strut_version() { :; }
+    _doc_check_docker() { :; }
+    _doc_check_compose() { :; }
+    _doc_check_git() { :; }
+    _doc_check_gh() { :; }
+    _doc_check_ssh_key() { :; }
+    _doc_check_tool() { :; }
+    _doc_check_project() { :; }
+    _doc_check_vps() { echo "VPS_CHECK_CALLED"; }
+    cmd_doctor --check-vps 2>&1
+    echo "DEEP=$_DOC_VPS_DEEP"
+  '
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"VPS_CHECK_CALLED"* ]]
+  [[ "$output" == *"DEEP=false"* ]]
+}
+
+@test "_usage_doctor: mentions --deep" {
+  run _usage_doctor
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"--deep"* ]]
+  [[ "$output" == *"preflight"* ]]
+}
