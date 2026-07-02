@@ -128,7 +128,7 @@ strut_check_for_update() {
   local current=""
   local version_file="${STRUT_HOME:-}/VERSION"
   if [ -f "$version_file" ]; then
-    current=$(cat "$version_file" | tr -d '[:space:]') || current=""
+    current=$(tr -d '[:space:]' < "$version_file") || current=""
   fi
 
   [ -n "$current" ] || return 0
