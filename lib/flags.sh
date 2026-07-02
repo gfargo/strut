@@ -7,6 +7,7 @@
 #   --services <profile> | --services=<profile>
 #   --json
 #   --dry-run
+#   --yes | -y   (also honored via STRUT_YES=1)
 #   --help | -h
 #
 # Handler-specific flags are left in FLAGS_POSITIONAL for the caller
@@ -41,6 +42,7 @@ parse_common_flags() {
       --host)        FLAGS_HOST="${2:-}"; shift 2 ;;
       --json)        FLAGS_JSON="--json"; shift ;;
       --dry-run)     FLAGS_DRY_RUN="true"; shift ;;
+      --yes|-y)      STRUT_YES=1; export STRUT_YES; shift ;;
       --help|-h)     FLAGS_HELP="true"; shift ;;
       *)             FLAGS_POSITIONAL+=("$1"); shift ;;
     esac

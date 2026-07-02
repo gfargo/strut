@@ -187,8 +187,7 @@ keys_pull_from_vps() {
   # Check if target file exists
   if [ -f "$target_file" ] && ! $force; then
     warn "Target file already exists: $target_file"
-    read -p "Overwrite? (yes/no): " -r
-    if [[ ! $REPLY =~ ^[Yy][Ee][Ss]$ ]]; then
+    if ! confirm "Overwrite?"; then
       fail "Cancelled by user"
     fi
   fi
@@ -339,8 +338,7 @@ keys_pull_from_containers() {
   # Check if target file exists
   if [ -f "$target_file" ] && ! $force; then
     warn "Target file already exists: $target_file"
-    read -p "Overwrite? (yes/no): " -r
-    if [[ ! $REPLY =~ ^[Yy][Ee][Ss]$ ]]; then
+    if ! confirm "Overwrite?"; then
       fail "Cancelled by user"
     fi
   fi
@@ -432,8 +430,7 @@ keys_pull_from_env_file() {
   # Check if target file exists
   if [ -f "$target_file" ] && ! $force; then
     warn "Target file already exists: $target_file"
-    read -p "Overwrite? (yes/no): " -r
-    if [[ ! $REPLY =~ ^[Yy][Ee][Ss]$ ]]; then
+    if ! confirm "Overwrite?"; then
       fail "Cancelled by user"
     fi
   fi

@@ -206,8 +206,7 @@ cmd_deploy() {
       local deploy_dir="${VPS_DEPLOY_DIR:-/home/${VPS_USER:-ubuntu}/strut}"
       warn "  strut $stack exec 'cd $deploy_dir && strut $stack deploy --env ${env_name:-prod}' --env ${env_name:-prod}"
       echo ""
-      read -p "Continue with local deployment anyway? (yes/no): " -r
-      if [[ ! $REPLY =~ ^[Yy][Ee][Ss]$ ]]; then
+      if ! confirm "Continue with local deployment anyway?"; then
         fail "Deployment cancelled by user"
       fi
     fi

@@ -87,7 +87,11 @@ monitoring_deploy() {
       warn "  - ALERT_EMAIL_TO"
       warn "  - ALERT_EMAIL_FROM"
       echo
-      read -p "Press Enter after configuring .env to continue..."
+      if [ "${STRUT_YES:-}" = "1" ] || [ ! -t 0 ]; then
+        warn "Non-interactive: proceeding without confirmation (edit .env before deploying)"
+      else
+        read -p "Press Enter after configuring .env to continue..." -r
+      fi
     else
       fail ".env.template not found"
     fi
@@ -163,8 +167,7 @@ monitoring_add_target() {
   # Check if target file already exists
   if [ -f "$target_file" ]; then
     warn "Target file already exists: $target_file"
-    read -p "Overwrite? (y/N): " confirm
-    if [ "$confirm" != "y" ] && [ "$confirm" != "Y" ]; then
+    if ! confirm "Overwrite?"; then
       log "Aborted"
       return 0
     fi
@@ -327,18 +330,10 @@ monitoring_alert_channel_add_email() {
     esac
   done
 
-  # Prompt for missing values
-  if [ -z "$to_email" ]; then
-    read -p "Alert recipient email: " to_email
-  fi
-
-  if [ -z "$from_email" ]; then
-    read -p "Alert sender email (or onboarding@resend.dev): " from_email
-  fi
-
-  if [ -z "$api_key" ]; then
-    read -p "Resend API key: " api_key
-  fi
+  # Prompt for missing values (or fail loudly when non-interactive)
+  [ -z "$to_email" ]   && read_or_fail to_email   "Alert recipient email: "
+  [ -z "$from_email" ] && read_or_fail from_email "Alert sender email (or onboarding@resend.dev): "
+  [ -z "$api_key" ]    && read_or_fail api_key    "Resend API key: " --secret
 
   # Update .env file
   log "Updating .env file..."
@@ -413,9 +408,7 @@ monitoring_alert_channel_add_slack() {
     esac
   done
 
-  if [ -z "$webhook_url" ]; then
-    read -p "Slack webhook URL: " webhook_url
-  fi
+  [ -z "$webhook_url" ] && read_or_fail webhook_url "Slack webhook URL: "
 
   # Update .env file
   if grep -q "^SLACK_WEBHOOK_URL=" "$env_file"; then
@@ -468,9 +461,7 @@ monitoring_alert_channel_add_webhook() {
     esac
   done
 
-  if [ -z "$webhook_url" ]; then
-    read -p "Webhook URL: " webhook_url
-  fi
+  [ -z "$webhook_url" ] && read_or_fail webhook_url "Webhook URL: "
 
   # Update .env file
   if grep -q "^ALERT_WEBHOOK_URL=" "$env_file"; then
