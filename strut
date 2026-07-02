@@ -214,6 +214,14 @@ done
 # eaten.
 if [ "${#_tui_preserved[@]}" -eq 0 ]; then
   set --
+  # Guard: check for spaces before TUI dispatch (TUI launches stack commands)
+  if [ -n "${PROJECT_ROOT:-}" ] && [[ "$PROJECT_ROOT" == *" "* ]]; then
+    echo -e "${RED}✗${NC}  strut project path must not contain spaces: '$PROJECT_ROOT'" >&2
+    echo    "   Workaround: create a symlink from a space-free path:" >&2
+    echo    "     ln -s \"$PROJECT_ROOT\" ~/strut-project" >&2
+    echo    "   Or set STRUT_PROJECT to the symlink directory and run from anywhere." >&2
+    exit 1
+  fi
   if [ "$_TUI_DISABLED" != "true" ] && [ "${STRUT_NO_TUI:-}" != "1" ]; then
     if [ "$_TUI_FORCE" = "true" ] || [ -t 0 ]; then
       if $_TUI_PRINT; then
@@ -685,6 +693,11 @@ fi
 # compose/ssh command builders word-split paths; spaces produce truncated,
 # confusing errors deep in the pipeline. Catch it here, once, clearly.
 # Workaround: set STRUT_PROJECT to a space-free symlink of the project dir.
+if [ -n "${STRUT_HOME:-}" ] && [[ "$STRUT_HOME" == *" "* ]]; then
+  echo -e "${RED}✗${NC}  strut engine path must not contain spaces: '$STRUT_HOME'" >&2
+  echo    "   Reinstall strut under a space-free path (e.g. ~/.strut or /opt/strut)." >&2
+  exit 1
+fi
 if [ -n "${PROJECT_ROOT:-}" ] && [[ "$PROJECT_ROOT" == *" "* ]]; then
   echo -e "${RED}✗${NC}  strut project path must not contain spaces: '$PROJECT_ROOT'" >&2
   echo    "   Workaround: create a symlink from a space-free path:" >&2
