@@ -30,6 +30,13 @@
 # Run custom hooks from stacks/<stack>/hooks/pre-deploy.sh (default: true)
 # PRE_DEPLOY_HOOKS=true
 
+# ── DB Schema on Deploy ────────────────────────────
+# When true, re-applies all sql/init/*.sql files after services start on
+# every deploy (idempotent on-host reconvergence). All SQL files MUST be
+# self-idempotent: use IF NOT EXISTS, CREATE OR REPLACE, guarded
+# cron.schedule calls, etc. Failures are warn-only (deploy continues).
+# RUN_DB_SCHEMA_ON_DEPLOY=false
+
 # ── Branding ───────────────────────────────────────
 # Banner text shown in deploy/release output
 # BANNER_TEXT=strut

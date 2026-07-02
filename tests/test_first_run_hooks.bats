@@ -183,3 +183,37 @@ EOF
   [ "$status" -eq 0 ]
   [ -f "$TEST_TMP/stack/.strut-initialized" ]
 }
+
+# ── Blue-green parity ─────────────────────────────────────────────────────────
+
+@test "fire_first_run_hook is callable from bg deploy context (smoke test)" {
+  # This ensures fire_first_run_hook behaves correctly when called from the
+  # blue-green deploy path (parity with deploy_stack).
+  mkdir -p "$TEST_TMP/bgstack/hooks"
+  cat > "$TEST_TMP/bgstack/hooks/first_run.sh" <<'EOF'
+#!/usr/bin/env bash
+echo "bg first run"
+EOF
+  chmod +x "$TEST_TMP/bgstack/hooks/first_run.sh"
+
+  run fire_first_run_hook "$TEST_TMP/bgstack"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"bg first run"* ]]
+  [ -f "$TEST_TMP/bgstack/.strut-initialized" ]
+}
+
+@test "fire_first_run_hook: blue-green second deploy is no-op (marker present)" {
+  mkdir -p "$TEST_TMP/bgstack2/hooks"
+  cat > "$TEST_TMP/bgstack2/hooks/first_run.sh" <<'EOF'
+#!/usr/bin/env bash
+echo "should not run twice"
+exit 1
+EOF
+  chmod +x "$TEST_TMP/bgstack2/hooks/first_run.sh"
+  echo "initialized=2024-01-01T00:00:00Z" > "$TEST_TMP/bgstack2/.strut-initialized"
+
+  # Simulates the second blue-green deploy — hook should be gated by marker
+  run fire_first_run_hook "$TEST_TMP/bgstack2"
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"should not run twice"* ]]
+}

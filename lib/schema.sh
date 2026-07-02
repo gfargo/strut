@@ -118,6 +118,59 @@ postgres_apply_init_sql() {
   ok "Postgres schema apply complete"
 }
 
+# maybe_apply_db_schema <stack> <compose_cmd> <stack_dir>
+#
+# Opt-in wrapper around postgres_apply_init_sql for use inside deploy
+# pipelines. Controlled by RUN_DB_SCHEMA_ON_DEPLOY (default: false).
+#
+# Behaviour:
+#   - Returns 0 immediately when RUN_DB_SCHEMA_ON_DEPLOY != "true".
+#   - Warns and returns 0 when sql/init/ does not exist or is empty
+#     (avoids aborting a live deploy for a missing optional directory).
+#   - Calls postgres_apply_init_sql when the flag is true and files exist;
+#     on failure emits a warning and returns 0 (non-fatal by design —
+#     idempotency is the caller's contract, not a hard gate).
+#
+# All sql/init/*.sql files MUST be self-idempotent (IF NOT EXISTS,
+# CREATE OR REPLACE, guarded cron.schedule calls, etc.) because this
+# function is called on every deploy.
+#
+# Args:
+#   stack       — Stack name (used for logging)
+#   compose_cmd — Full docker compose command prefix
+#   stack_dir   — Path to the stack directory
+maybe_apply_db_schema() {
+  local stack="$1"
+  local compose_cmd="$2"
+  local stack_dir="$3"
+
+  if [ "${RUN_DB_SCHEMA_ON_DEPLOY:-false}" != "true" ]; then
+    return 0
+  fi
+
+  local sql_dir="$stack_dir/sql/init"
+
+  # No sql/init dir — silently skip (not an error for stacks without DB schema files)
+  if [ ! -d "$sql_dir" ]; then
+    warn "RUN_DB_SCHEMA_ON_DEPLOY=true but sql/init/ not found — skipping schema apply"
+    return 0
+  fi
+
+  # Empty sql/init dir — also skip
+  local sql_count
+  sql_count=$(find "$sql_dir" -maxdepth 1 -type f -name "*.sql" 2>/dev/null | wc -l)
+  if [ "${sql_count:-0}" -eq 0 ]; then
+    warn "RUN_DB_SCHEMA_ON_DEPLOY=true but no .sql files in sql/init/ — skipping"
+    return 0
+  fi
+
+  log "Applying DB schema (RUN_DB_SCHEMA_ON_DEPLOY=true)..."
+  if ! postgres_apply_init_sql "$stack" "$compose_cmd" "$stack_dir"; then
+    warn "DB schema apply failed — deploy continues (check sql/init/ files for idempotency)"
+  fi
+  return 0
+}
+
 # postgres_verify_schema <stack> <compose_cmd>
 #
 # Verifies that all tables and views declared in a stack's sql/init/ files

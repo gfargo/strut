@@ -148,6 +148,13 @@ load_strut_config() {
   PRE_DEPLOY_VALIDATE="${PRE_DEPLOY_VALIDATE:-true}"
   PRE_DEPLOY_HOOKS="${PRE_DEPLOY_HOOKS:-true}"
 
+  # When true, runs `db:schema apply` (sql/init/*.sql) after services start on
+  # every deploy, making idempotent DB tuning reconverge on every standup.
+  # Requires all sql/init/*.sql files to be self-idempotent (IF NOT EXISTS,
+  # CREATE OR REPLACE, guarded cron.schedule calls, etc.) — re-runs are
+  # non-fatal: a warn is emitted but the deploy continues.
+  RUN_DB_SCHEMA_ON_DEPLOY="${RUN_DB_SCHEMA_ON_DEPLOY:-false}"
+
   # Deploy mode — "standard" (in-place) or "blue-green" (stand up green,
   # health-check, swap proxy, drain blue). `--blue-green` / `--standard` on
   # `strut deploy` override per-invocation.
@@ -161,6 +168,7 @@ load_strut_config() {
 
   export REGISTRY_TYPE REGISTRY_HOST DEFAULT_ORG DEFAULT_BRANCH BANNER_TEXT \
          REVERSE_PROXY PRE_DEPLOY_VALIDATE PRE_DEPLOY_HOOKS \
+         RUN_DB_SCHEMA_ON_DEPLOY \
          DEPLOY_MODE BLUE_GREEN_HEALTH_TIMEOUT BLUE_GREEN_DRAIN BLUE_GREEN_PROXY_HOOK
 
   # Validate REVERSE_PROXY
@@ -176,6 +184,12 @@ load_strut_config() {
   case "$DEPLOY_MODE" in
     standard|blue-green) ;;
     *) fail "Invalid DEPLOY_MODE='$DEPLOY_MODE' in strut.conf (valid: standard, blue-green)"; return 1 ;;
+  esac
+
+  # Validate RUN_DB_SCHEMA_ON_DEPLOY
+  case "$RUN_DB_SCHEMA_ON_DEPLOY" in
+    true|false) ;;
+    *) fail "Invalid RUN_DB_SCHEMA_ON_DEPLOY='$RUN_DB_SCHEMA_ON_DEPLOY' in strut.conf (valid: true, false)"; return 1 ;;
   esac
 }
 

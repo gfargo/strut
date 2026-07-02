@@ -417,6 +417,10 @@ $_hint"
   echo "  Rollback:         strut $stack rollback --env $env_name"
   echo ""
 
+  # Fire first-run hook (parity with deploy_stack — one-time init, marker-gated)
+  fire_first_run_hook "$stack_dir" || warn "First-run hook failed — deploy continues"
+  # Apply DB schema (opt-in, idempotent) — uses the new (green) compose project
+  maybe_apply_db_schema "$stack" "$new_cmd" "$stack_dir"
   DEPLOY_STATUS="ok" fire_hook_or_warn post_deploy "$stack_dir"
   notify_event deploy.success \
     stack="$stack" \
@@ -425,8 +429,6 @@ $_hint"
     active_color="$new_color" \
     services="${services_profile:-core}"
 }
-
-# ── Rollback support ──────────────────────────────────────────────────────────
 
 # bg_rollback_stack <stack> <env_file>
 #

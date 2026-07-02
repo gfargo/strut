@@ -91,6 +91,7 @@ cmd_db_schema() {
 # cmd_migrate_schema [target] [--status|--up|--down [N]] (reads CMD_*)
 cmd_migrate_schema() {
   local stack="$CMD_STACK"
+  local stack_dir="$CMD_STACK_DIR"
   local env_file="$CMD_ENV_FILE"
   local env_name="$CMD_ENV_NAME"
 
@@ -118,6 +119,12 @@ cmd_migrate_schema() {
   done
 
   validate_env_file "$env_file"
+
+  # pre_migrate hook — abort on failure (migration is destructive)
+  if ! fire_hook pre_migrate "$stack_dir"; then
+    fail "pre_migrate hook failed — aborting migration"
+    return 1
+  fi
 
   local migrate_env_name
   migrate_env_name=$(extract_env_name "$env_file")
@@ -162,6 +169,9 @@ cmd_migrate_schema() {
       ;;
     *) validate_subcommand "$migrate_target" neo4j postgres || exit 1 ;;
   esac
+
+  # post_migrate hook — warn-only (migration already ran)
+  MIGRATE_TARGET="$migrate_target" fire_hook_or_warn post_migrate "$stack_dir"
 }
 
 # cmd_restore [file] [--target-env <env>] (reads CMD_*)
