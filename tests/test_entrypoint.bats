@@ -84,23 +84,24 @@ _rand_version() {
   [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
 }
 
-# ── Upgrade: fails when STRUT_HOME is not a git repo ─────────────────────────
+# ── Upgrade: unknown install method gives instructions ────────────────────────
 
-@test "upgrade: fails when STRUT_HOME is not a git repo" {
+@test "upgrade: unknown install method prints install instructions (not fatal)" {
   local fake_home="$TEST_TMP/not_git"
   mkdir -p "$fake_home"
 
-  # Source utils for fail()
-  source "$CLI_ROOT/lib/utils.sh"
-
   run bash -c "
-    export STRUT_HOME='$fake_home'
     source '$CLI_ROOT/lib/utils.sh'
-    if [ ! -d \"\$STRUT_HOME/.git\" ]; then
-      echo 'Strut_Home is not a git repository' >&2
-      exit 1
-    fi
+    fail() { echo \"\$1\" >&2; return 1; }
+    warn() { echo \"WARN: \$*\" >&2; }
+    log()  { echo \"LOG: \$*\"; }
+    ok()   { echo \"OK: \$*\"; }
+    DEFAULT_BRANCH=main
+    export -f fail warn log ok
+    export STRUT_HOME='$fake_home'
+    source '$CLI_ROOT/lib/cmd_upgrade.sh'
+    cmd_upgrade
   "
-  [ "$status" -ne 0 ]
-  [[ "$output" == *"not a git repository"* ]]
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"install.sh"* ]]
 }

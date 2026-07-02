@@ -71,19 +71,24 @@ teardown() {
 
 # ── upgrade ───────────────────────────────────────────────────────────────────
 
-@test "strut upgrade fails when STRUT_HOME is not a git repo" {
-  # The strut entrypoint resolves STRUT_HOME from its own script path,
-  # so we can't override it via env. Test the logic directly instead.
+@test "strut upgrade prints instructions when STRUT_HOME is not a git repo or brew install" {
+  # With an unknown install method, cmd_upgrade should print re-install
+  # instructions and exit 0 (not fatal).
   local fake_home="$TEST_TMP/not-git"
   mkdir -p "$fake_home"
   run bash -c "
     source '$CLI_ROOT/lib/utils.sh'
+    fail() { echo \"\$1\" >&2; return 1; }
+    warn() { echo \"WARN: \$*\" >&2; }
+    log()  { echo \"LOG: \$*\"; }
+    ok()   { echo \"OK: \$*\"; }
+    DEFAULT_BRANCH=main
+    export -f fail warn log ok
     STRUT_HOME='$fake_home'
-    if [ ! -d \"\$STRUT_HOME/.git\" ]; then
-      echo 'Strut_Home is not a git repository' >&2
-      exit 1
-    fi
+    export STRUT_HOME
+    source '$CLI_ROOT/lib/cmd_upgrade.sh'
+    cmd_upgrade
   "
-  [ "$status" -ne 0 ]
-  [[ "$output" == *"not a git repository"* ]]
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"re-install"* ]] || [[ "$output" == *"install.sh"* ]]
 }

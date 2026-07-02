@@ -176,10 +176,21 @@ source "$LIB/cmd_group.sh"
 source "$LIB/plugins.sh"
 source "$LIB/recipes.sh"
 source "$LIB/cmd_tui.sh"
+source "$LIB/cmd_upgrade.sh"
+source "$LIB/version_check.sh"
 
 # Project-local plugins are discovered once PROJECT_ROOT is known. find_project_root
 # above populates it when strut is invoked inside a project; outside one this is a no-op.
 plugins_discover
+
+# Lightweight update-available nag (best-effort, never blocking).
+# Suppressed by STRUT_NO_UPDATE_CHECK=1, CI=1, non-TTY stderr, or JSON mode.
+# Pre-scan args for --json so the OUTPUT_MODE gate fires before command dispatch.
+for _pre_arg in "$@"; do
+  if [ "$_pre_arg" = "--json" ]; then OUTPUT_MODE=json; break; fi
+done
+unset _pre_arg
+strut_check_for_update || true
 
 # ── TUI dispatch (early, before usage gate) ───────────────────────────────────
 # `strut` with no args and an attached tty launches an interactive picker.
@@ -448,19 +459,9 @@ case "${1:-}" in
     exit 0
     ;;
   upgrade)
-    if [ ! -d "$STRUT_HOME/.git" ]; then
-      fail "Strut_Home is not a git repository: $STRUT_HOME"
-    fi
-    _branch="${DEFAULT_BRANCH:-main}"
-    log "Upgrading strut from origin/$_branch..."
-    git -C "$STRUT_HOME" pull origin "$_branch"
-    _version_file="$STRUT_HOME/VERSION"
-    if [ -f "$_version_file" ]; then
-      ok "strut upgraded to $(cat "$_version_file")"
-    else
-      ok "strut upgraded (version unknown)"
-    fi
-    exit 0
+    shift
+    cmd_upgrade "$@"
+    exit $?
     ;;
   list|--list|-l)
     shift
