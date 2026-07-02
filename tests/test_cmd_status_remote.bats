@@ -196,6 +196,8 @@ EOF
   run cmd_health
   [ "$status" -eq 0 ]
   [[ "$output" == *"--json"* ]]
+  # Log line must not appear on stdout — it goes to stderr so JSON is clean
+  [[ "$output" != *"[strut]"* ]]
 }
 
 @test "cmd_health: runs locally when VPS_HOST is empty" {
