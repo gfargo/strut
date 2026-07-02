@@ -49,6 +49,12 @@ jobs:
           - n8n
           - uptime-kuma
           - homeassistant
+          - gitea
+          - umami
+          - wg-easy
+          - paperless-ngx
+          - audiobookshelf
+          - ghost
     steps:
       - uses: actions/checkout@v4
 
