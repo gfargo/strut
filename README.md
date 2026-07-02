@@ -123,7 +123,7 @@ Deploy a strut-managed stack from GitHub Actions in one step:
 - uses: gfargo/strut-action@v1
   with:
     stack: my-app
-    command: release          # release | ship | health
+    command: release          # release | ship (see security note in wiki)
     env: prod
     host: ${{ secrets.STRUT_HOST }}
     ssh-key: ${{ secrets.STRUT_SSH_KEY }}

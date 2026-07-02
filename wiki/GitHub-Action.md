@@ -41,7 +41,7 @@ The workflow must `actions/checkout` before the strut action so `strut.conf` and
 | `services` | | — | Services profile passed as `--services <profile>` |
 | `strict` | | `false` | Pass `--strict` — treat migration failures as fatal |
 | `dry-run` | | `false` | Pass `--dry-run` — print the plan without making changes |
-| `version` | | `main` | strut branch or tag to install (e.g. `v0.28.0`) |
+| `version` | | `v0.28.0` | strut tag to install — pin to a release tag for reproducible deploys |
 | `env-vars` | | — | Extra `KEY=VALUE` pairs, one per line (e.g. `GH_PAT`, registry tokens) |
 
 ---
@@ -69,7 +69,7 @@ jobs:
 
 ---
 
-## Full example (release + health check)
+## Full example
 
 ```yaml
 name: Deploy
@@ -105,21 +105,9 @@ jobs:
           dry-run: ${{ github.event.inputs.dry-run || 'false' }}
           env-vars: |
             GH_PAT=${{ secrets.GH_PAT }}
-
-  health:
-    runs-on: ubuntu-latest
-    needs: deploy
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: gfargo/strut-action@v1
-        with:
-          stack: my-app
-          command: health
-          env: prod
-          host: ${{ secrets.STRUT_HOST }}
-          ssh-key: ${{ secrets.STRUT_SSH_KEY }}
 ```
+
+> **Note:** `strut health` runs against the runner's local Docker daemon, not the VPS. It cannot verify stack health on a hosted runner. To check the VPS after release, use your own smoke-test step (e.g. `curl` the health endpoint) or run `strut <stack> status` over SSH.
 
 ---
 
@@ -128,11 +116,21 @@ jobs:
 | Command | Runs where | Use case |
 |---------|-----------|---------|
 | `release` | Runner (SSH to VPS) | **Primary CI command.** Runs update → migrate → deploy → verify on the VPS over SSH. |
-| `ship` | Runner (SSH to VPS) | Like `release` but also commits and pushes from the runner. Needs `contents: write` permission and full checkout. Prefer `release` in most CI pipelines. |
-| `health` | Runner (SSH to VPS) | Run health checks over SSH after a release — useful as a separate job that gates on `deploy`. |
+| `ship` | Runner (git + SSH to VPS) | Like `release` but also commits and pushes from the runner. Needs `contents: write` permission and full checkout. **See security warning below.** Prefer `release` in most CI pipelines. |
+| `health` | **Runner's local Docker** | Checks `docker compose ps` on the runner — **not the VPS**. Not useful on a hosted runner (Docker is empty). Omit from hosted CI; use a smoke-test curl or SSH step instead. |
 | `deploy` | **VPS only** | Starts containers locally. Has an interactive prompt when `VPS_HOST` is set, which **will hang a hosted runner**. Only use with a self-hosted runner that is the VPS itself. |
 
-> **Rule of thumb:** use `release` (or `health`) from a hosted runner. Use `deploy` only on a self-hosted runner running on the VPS.
+> **Rule of thumb:** use `release` from a hosted runner. Use `deploy` or `health` only on a self-hosted runner running on the VPS itself.
+
+### Security warning: `command: ship`
+
+`ship` runs `git add -A` on the runner before pushing. The action writes a `.<env>.env` file (containing `VPS_HOST` and any `env-vars`) to the repository root. **If your repo does not gitignore `*.env`, this file will be committed and pushed, leaking secrets.**
+
+Before using `command: ship`:
+1. Add `*.env` (or `.prod.env`, `.staging.env`, etc.) to your repo's `.gitignore`.
+2. Confirm the gitignore is committed before the workflow runs.
+
+For hosted CI, **`release` is the safe default** — it does not run any `git` commands on the runner.
 
 ---
 

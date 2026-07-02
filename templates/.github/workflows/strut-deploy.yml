@@ -50,19 +50,7 @@ jobs:
           # Optional: dry-run on manual trigger
           dry-run: ${{ github.event.inputs.dry-run || 'false' }}
 
-  health:
-    name: Health check
-    runs-on: ubuntu-latest
-    needs: deploy
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Check stack health
-        uses: gfargo/strut-action@v1
-        with:
-          stack: my-app                          # ← replace with your stack name
-          command: health
-          env: prod
-          host: ${{ secrets.STRUT_HOST }}
-          ssh-key: ${{ secrets.STRUT_SSH_KEY }}
+  # NOTE: `strut health` runs against the runner's local Docker daemon, not the
+  # VPS, so it cannot be used as a post-deploy health check on a hosted runner.
+  # To verify the stack after release, use `strut <stack> status` over SSH or
+  # run your own smoke-test step (e.g. curl the health endpoint on the VPS).

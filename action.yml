@@ -47,9 +47,9 @@ inputs:
     required: false
     default: 'false'
   version:
-    description: 'strut branch or tag to install (e.g. main, v0.28.0). A tag pins the exact release.'
+    description: 'strut tag to install (e.g. v0.28.0). Pin to a release tag for reproducible deploys.'
     required: false
-    default: 'main'
+    default: 'v0.28.0'
   host:
     description: 'VPS hostname or IP address (sets VPS_HOST) — pass as a repository secret'
     required: true
@@ -137,9 +137,22 @@ runs:
         } > "$env_file"
         chmod 600 "$env_file"
 
-    # ── 5. Execute the strut command ──────────────────────────────────────────
+    # ── 5. Warn when command: ship (secret-leak risk) ─────────────────────────
+    #  cmd_ship runs `git add -A` on the runner. The materialized env file
+    #  (./.<env>.env) lives at the repo root and will be staged unless the
+    #  consumer's repo gitignores *.env. Use `release` in hosted CI instead.
+    - name: Warn — ship may commit secrets if *.env is not gitignored
+      if: ${{ inputs.command == 'ship' }}
+      shell: bash
+      env:
+        INPUT_ENV_NAME: ${{ inputs.env }}
+      run: |
+        echo "::warning::command: ship — strut runs 'git add -A' on the runner. The env file (.${INPUT_ENV_NAME}.env) written to the repo root will be staged unless your repo gitignores '*.env'. Add '*.env' to .gitignore before using command: ship. Prefer command: release for hosted CI pipelines."
+
+    # ── 6. Execute the strut command ──────────────────────────────────────────
     #  Inputs are passed via env vars (not inline expressions) to prevent
     #  shell injection if an input contains metacharacters.
+    #  --strict is only forwarded for `release`; other handlers don't consume it.
     - name: Run strut command
       shell: bash
       env:
@@ -155,10 +168,21 @@ runs:
         if [ -n "$INPUT_SERVICES" ]; then
           args+=(--services "$INPUT_SERVICES")
         fi
-        if [ "$INPUT_STRICT" = "true" ]; then
+        if [ "$INPUT_STRICT" = "true" ] && [ "$INPUT_COMMAND" = "release" ]; then
           args+=(--strict)
         fi
         if [ "$INPUT_DRY_RUN" = "true" ]; then
           args+=(--dry-run)
         fi
         strut "${args[@]}"
+
+    # ── 7. Clean up env file ───────────────────────────────────────────────────
+    #  Remove the materialized env file so it doesn't linger in the working tree
+    #  after the action completes (e.g. for subsequent steps that run git).
+    - name: Clean up env file
+      if: always()
+      shell: bash
+      env:
+        INPUT_ENV_NAME: ${{ inputs.env }}
+      run: |
+        rm -f "./.${INPUT_ENV_NAME}.env" || true
