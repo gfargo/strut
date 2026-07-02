@@ -146,16 +146,16 @@ fleet_sync() {
   local gh_pat="${7:-}"
   shift 7
 
-  local dry_run=false force_clean=false
+  local fleet_dry_run=false force_clean=false
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      --dry-run)     dry_run=true;  shift ;;
+      --dry-run)     fleet_dry_run=true;  shift ;;
       --force-clean) force_clean=true; shift ;;
       *)             shift ;;
     esac
   done
 
-  if $dry_run; then
+  if $fleet_dry_run; then
     log "[DRY-RUN] fleet sync: $vps_user@$vps_host:$deploy_dir → origin/$branch (no changes made)"
     return 0
   fi
