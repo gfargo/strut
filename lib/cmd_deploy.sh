@@ -5,9 +5,115 @@
 
 set -euo pipefail
 
+# _deploy_volguard <stack> <env_file> <confirm_data_move>
+#
+# Detects data-destructive changes (volume-defining var modifications,
+# COMPOSE_PROJECT_NAME changes, named-volume renames) by comparing the
+# local env file against the remote VPS env file. Aborts — or in DRY_RUN
+# mode, warns — when destructive changes are found and --confirm-data-move
+# was not passed.
+#
+# This is a pure diff-based guard (no SSH path probing). It requires
+# VPS_HOST to be set; if not (local-only stacks), the guard is skipped.
+_deploy_volguard() {
+  local stack="$1"
+  local env_file="$2"
+  local confirm_data_move="${3:-false}"
+
+  # Only run when we have a VPS target to diff against
+  [ -f "$env_file" ] || return 0
+  # Source env to get VPS_HOST (already sourced earlier but may not be in scope)
+  local _vps_host
+  _vps_host=$(bash -c "set -a; source \"$env_file\"; echo \"\${VPS_HOST:-}\"" 2>/dev/null || true)
+  [ -n "$_vps_host" ] || return 0
+
+  # Locate the stack compose file
+  local cli_root="${CLI_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+  local stack_dir="$cli_root/stacks/$stack"
+  local compose_file="$stack_dir/docker-compose.yml"
+  [ -f "$compose_file" ] || return 0
+
+  local local_compose_content
+  local_compose_content=$(cat "$compose_file")
+
+  # Fetch the remote env content — reuse diff_fetch_remote from diff.sh.
+  # If the remote is unreachable, skip the guard (non-blocking).
+  local deploy_dir="${VPS_DEPLOY_DIR:-/home/${VPS_USER:-ubuntu}/strut}"
+  local env_name="${CMD_ENV_NAME:-prod}"
+  local remote_env_path
+
+  # Use the same remote-path resolution used by cmd_diff
+  if declare -F _secrets_resolve_remote_path >/dev/null 2>&1; then
+    remote_env_path=$(_secrets_resolve_remote_path "$deploy_dir" "$env_name")
+  else
+    remote_env_path="$deploy_dir/.${env_name}.env"
+  fi
+
+  local remote_env_content
+  remote_env_content=$(diff_fetch_remote "$remote_env_path" 2>/dev/null) || return 0
+  [ -n "$remote_env_content" ] || return 0
+
+  # Compute env diff and destructive subset
+  local local_env_content
+  local_env_content=$(cat "$env_file")
+
+  local env_diff destructive_diff remote_compose_content volume_renames
+  env_diff=$(diff_env_content "$local_env_content" "$remote_env_content")
+
+  # Also fetch remote compose for named-volume rename detection
+  local remote_compose_path="$deploy_dir/stacks/$stack/docker-compose.yml"
+  remote_compose_content=$(diff_fetch_remote "$remote_compose_path" 2>/dev/null) || remote_compose_content=""
+  volume_renames=$(diff_detect_volume_renames "$local_compose_content" "${remote_compose_content:-}" 2>/dev/null) || volume_renames=""
+
+  destructive_diff=$(diff_detect_destructive "$env_diff" "$local_compose_content")
+
+  # Nothing dangerous — continue
+  if [ -z "$destructive_diff" ] && [ -z "$volume_renames" ]; then
+    return 0
+  fi
+
+  # Show the problem
+  local RED="${RED:-\033[0;31m}"
+  local NC="${NC:-\033[0m}"
+  echo "" >&2
+  printf '%s\n' "${RED}⚠  strut: Data-destructive changes detected${NC}" >&2
+  echo "" >&2
+  if [ -n "$destructive_diff" ]; then
+    _diff_render_destructive_text "$destructive_diff" >&2
+  fi
+  if [ -n "$volume_renames" ]; then
+    _diff_render_destructive_text "$volume_renames" >&2
+  fi
+  echo "" >&2
+  printf "   Containers may start with a blank database if you proceed.\n" >&2
+  printf "   Re-run with --confirm-data-move to override this check.\n" >&2
+  echo "" >&2
+
+  if [ "$DRY_RUN" = "true" ]; then
+    # Dry-run: warn but don't abort
+    warn "DRY-RUN: would abort here without --confirm-data-move"
+    return 0
+  fi
+
+  if [ "$confirm_data_move" = "true" ]; then
+    warn "Proceeding with data-destructive changes (--confirm-data-move passed)"
+    return 0
+  fi
+
+  # Interactive TTY: give the operator a chance to confirm
+  if [ -t 0 ] && declare -F confirm >/dev/null 2>&1; then
+    if confirm "Proceed anyway? (data may be lost)"; then
+      return 0
+    fi
+  fi
+
+  fail "Deploy aborted: data-destructive changes require --confirm-data-move"
+  return 1
+}
+
 _usage_deploy() {
   echo ""
-  echo "Usage: strut <stack> deploy [--env <name>] [--services <profile>] [--pull-only] [--skip-validation] [--blue-green] [--standard] [--dry-run]"
+  echo "Usage: strut <stack> deploy [--env <name>] [--services <profile>] [--pull-only] [--skip-validation] [--blue-green] [--standard] [--dry-run] [--confirm-data-move]"
   echo ""
   echo "Deploy stack containers locally. Pulls images, creates data directories,"
   echo "stops existing containers, and starts services."
@@ -24,6 +130,8 @@ _usage_deploy() {
   echo "  --standard           Force in-place deploy (overrides DEPLOY_MODE)"
   echo "  --force-clean        Allow git clean to delete untracked VPS files"
   echo "                       (bypass data-loss guard; use with caution)"
+  echo "  --confirm-data-move  Proceed even when volume-defining vars or named"
+  echo "                       volumes changed (use with care — data may be lost)"
   echo "  --dry-run            Show execution plan without making changes"
   echo ""
   echo "Related commands:"
@@ -66,7 +174,7 @@ cmd_update() {
   vps_update_repo "$stack" "$env_file"
 }
 
-# cmd_rebuild [--no-cache] [--pull] (reads CMD_*)
+# cmd_rebuild [--no-cache] [--pull] [--confirm-data-move] (reads CMD_*)
 # Builds images and restarts services. Equivalent to deploy with BUILD_MODE=local.
 cmd_rebuild() {
   local stack="$CMD_STACK"
@@ -76,10 +184,12 @@ cmd_rebuild() {
   # Parse rebuild-specific flags
   local no_cache=false
   local pull_base=false
+  local confirm_data_move=false
   while [[ $# -gt 0 ]]; do
     case $1 in
       --no-cache) no_cache=true; shift ;;
       --pull) pull_base=true; shift ;;
+      --confirm-data-move) confirm_data_move=true; shift ;;
       *) shift ;;
     esac
   done
@@ -93,22 +203,26 @@ cmd_rebuild() {
     export BUILD_PULL="true"
   fi
 
+  # Guard: detect data-destructive env changes before rebuilding
+  _deploy_volguard "$stack" "$env_file" "$confirm_data_move" || return 1
+
   # Delegate to the standard deploy pipeline
   deploy_stack "$stack" "$env_file" "$services"
 }
 
 _usage_rebuild() {
   echo ""
-  echo "Usage: strut <stack> rebuild [--env <name>] [--no-cache] [--pull] [--dry-run]"
+  echo "Usage: strut <stack> rebuild [--env <name>] [--no-cache] [--pull] [--dry-run] [--confirm-data-move]"
   echo ""
   echo "Build images on target and restart services."
   echo "Equivalent to deploy with BUILD_MODE=local."
   echo ""
   echo "Options:"
-  echo "  --env <name>       Environment (reads .<name>.env)"
-  echo "  --no-cache         Build without using cache"
-  echo "  --pull             Pull base images before building"
-  echo "  --dry-run          Show execution plan without running"
+  echo "  --env <name>           Environment (reads .<name>.env)"
+  echo "  --no-cache             Build without using cache"
+  echo "  --pull                 Pull base images before building"
+  echo "  --dry-run              Show execution plan without running"
+  echo "  --confirm-data-move    Proceed even when volume-defining vars changed"
   echo ""
   echo "Examples:"
   echo "  strut hub rebuild --env prod"
@@ -116,21 +230,27 @@ _usage_rebuild() {
   echo ""
 }
 
-# cmd_release [--strict] (reads CMD_*)
+# cmd_release [--strict] [--confirm-data-move] (reads CMD_*)
 cmd_release() {
   local stack="$CMD_STACK"
   local env_file="$CMD_ENV_FILE"
   local services="$CMD_SERVICES"
 
   # Parse release-specific flags
+  local confirm_data_move=false
   local args=("${CMD_ARGS[@]+"${CMD_ARGS[@]}"}")
   for arg in "${args[@]+"${args[@]}"}"; do
     case "$arg" in
       --strict) export MIGRATION_FAILURE_MODE="halt" ;;
+      --confirm-data-move) confirm_data_move=true ;;
     esac
   done
 
   validate_env_file "$env_file" VPS_HOST
+
+  # Guard: detect data-destructive env changes before releasing to VPS
+  _deploy_volguard "$stack" "$env_file" "$confirm_data_move" || return 1
+
   vps_release "$stack" "$env_file" "$services"
 }
 
@@ -147,6 +267,7 @@ cmd_deploy() {
   local force_unlock=false
   local skip_lock=false
   local force_local=false
+  local confirm_data_move=false
   # Mode: honor DEPLOY_MODE config default; --blue-green / --standard on the
   # CLI always wins. `mode_flag=""` means "not overridden — use config".
   local mode_flag=""
@@ -159,6 +280,7 @@ cmd_deploy() {
       --force-local) force_local=true; shift ;;
       --blue-green) mode_flag="blue-green"; shift ;;
       --standard)   mode_flag="standard";   shift ;;
+      --confirm-data-move) confirm_data_move=true; shift ;;
       *) shift ;;
     esac
   done
@@ -218,6 +340,9 @@ cmd_deploy() {
     pull_only_stack "$stack" "$env_file" "$services"
     return 0
   fi
+
+  # Guard: detect data-destructive env changes before deploying
+  _deploy_volguard "$stack" "$env_file" "$confirm_data_move" || return 1
 
   case "$deploy_mode" in
     blue-green)

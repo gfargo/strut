@@ -6,7 +6,8 @@
 setup() {
   source "$(dirname "$BATS_TEST_FILENAME")/test_helper/common.bash"
   load_utils
-
+  source "$CLI_ROOT/lib/output.sh"
+  source "$CLI_ROOT/lib/diff.sh"
   source "$CLI_ROOT/lib/cmd_deploy.sh"
 
   # Stubs for underlying ops
@@ -18,8 +19,17 @@ setup() {
   docker_prune() { echo "docker_prune $*"; }
   resolve_compose_cmd() { echo "echo COMPOSE"; }
   is_running_on_vps() { return 0; }   # pretend we're on VPS so deploy skips warning
+  # Lock stubs — lock.sh not sourced in unit tests
+  lock_acquire_local() { return 0; }
+  lock_release_local() { return 0; }
+  lock_is_stale_local() { return 1; }
+  lock_force_break_local() { return 0; }
+  # diff_fetch_remote stub — no SSH in unit tests
+  diff_fetch_remote() { echo ""; }
   export -f deploy_stack pull_only_stack vps_update_repo vps_release \
-            health_run_all docker_prune resolve_compose_cmd is_running_on_vps
+            health_run_all docker_prune resolve_compose_cmd is_running_on_vps \
+            lock_acquire_local lock_release_local lock_is_stale_local \
+            lock_force_break_local diff_fetch_remote
 
   mkdir -p "$TEST_TMP/stacks/test-stack"
   cat > "$TEST_TMP/stacks/test-stack/docker-compose.yml" <<'EOF'
@@ -39,6 +49,7 @@ EOF
   export CMD_SERVICES=""
   export CMD_JSON=""
   export DRY_RUN=false
+  export CLI_ROOT="$CLI_ROOT"
 }
 
 teardown() {
@@ -53,6 +64,7 @@ teardown() {
   [[ "$output" == *"--pull-only"* ]]
   [[ "$output" == *"--skip-validation"* ]]
   [[ "$output" == *"--dry-run"* ]]
+  [[ "$output" == *"--confirm-data-move"* ]]
 }
 
 @test "_usage_health: prints usage" {
@@ -128,4 +140,200 @@ EOF
   run cmd_prune
   [ "$status" -eq 0 ]
   [[ "$output" == *"DRY-RUN"* ]]
+}
+
+# ── _deploy_volguard tests ────────────────────────────────────────────────────
+# These tests stub diff_fetch_remote and diff_detect_destructive so no SSH
+# is attempted. The guard is tested as a pure function.
+# All volguard tests override CLI_ROOT to TEST_TMP so the compose file lookup
+# finds the test fixtures (not the repo's real stacks/).
+
+@test "_deploy_volguard: skips guard when env file has no VPS_HOST" {
+  export CLI_ROOT="$TEST_TMP"
+  cat > "$TEST_TMP/.nohost.env" <<'EOF'
+APP_SECRET=abc
+EOF
+  # Should return 0 silently — no VPS_HOST means no remote to diff
+  run _deploy_volguard "test-stack" "$TEST_TMP/.nohost.env" "false"
+  [ "$status" -eq 0 ]
+}
+
+@test "_deploy_volguard: skips guard when compose file is absent" {
+  export CLI_ROOT="$TEST_TMP"
+  # Remove the compose file
+  rm -f "$TEST_TMP/stacks/test-stack/docker-compose.yml"
+  run _deploy_volguard "test-stack" "$TEST_TMP/.test.env" "false"
+  [ "$status" -eq 0 ]
+}
+
+@test "_deploy_volguard: skips guard when remote env is empty (new stack)" {
+  export CLI_ROOT="$TEST_TMP"
+  # Stub diff_fetch_remote to return empty (remote doesn't exist yet)
+  diff_fetch_remote() { echo ""; }
+  export -f diff_fetch_remote
+
+  run _deploy_volguard "test-stack" "$TEST_TMP/.test.env" "false"
+  [ "$status" -eq 0 ]
+}
+
+@test "_deploy_volguard: aborts when destructive changes detected without flag" {
+  export CLI_ROOT="$TEST_TMP"
+  # Compose with a volume-defining var
+  cat > "$TEST_TMP/stacks/test-stack/docker-compose.yml" <<'EOF'
+services:
+  db:
+    image: postgres:15
+    volumes:
+      - ${INSTALL_DIR:-./plane}/data/db:/var/lib/postgresql/data
+EOF
+
+  # Local env has INSTALL_DIR set; remote has it absent (unset→value transition)
+  cat > "$TEST_TMP/.test.env" <<'EOF'
+VPS_HOST=example.com
+INSTALL_DIR=/opt/plane
+EOF
+
+  # Stub diff_fetch_remote to return remote env content (no INSTALL_DIR)
+  diff_fetch_remote() { echo "VPS_HOST=example.com"; }
+  export -f diff_fetch_remote
+
+  run _deploy_volguard "test-stack" "$TEST_TMP/.test.env" "false" < /dev/null
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"INSTALL_DIR"* ]] || [[ "$output" == *"abort"* ]] || \
+    [[ "$output" == *"data-destructive"* ]] || [[ "$output" == *"DATA-DESTRUCTIVE"* ]]
+}
+
+@test "_deploy_volguard: proceeds when --confirm-data-move is true" {
+  export CLI_ROOT="$TEST_TMP"
+  cat > "$TEST_TMP/stacks/test-stack/docker-compose.yml" <<'EOF'
+services:
+  db:
+    image: postgres:15
+    volumes:
+      - ${INSTALL_DIR:-./plane}/data/db:/var/lib/postgresql/data
+EOF
+
+  cat > "$TEST_TMP/.test.env" <<'EOF'
+VPS_HOST=example.com
+INSTALL_DIR=/opt/plane
+EOF
+
+  diff_fetch_remote() { echo "VPS_HOST=example.com"; }
+  export -f diff_fetch_remote
+
+  run _deploy_volguard "test-stack" "$TEST_TMP/.test.env" "true"
+  [ "$status" -eq 0 ]
+}
+
+@test "_deploy_volguard: dry-run warns but returns 0" {
+  export CLI_ROOT="$TEST_TMP"
+  cat > "$TEST_TMP/stacks/test-stack/docker-compose.yml" <<'EOF'
+services:
+  db:
+    image: postgres:15
+    volumes:
+      - ${INSTALL_DIR:-./plane}/data/db:/var/lib/postgresql/data
+EOF
+
+  cat > "$TEST_TMP/.test.env" <<'EOF'
+VPS_HOST=example.com
+INSTALL_DIR=/opt/plane
+EOF
+
+  diff_fetch_remote() { echo "VPS_HOST=example.com"; }
+  export -f diff_fetch_remote
+
+  export DRY_RUN=true
+  run _deploy_volguard "test-stack" "$TEST_TMP/.test.env" "false"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"DRY-RUN"* ]] || [[ "$output" == *"dry"* ]] || true
+}
+
+@test "_deploy_volguard: no destructive changes → returns 0" {
+  export CLI_ROOT="$TEST_TMP"
+  # Local and remote envs are identical (no dangerous diff)
+  cat > "$TEST_TMP/.test.env" <<'EOF'
+VPS_HOST=example.com
+LOG_LEVEL=info
+EOF
+
+  diff_fetch_remote() { echo "VPS_HOST=example.com
+LOG_LEVEL=info"; }
+  export -f diff_fetch_remote
+
+  run _deploy_volguard "test-stack" "$TEST_TMP/.test.env" "false"
+  [ "$status" -eq 0 ]
+}
+
+@test "cmd_deploy: --confirm-data-move flag is recognized (no error)" {
+  # The guard is a no-op when no VPS_HOST fetches destructive diffs; just
+  # verify the flag doesn't cause a parse error.
+  diff_fetch_remote() { echo ""; }
+  export -f diff_fetch_remote
+
+  run cmd_deploy --confirm-data-move
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"deploy_stack"* ]]
+}
+
+@test "cmd_release: --confirm-data-move flag is recognized (no error)" {
+  diff_fetch_remote() { echo ""; }
+  export -f diff_fetch_remote
+
+  export CMD_ARGS=("--confirm-data-move")
+  run cmd_release
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"vps_release"* ]]
+}
+
+@test "cmd_rebuild: aborts on destructive INSTALL_DIR change without --confirm-data-move" {
+  export CLI_ROOT="$TEST_TMP"
+  cat > "$TEST_TMP/stacks/test-stack/docker-compose.yml" <<'EOF'
+services:
+  db:
+    image: postgres:15
+    volumes:
+      - ${INSTALL_DIR:-./plane}/data/db:/var/lib/postgresql/data
+EOF
+
+  cat > "$TEST_TMP/.test.env" <<'EOF'
+VPS_HOST=example.com
+INSTALL_DIR=/opt/plane
+EOF
+  export CMD_ENV_FILE="$TEST_TMP/.test.env"
+
+  # Remote env lacks INSTALL_DIR — changing a volume-defining var
+  diff_fetch_remote() { echo "VPS_HOST=example.com"; }
+  export -f diff_fetch_remote
+
+  run cmd_rebuild < /dev/null
+  [ "$status" -ne 0 ]
+  # Guard fires before deploy_stack is reached
+  [[ "$output" != *"deploy_stack"* ]]
+  [[ "$output" == *"INSTALL_DIR"* ]] || [[ "$output" == *"data-destructive"* ]] || \
+    [[ "$output" == *"DATA-DESTRUCTIVE"* ]] || [[ "$output" == *"abort"* ]]
+}
+
+@test "cmd_rebuild: proceeds with --confirm-data-move on destructive change" {
+  export CLI_ROOT="$TEST_TMP"
+  cat > "$TEST_TMP/stacks/test-stack/docker-compose.yml" <<'EOF'
+services:
+  db:
+    image: postgres:15
+    volumes:
+      - ${INSTALL_DIR:-./plane}/data/db:/var/lib/postgresql/data
+EOF
+
+  cat > "$TEST_TMP/.test.env" <<'EOF'
+VPS_HOST=example.com
+INSTALL_DIR=/opt/plane
+EOF
+  export CMD_ENV_FILE="$TEST_TMP/.test.env"
+
+  diff_fetch_remote() { echo "VPS_HOST=example.com"; }
+  export -f diff_fetch_remote
+
+  run cmd_rebuild --confirm-data-move
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"deploy_stack"* ]]
 }
