@@ -655,7 +655,10 @@ run_remote_strut() {
     return 0
   fi
 
-  log "Running '$remote_cmd_args' for stack '$stack' on $vps_user@$vps_host..." >&2
+  # Suppress progress log when JSON output is requested so the stream is clean.
+  if [ -z "${CMD_JSON:-}" ]; then
+    log "Running '$remote_cmd_args' for stack '$stack' on $vps_user@$vps_host..." >&2
+  fi
 
   # shellcheck disable=SC2029,SC2086
   ssh $ssh_opts "$vps_user@$vps_host" "
