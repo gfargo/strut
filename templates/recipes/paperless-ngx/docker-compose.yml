@@ -1,0 +1,73 @@
+services:
+  webserver:
+    image: ghcr.io/paperless-ngx/paperless-ngx:latest
+    container_name: STACK_NAME_PLACEHOLDER-webserver
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    depends_on:
+      - postgres
+      - redis
+      - gotenberg
+      - tika
+    environment:
+      - PAPERLESS_REDIS=redis://redis:6379
+      - PAPERLESS_DBHOST=postgres
+      - PAPERLESS_DBUSER=paperless
+      - PAPERLESS_DBPASS=${POSTGRES_PASSWORD}
+      - PAPERLESS_DBNAME=paperless
+      - PAPERLESS_SECRET_KEY=${PAPERLESS_SECRET_KEY}
+      - PAPERLESS_ADMIN_USER=${PAPERLESS_ADMIN_USER}
+      - PAPERLESS_ADMIN_PASSWORD=${PAPERLESS_ADMIN_PASSWORD}
+      - PAPERLESS_OCR_LANGUAGE=${PAPERLESS_OCR_LANGUAGE:-eng}
+      - PAPERLESS_TIME_ZONE=${PAPERLESS_TIME_ZONE:-UTC}
+      - PAPERLESS_TIKA_ENABLED=1
+      - PAPERLESS_TIKA_ENDPOINT=http://tika:9998
+      - PAPERLESS_TIKA_GOTENBERG_ENDPOINT=http://gotenberg:3000
+    volumes:
+      - paperless_data:/usr/src/paperless/data
+      - paperless_media:/usr/src/paperless/media
+      - paperless_export:/usr/src/paperless/export
+      - ${CONSUME_PATH:-./consume}:/usr/src/paperless/consume
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: STACK_NAME_PLACEHOLDER-postgres
+    restart: unless-stopped
+    environment:
+      - POSTGRES_DB=paperless
+      - POSTGRES_USER=paperless
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U paperless -d paperless"]
+      interval: 30s
+
+  redis:
+    image: redis:7-alpine
+    container_name: STACK_NAME_PLACEHOLDER-redis
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+
+  gotenberg:
+    image: docker.io/gotenberg/gotenberg:8
+    container_name: STACK_NAME_PLACEHOLDER-gotenberg
+    restart: unless-stopped
+    command:
+      - "gotenberg"
+      - "--chromium-disable-javascript=true"
+      - "--chromium-allow-list=file:///tmp/.*"
+
+  tika:
+    image: docker.io/apache/tika:latest
+    container_name: STACK_NAME_PLACEHOLDER-tika
+    restart: unless-stopped
+
+volumes:
+  paperless_data:
+  paperless_media:
+  paperless_export:
+  postgres_data:
+  redis_data:

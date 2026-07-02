@@ -1,0 +1,30 @@
+services:
+  umami:
+    image: ghcr.io/umami-software/umami:postgresql-latest
+    container_name: STACK_NAME_PLACEHOLDER-umami
+    restart: unless-stopped
+    ports:
+      - "3100:3000"
+    environment:
+      - DATABASE_URL=postgresql://umami:${POSTGRES_PASSWORD}@postgres:5432/umami
+      - DATABASE_TYPE=postgresql
+      - APP_SECRET=${APP_SECRET}
+    depends_on:
+      - postgres
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: STACK_NAME_PLACEHOLDER-postgres
+    restart: unless-stopped
+    environment:
+      - POSTGRES_DB=umami
+      - POSTGRES_USER=umami
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U umami -d umami"]
+      interval: 30s
+
+volumes:
+  postgres_data:

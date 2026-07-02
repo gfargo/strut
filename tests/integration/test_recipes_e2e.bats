@@ -334,3 +334,85 @@ EOF
     -f "$CLI_ROOT/stacks/$stack/docker-compose.yml" config --quiet
   [ "$status" -eq 0 ]
 }
+
+# ── 5. Tier-2 SEO recipes (self-host GitHub / GA / VPN / etc.) ───────────────
+
+@test "recipes: gitea compose config validates with placeholder env" {
+  local stack
+  stack="$(_scaffold_recipe gitea)" || { echo "scaffold failed"; false; }
+  cat > "$CLI_ROOT/.test.env" <<EOF
+TZ=UTC
+USER_UID=1000
+USER_GID=1000
+EOF
+  run docker compose --env-file "$CLI_ROOT/.test.env" \
+    -f "$CLI_ROOT/stacks/$stack/docker-compose.yml" config --quiet
+  [ "$status" -eq 0 ]
+}
+
+@test "recipes: audiobookshelf compose config validates with placeholder env" {
+  local stack
+  stack="$(_scaffold_recipe audiobookshelf)" || { echo "scaffold failed"; false; }
+  cat > "$CLI_ROOT/.test.env" <<EOF
+TZ=UTC
+AUDIOBOOKS_PATH=./audiobooks
+PODCASTS_PATH=./podcasts
+EOF
+  run docker compose --env-file "$CLI_ROOT/.test.env" \
+    -f "$CLI_ROOT/stacks/$stack/docker-compose.yml" config --quiet
+  [ "$status" -eq 0 ]
+}
+
+@test "recipes: wg-easy compose config validates with placeholder env" {
+  local stack
+  stack="$(_scaffold_recipe wg-easy)" || { echo "scaffold failed"; false; }
+  cat > "$CLI_ROOT/.test.env" <<EOF
+WG_HOST=vpn.test.local
+PASSWORD_HASH=\$\$2y\$\$10\$\$placeholder-bcrypt-hash
+EOF
+  run docker compose --env-file "$CLI_ROOT/.test.env" \
+    -f "$CLI_ROOT/stacks/$stack/docker-compose.yml" config --quiet
+  [ "$status" -eq 0 ]
+}
+
+@test "recipes: umami compose config validates with placeholder env" {
+  local stack
+  stack="$(_scaffold_recipe umami)" || { echo "scaffold failed"; false; }
+  cat > "$CLI_ROOT/.test.env" <<EOF
+POSTGRES_PASSWORD=placeholder-pw
+APP_SECRET=placeholder-app-secret-32chars-long
+EOF
+  run docker compose --env-file "$CLI_ROOT/.test.env" \
+    -f "$CLI_ROOT/stacks/$stack/docker-compose.yml" config --quiet
+  [ "$status" -eq 0 ]
+}
+
+@test "recipes: paperless-ngx compose config validates with placeholder env" {
+  local stack
+  stack="$(_scaffold_recipe paperless-ngx)" || { echo "scaffold failed"; false; }
+  cat > "$CLI_ROOT/.test.env" <<EOF
+PAPERLESS_SECRET_KEY=placeholder-secret-key
+POSTGRES_PASSWORD=placeholder-pw
+PAPERLESS_ADMIN_USER=admin
+PAPERLESS_ADMIN_PASSWORD=placeholder-pw
+PAPERLESS_OCR_LANGUAGE=eng
+PAPERLESS_TIME_ZONE=UTC
+CONSUME_PATH=./consume
+EOF
+  run docker compose --env-file "$CLI_ROOT/.test.env" \
+    -f "$CLI_ROOT/stacks/$stack/docker-compose.yml" config --quiet
+  [ "$status" -eq 0 ]
+}
+
+@test "recipes: ghost compose config validates with placeholder env" {
+  local stack
+  stack="$(_scaffold_recipe ghost)" || { echo "scaffold failed"; false; }
+  cat > "$CLI_ROOT/.test.env" <<EOF
+MYSQL_PASSWORD=placeholder-pw
+GHOST_URL=https://blog.test.local
+GHOST_VERSION=5-alpine
+EOF
+  run docker compose --env-file "$CLI_ROOT/.test.env" \
+    -f "$CLI_ROOT/stacks/$stack/docker-compose.yml" config --quiet
+  [ "$status" -eq 0 ]
+}

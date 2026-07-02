@@ -153,6 +153,50 @@ DB_USERNAME=postgres
 DB_DATABASE_NAME=immich
 EOF
       ;;
+    gitea)
+      cat <<EOF
+TZ=UTC
+USER_UID=1000
+USER_GID=1000
+EOF
+      ;;
+    audiobookshelf)
+      cat <<EOF
+TZ=UTC
+AUDIOBOOKS_PATH=./audiobooks
+PODCASTS_PATH=./podcasts
+EOF
+      ;;
+    wg-easy)
+      cat <<EOF
+WG_HOST=vpn.test.local
+PASSWORD_HASH=\$\$2y\$\$10\$\$placeholder-bcrypt-hash-for-compose-validation
+EOF
+      ;;
+    umami)
+      cat <<EOF
+POSTGRES_PASSWORD=placeholder-pw
+APP_SECRET=placeholder-app-secret-32chars-long
+EOF
+      ;;
+    paperless-ngx)
+      cat <<EOF
+PAPERLESS_SECRET_KEY=placeholder-secret-key-32chars-long
+POSTGRES_PASSWORD=placeholder-pw
+PAPERLESS_ADMIN_USER=admin
+PAPERLESS_ADMIN_PASSWORD=placeholder-pw
+PAPERLESS_OCR_LANGUAGE=eng
+PAPERLESS_TIME_ZONE=UTC
+CONSUME_PATH=./consume
+EOF
+      ;;
+    ghost)
+      cat <<EOF
+MYSQL_PASSWORD=placeholder-pw
+GHOST_URL=https://blog.test.local
+GHOST_VERSION=5-alpine
+EOF
+      ;;
     *)
       # Unknown recipe: emit an empty env; user should tune.
       : ;;

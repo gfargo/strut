@@ -1,0 +1,18 @@
+services:
+  audiobookshelf:
+    image: ghcr.io/advplyr/audiobookshelf:latest
+    container_name: STACK_NAME_PLACEHOLDER-audiobookshelf
+    restart: unless-stopped
+    ports:
+      - "13378:80"
+    environment:
+      - TZ=${TZ:-UTC}
+    volumes:
+      - abs_config:/config
+      - abs_metadata:/metadata
+      - ${AUDIOBOOKS_PATH:-./audiobooks}:/audiobooks
+      - ${PODCASTS_PATH:-./podcasts}:/podcasts
+
+volumes:
+  abs_config:
+  abs_metadata:
