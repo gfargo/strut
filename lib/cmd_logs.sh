@@ -31,6 +31,7 @@ _usage_logs() {
 cmd_logs() {
   local stack="$CMD_STACK"
   local env_file="$CMD_ENV_FILE"
+  local env_name="$CMD_ENV_NAME"
   local services="$CMD_SERVICES"
 
   local service_arg=""
@@ -47,6 +48,25 @@ cmd_logs() {
   done
 
   validate_env_file "$env_file"
+
+  # Prefer remote execution so logs reflect the remote host's containers.
+  if should_dispatch_remote; then
+    local remote_args="logs"
+    [ -n "$service_arg" ]  && remote_args="$remote_args $service_arg"
+    [ -n "$follow_flag" ]  && remote_args="$remote_args --follow"
+    [ -n "$since_arg" ]    && remote_args="$remote_args --since $since_arg"
+    if [ -n "$services" ]; then
+      remote_args="$remote_args --services $services"
+    fi
+    # --follow requires a TTY + keepalive so the SSH stream doesn't hang.
+    if [ -n "$follow_flag" ]; then
+      run_remote_strut "$stack" "$env_name" "$remote_args" --tty --keepalive
+    else
+      run_remote_strut "$stack" "$env_name" "$remote_args"
+    fi
+    return $?
+  fi
+
   local compose_cmd
   compose_cmd=$(resolve_compose_cmd "$stack" "$env_file" "$services")
   logs_tail "$compose_cmd" "$service_arg" "$follow_flag" "$since_arg"
@@ -56,6 +76,7 @@ cmd_logs() {
 cmd_logs_download() {
   local stack="$CMD_STACK"
   local env_file="$CMD_ENV_FILE"
+  local env_name="$CMD_ENV_NAME"
   local services="$CMD_SERVICES"
 
   local service_arg=""
@@ -70,6 +91,19 @@ cmd_logs_download() {
   done
 
   validate_env_file "$env_file"
+
+  # Prefer remote execution so we download logs from the actual host.
+  if should_dispatch_remote; then
+    local remote_args="logs:download"
+    [ -n "$service_arg" ]  && remote_args="$remote_args $service_arg"
+    remote_args="$remote_args --since $since"
+    if [ -n "$services" ]; then
+      remote_args="$remote_args --services $services"
+    fi
+    run_remote_strut "$stack" "$env_name" "$remote_args"
+    return $?
+  fi
+
   local compose_cmd
   compose_cmd=$(resolve_compose_cmd "$stack" "$env_file" "$services")
   logs_download "$compose_cmd" "$service_arg" "$since"
