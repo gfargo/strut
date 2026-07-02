@@ -43,3 +43,5 @@ stacks/
 bin/output/gif/*.gif
 bin/output/png/*.png
 !bin/output/**/.gitkeep
+# Local live-tape recording credentials
+.strut-live.env
