@@ -192,3 +192,69 @@ EOF
   [ "$status" -eq 0 ]
   [ -z "$output" ]
 }
+
+# ── 3. New recipes (compose-config only, no deploy) ─────────────────────────
+# These recipes ship images from Docker Hub / public registries. Compose
+# config validation catches broken YAML, unset vars, and format regressions
+# without pulling the images (which are >100MB each).
+
+@test "recipes: minecraft compose config validates with placeholder env" {
+  local stack
+  stack="$(_scaffold_recipe minecraft)" || { echo "scaffold failed"; false; }
+  local stack_dir="$CLI_ROOT/stacks/$stack"
+  local env_file="$CLI_ROOT/.test.env"
+
+  # Minimum viable env: itzg/minecraft-server requires EULA.
+  cat > "$env_file" <<EOF
+EULA=TRUE
+MC_VERSION=LATEST
+MC_MEMORY=2G
+EOF
+
+  run docker compose \
+    --env-file "$env_file" \
+    -f "$stack_dir/docker-compose.yml" \
+    config --quiet
+  [ "$status" -eq 0 ]
+}
+
+@test "recipes: pihole compose config validates with placeholder env" {
+  local stack
+  stack="$(_scaffold_recipe pihole)" || { echo "scaffold failed"; false; }
+  local stack_dir="$CLI_ROOT/stacks/$stack"
+  local env_file="$CLI_ROOT/.test.env"
+
+  cat > "$env_file" <<EOF
+PIHOLE_PASSWORD=placeholder-pw
+TZ=UTC
+PIHOLE_DNS=1.1.1.1;1.0.0.1
+EOF
+
+  run docker compose \
+    --env-file "$env_file" \
+    -f "$stack_dir/docker-compose.yml" \
+    config --quiet
+  [ "$status" -eq 0 ]
+}
+
+@test "recipes: nextcloud compose config validates with placeholder env" {
+  local stack
+  stack="$(_scaffold_recipe nextcloud)" || { echo "scaffold failed"; false; }
+  local stack_dir="$CLI_ROOT/stacks/$stack"
+  local env_file="$CLI_ROOT/.test.env"
+
+  cat > "$env_file" <<EOF
+POSTGRES_PASSWORD=placeholder-pw
+POSTGRES_DB=nextcloud
+POSTGRES_USER=nextcloud
+NEXTCLOUD_ADMIN_USER=admin
+NEXTCLOUD_ADMIN_PASSWORD=placeholder-pw
+NEXTCLOUD_TRUSTED_DOMAINS=localhost
+EOF
+
+  run docker compose \
+    --env-file "$env_file" \
+    -f "$stack_dir/docker-compose.yml" \
+    config --quiet
+  [ "$status" -eq 0 ]
+}

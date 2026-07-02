@@ -1,0 +1,55 @@
+name: Recipes
+
+# Matrix smoke test: one job per official recipe.
+# Each job scaffolds the recipe, writes a placeholder .env, and runs
+# `docker compose config --quiet`. Fast (no image pulls) and gives per-recipe
+# pass/fail so a broken recipe is visible without hunting through logs.
+#
+# Deeper deploy-and-curl runs live in .github/workflows/integration.yml
+# (Docker-heavy) and are gated to a smaller set. This matrix is the first
+# line of defense against a compose/env-template regression in any recipe.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'templates/recipes/**'
+      - 'lib/cmd_scaffold.sh'
+      - 'lib/recipes.sh'
+      - 'bin/test-recipe.sh'
+      - '.github/workflows/recipes.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'templates/recipes/**'
+      - 'lib/cmd_scaffold.sh'
+      - 'lib/recipes.sh'
+      - 'bin/test-recipe.sh'
+      - '.github/workflows/recipes.yml'
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    name: ${{ matrix.recipe }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    strategy:
+      fail-fast: false
+      matrix:
+        recipe:
+          - static-site
+          - python-api
+          - next-postgres
+          - minecraft
+          - pihole
+          - nextcloud
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify Docker + Compose
+        run: |
+          docker version
+          docker compose version
+
+      - name: Smoke-test ${{ matrix.recipe }}
+        run: ./bin/test-recipe.sh ${{ matrix.recipe }}
