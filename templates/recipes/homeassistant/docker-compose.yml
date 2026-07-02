@@ -1,0 +1,21 @@
+services:
+  homeassistant:
+    image: ghcr.io/home-assistant/home-assistant:stable
+    container_name: STACK_NAME_PLACEHOLDER-homeassistant
+    restart: unless-stopped
+    ports:
+      - "8123:8123"
+    environment:
+      - TZ=${TZ:-UTC}
+    volumes:
+      - homeassistant_config:/config
+      - /run/dbus:/run/dbus:ro
+    # NOTE: Home Assistant benefits greatly from host networking (device
+    # discovery, mDNS, etc). Users on a real VPS with dedicated devices should
+    # consider `network_mode: host` — for a Docker-only headless VPS deploy the
+    # bridge network below is fine and safer.
+    # network_mode: host
+    privileged: false
+
+volumes:
+  homeassistant_config:
