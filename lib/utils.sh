@@ -658,11 +658,14 @@ run_remote_strut() {
   log "Running '$remote_cmd_args' for stack '$stack' on $vps_user@$vps_host..."
 
   # shellcheck disable=SC2029,SC2086
-  ssh $ssh_opts "$vps_user@$vps_host" "
+  if ! ssh $ssh_opts "$vps_user@$vps_host" "
     set -e
     cd '$deploy_dir'
     ./strut $stack $remote_cmd_args --env ${env_name:-prod}
-  " || { fail "Remote command failed — check VPS_HOST and SSH access"; return 1; }
+  "; then
+    fail "Remote command failed — check VPS_HOST and SSH access"
+    return 1
+  fi
 }
 
 # ── Subcommand validation ─────────────────────────────────────────────────────
