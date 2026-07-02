@@ -95,13 +95,17 @@ cmd_diff() {
   local_compose_content=$(cat "$local_compose")
 
   # Produce diffs
-  local env_diff image_diff
+  local env_diff image_diff destructive_diff volume_renames
   env_diff=$(diff_env_content "$local_env_content" "$remote_env_content")
   image_diff=$(diff_images_content "$local_compose_content" "$remote_compose_content")
+  destructive_diff=$(diff_detect_destructive "$env_diff" "$local_compose_content")
+  volume_renames=$(diff_detect_volume_renames "$local_compose_content" "$remote_compose_content")
 
   local has_changes=0
   [ -n "$env_diff" ] && has_changes=1
   [ -n "$image_diff" ] && has_changes=1
+  [ -n "$destructive_diff" ] && has_changes=1
+  [ -n "$volume_renames" ] && has_changes=1
 
   if [ "$json_mode" = "true" ]; then
     OUTPUT_MODE=json
@@ -110,8 +114,11 @@ cmd_diff() {
       [ -n "$env_name" ] && out_json_field "env" "$env_name"
       out_json_field "timestamp" "$(date -u +%FT%TZ)"
       out_json_field_raw "has_changes" "$([ "$has_changes" -eq 1 ] && echo true || echo false)"
+      out_json_field_raw "has_destructive_changes" "$(if [ -n "$destructive_diff" ] || [ -n "$volume_renames" ]; then echo true; else echo false; fi)"
       _diff_render_section_json "env_vars" "$env_diff"
       _diff_render_section_json "images" "$image_diff"
+      _diff_render_section_json "destructive" "$destructive_diff"
+      _diff_render_section_json "volume_renames" "$volume_renames"
     out_json_close_object
     out_json_newline
   else
@@ -122,7 +129,19 @@ cmd_diff() {
       echo "Pending changes for $stack ($env_name → $VPS_HOST):"
       _diff_render_section_text "Env vars" "$env_diff"
       _diff_render_section_text "Images" "$image_diff"
+      if [ -n "$volume_renames" ]; then
+        _diff_render_destructive_text "$volume_renames"
+      fi
+      if [ -n "$destructive_diff" ]; then
+        _diff_render_destructive_text "$destructive_diff"
+      fi
       echo ""
+      if [ -n "$destructive_diff" ] || [ -n "$volume_renames" ]; then
+        local RED="${RED:-\033[0;31m}"
+        local NC="${NC:-\033[0m}"
+        printf "${RED}  Pass --confirm-data-move to proceed despite these risks.${NC}\n"
+        echo ""
+      fi
     fi
   fi
 
