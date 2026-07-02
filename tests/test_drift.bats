@@ -245,12 +245,16 @@ EOF
   source "$(dirname "$BATS_TEST_FILENAME")/test_helper/common.bash"
 
   local strut_root="$CLI_ROOT"
-  LIB="$strut_root/lib"
-  export LIB
 
-  # Stub drift_detect to simulate drift found
-  drift_detect() { echo "drift detected"; return 1; }
-  export -f drift_detect
+  # Create a fake LIB with a drift.sh that defines a drift-found stub
+  local fake_lib="$TEST_TMP/fake_lib_drift"
+  mkdir -p "$fake_lib"
+  cat > "$fake_lib/drift.sh" <<'FAKESCRIPT'
+drift_detect() { echo "drift detected"; return 1; }
+FAKESCRIPT
+
+  LIB="$fake_lib"
+  export LIB
 
   # Capture fire_hook_or_warn calls
   fire_hook_or_warn() { echo "fire_hook_or_warn $*"; return 0; }
@@ -280,11 +284,16 @@ EOF
   source "$(dirname "$BATS_TEST_FILENAME")/test_helper/common.bash"
 
   local strut_root="$CLI_ROOT"
-  LIB="$strut_root/lib"
-  export LIB
 
-  drift_detect() { echo "no drift"; return 0; }
-  export -f drift_detect
+  # Create a fake LIB with a drift.sh that defines a no-drift stub
+  local fake_lib="$TEST_TMP/fake_lib"
+  mkdir -p "$fake_lib"
+  cat > "$fake_lib/drift.sh" <<'FAKESCRIPT'
+drift_detect() { echo "no drift"; return 0; }
+FAKESCRIPT
+
+  LIB="$fake_lib"
+  export LIB
 
   fire_hook_or_warn() { echo "fire_hook_or_warn $*"; return 0; }
   export -f fire_hook_or_warn

@@ -228,6 +228,12 @@ EOF
   docker() { echo "docker migration ran"; }
   export -f docker
 
+  # Required env vars for the postgres migration path
+  export MIGRATION_IMAGE="test/migrator:latest"
+  export POSTGRES_USER="test"
+  export POSTGRES_PASSWORD="test"
+  export POSTGRES_DB="testdb"
+
   local hook_log="$TEST_TMP/post_hook.log"
   cat > "$CMD_STACK_DIR/hooks/post_migrate.sh" <<EOF
 #!/usr/bin/env bash
