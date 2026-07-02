@@ -274,10 +274,47 @@ require_cmd() {
 }
 
 # confirm <prompt> — returns 0 if user types y/yes, 1 otherwise
+#
+# Auto-yes paths (never blocks the caller):
+#   STRUT_YES=1  — set by --yes/-y or environment; returns 0 without prompting
+#   stdin not a TTY — returns 1 without prompting (fail-safe; caller sees "no")
+#
+# The stdin-TTY check prevents CI hangs when a script pipes into strut. Callers
+# that need "yes" in that case must set STRUT_YES=1 explicitly.
 confirm() {
   local prompt="${1:-Continue?}"
+  if [ "${STRUT_YES:-}" = "1" ] || [ "${STRUT_YES:-}" = "true" ]; then
+    log "$prompt [auto-yes: STRUT_YES=1]"
+    return 0
+  fi
+  if [ ! -t 0 ]; then
+    warn "$prompt — declining (no TTY; set STRUT_YES=1 to auto-approve)"
+    return 1
+  fi
+  local answer
   read -r -p "$(echo -e "${YELLOW}${prompt}${NC} [y/N] ")" answer
   [[ "$answer" =~ ^[Yy](es)?$ ]]
+}
+
+# read_or_fail <var_name> <prompt> [--secret]
+#
+# Prompt for a value interactively, or fail with a clear error when
+# non-interactive. Use this instead of a bare `read -p` for values (URLs,
+# tokens, emails) that don't have a boolean answer. Callers should first
+# check for a value from a --flag, and only call read_or_fail as a fallback.
+#
+#   --secret  — do not echo characters as they're typed (read -s)
+read_or_fail() {
+  local var_name="$1"
+  local prompt="$2"
+  local secret_flag=""
+  [ "${3:-}" = "--secret" ] && secret_flag="-s"
+  if [ ! -t 0 ]; then
+    fail "$prompt — no value provided and stdin is not a TTY (set the flag or run interactively)"
+  fi
+  # shellcheck disable=SC2229  # intentional: assign into var named by $var_name
+  read -r $secret_flag -p "$prompt" "$var_name"
+  [ -n "$secret_flag" ] && echo  # newline after silent read
 }
 
 # ── SSH helpers ───────────────────────────────────────────────────────────────

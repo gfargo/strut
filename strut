@@ -298,6 +298,8 @@ usage() {
   echo "  --services <prof>  Service profile (messaging|ui|full)"
   echo "  --json             JSON output (where supported)"
   echo "  --dry-run          Preview destructive operations without executing"
+  echo "  --yes, -y          Auto-approve confirmation prompts (safe in CI)"
+  echo "                     (also honored via STRUT_YES=1)"
   echo "  --no-tui           Disable interactive TUI when called with no args"
   echo "                     (also honored via STRUT_NO_TUI=1)"
   echo ""
@@ -682,7 +684,7 @@ fi
 shift 2  # consume stack and command; remaining args are command-specific
 
 # ── Parse universal options ───────────────────────────────────────────────────
-# Only --env, --services, --json, and --dry-run are parsed globally.
+# Only --env, --services, --json, --dry-run, and --yes are parsed globally.
 # All other flags and positional args are passed through to command handlers.
 parse_common_flags "$@"
 ENV_NAME="$FLAGS_ENV_NAME"

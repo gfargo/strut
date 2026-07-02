@@ -328,9 +328,11 @@ restore_neo4j() {
   # Get data volume
   local data_volume
   data_volume=$(docker inspect "$container_name" --format '{{range .Mounts}}{{if eq .Destination "/data"}}{{.Name}}{{end}}{{end}}')
+  [ -n "$data_volume" ] || fail "Could not resolve /data volume for container '$container_name' (container running? correct mount?)"
 
   local import_volume
   import_volume=$(docker inspect "$container_name" --format '{{range .Mounts}}{{if eq .Destination "/var/lib/neo4j/import"}}{{.Name}}{{end}}{{end}}')
+  [ -n "$import_volume" ] || fail "Could not resolve /var/lib/neo4j/import volume for container '$container_name'"
 
   # Run neo4j-admin load in temporary container - show output in real-time
   # Note: neo4j-admin database load expects the dump file to be named "neo4j.dump" in the from-path directory
@@ -417,6 +419,7 @@ restore_neo4j_from_targz() {
   # Get data volume
   local data_volume
   data_volume=$(docker inspect "$container_name" --format '{{range .Mounts}}{{if eq .Destination "/data"}}{{.Name}}{{end}}{{end}}')
+  [ -n "$data_volume" ] || fail "Could not resolve /data volume for container '$container_name' (container running? correct mount?) — aborting restore to avoid wiping the wrong volume"
 
   log "Clearing existing data..."
   docker run --rm \

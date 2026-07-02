@@ -230,8 +230,7 @@ github_setup_token_permissions() {
       echo ""
       echo "This allows the wizard to create fine-grained tokens automatically."
       echo ""
-      read -p "Run this command now? (yes/no): " -r
-      if [[ $REPLY =~ ^[Yy][Ee][Ss]$ ]]; then
+      if confirm "Run this command now?"; then
         gh auth refresh -s admin:personal_access_token
 
         if github_check_token_permissions | grep -q "has_permissions"; then
