@@ -2,18 +2,14 @@
 # ==================================================
 # lib/deploy.sh — Deploy orchestration logic
 # ==================================================
-# Requires: lib/utils.sh, lib/docker.sh sourced first
+# Requires: lib/utils.sh, lib/docker.sh sourced first.
+# Sources lib/fleet.sh automatically if fleet_sync is not already available.
 
-# deploy_stack <stack> <env_file> [services_profile]
-#
-# Brings up the stack at stacks/<stack>/docker-compose.yml using the given
-# env file and optional Docker Compose profile for optional service groups.
-#
-# Arguments:
-#   stack           — stack name (must match a directory under stacks/)
-#   env_file        — path to .env file (must exist)
-#   services_profile — optional Docker Compose profile (messaging|ui|full)
-set -euo pipefail
+# Source fleet.sh if not already loaded (provides fleet_sync used by vps_update_repo)
+if ! declare -f fleet_sync >/dev/null 2>&1; then
+  # shellcheck source=lib/fleet.sh
+  source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/fleet.sh"
+fi
 
 # render_safe_clean_snippet <force_clean>
 #
@@ -23,11 +19,7 @@ set -euo pipefail
 #   3. If something and force_clean=true: run git clean -fd (operator override).
 #   4. If something and force_clean=false: abort with guidance.
 #
-# The returned string is meant to be embedded inside an SSH heredoc where
-# local variables have already been expanded (consistent with the SC2029
-# disable comment already present in vps_update_repo).
-#
-# Usage: local snippet; snippet=$(render_safe_clean_snippet "false")
+# Used by lib/migrate/phase-setup.sh for the migrate update path.
 render_safe_clean_snippet() {
   local force_clean="${1:-false}"
   cat <<SNIPPET
@@ -49,6 +41,17 @@ else
 fi
 SNIPPET
 }
+
+# deploy_stack <stack> <env_file> [services_profile]
+#
+# Brings up the stack at stacks/<stack>/docker-compose.yml using the given
+# env file and optional Docker Compose profile for optional service groups.
+#
+# Arguments:
+#   stack           — stack name (must match a directory under stacks/)
+#   env_file        — path to .env file (must exist)
+#   services_profile — optional Docker Compose profile (messaging|ui|full)
+set -euo pipefail
 
 deploy_stack() {
   local stack="$1"
@@ -272,9 +275,6 @@ $_hint"
   # Fire post_deploy lifecycle hook (non-fatal on failure)
   # First, run one-time first-run hook if needed (after services are up)
   fire_first_run_hook "$stack_dir" || warn "First-run hook failed — deploy continues"
-  # Apply DB schema (opt-in, idempotent) — runs after first_run so schema
-  # files can safely assume the service is up and first-time init is done.
-  maybe_apply_db_schema "$stack" "$compose_cmd" "$stack_dir"
   DEPLOY_STATUS="ok" fire_hook_or_warn post_deploy "$stack_dir"
 
   # Notification providers (Slack/Discord/webhook) subscribed to deploy.success
@@ -307,60 +307,42 @@ vps_update_repo() {
   local gh_pat="${GH_PAT:-}"
   local branch="${DEFAULT_BRANCH:-main}"
   local env_name; env_name=$(extract_env_name "$env_file")
-  local force_clean="${FORCE_CLEAN:-false}"
-
-  local ssh_opts
-  ssh_opts=$(build_ssh_opts -p "$vps_port" -k "$vps_ssh_key" --batch)
 
   log "Updating strut on $vps_user@$vps_host → $deploy_dir"
   warn "Any local changes on the VPS will be discarded (hard reset to origin/$branch)"
 
-  # Render the safe-clean snippet with the local force_clean value substituted
-  # in before the SSH call (local expansion is intentional here).
-  local safe_clean_snippet
-  safe_clean_snippet=$(render_safe_clean_snippet "$force_clean")
+  local ssh_opts
+  ssh_opts=$(build_ssh_opts -p "$vps_port" -k "$vps_ssh_key" --batch)
 
-  # GH_PAT is passed into the remote shell and used via `git -c url.insteadOf`
-  # so the fetch works regardless of whether the remote is SSH or HTTPS.
-  #
-  # We use fetch + reset --hard rather than pull so that local drift on the VPS
-  # (modified tracked files, untracked files that conflict) never blocks the sync.
-  # The VPS is a deployment target — it should always be a clean repo mirror.
+  # Verify deploy dir exists before syncing
   # Intentional: variables expand locally before SSH
+  # shellcheck disable=SC2029
+  if ! ssh $ssh_opts "$vps_user@$vps_host" "[ -d '$deploy_dir' ]" 2>/dev/null; then
+    fail "$deploy_dir not found on VPS. strut is not initialized on this host. Run: strut $stack remote:init --env $env_name"
+  fi
+
+  # Sync the checkout via fleet_sync (fetch + reset --hard + guarded clean).
+  # GH_PAT is forwarded so fetch works regardless of whether the remote is SSH
+  # or HTTPS. We use reset --hard rather than pull so local drift on the VPS
+  # (modified tracked files, conflicting untracked files) never blocks the sync.
+  fleet_sync "$vps_user" "$vps_host" "$vps_port" "$vps_ssh_key" \
+    "$deploy_dir" "$branch" "$gh_pat" \
+    || fail "Update failed — check VPS_HOST, VPS_SSH_KEY, and VPS_DEPLOY_DIR"
+
+  # Verify strut binary is present and executable after sync
   # shellcheck disable=SC2029
   ssh $ssh_opts "$vps_user@$vps_host" "
     set -e
-    if [ ! -d '$deploy_dir' ]; then
-      echo 'ERROR: $deploy_dir not found on VPS' >&2
-      echo '' >&2
-      echo 'strut is not initialized on this host.' >&2
-      echo 'Run: strut $stack remote:init --env $env_name' >&2
-      exit 1
-    fi
-    cd '$deploy_dir'
-    echo '--- Current HEAD ---'
-    git log --oneline -1
-    echo '--- Fetching ---'
-    git \
-      -c 'url.https://oauth2:$gh_pat@github.com/.insteadOf=https://github.com/' \
-      -c 'url.https://oauth2:$gh_pat@github.com/.insteadOf=git@github.com:' \
-      fetch origin
-    echo '--- Resetting to origin/$branch ---'
-    git reset --hard origin/$branch
-    $safe_clean_snippet
-    echo '--- Updated HEAD ---'
-    git log --oneline -1
-    echo '--- Verifying strut binary ---'
-    if [ ! -f strut ]; then
+    if [ ! -f '$deploy_dir/strut' ]; then
       echo 'ERROR: strut binary not found in $deploy_dir after update' >&2
       echo '' >&2
       echo 'The deploy directory exists but does not contain the strut executable.' >&2
       echo 'Run: strut $stack remote:init --env $env_name' >&2
       exit 1
     fi
-    chmod +x strut
+    chmod +x '$deploy_dir/strut'
     echo 'strut binary ready'
-  " && ok "strut updated on VPS" || fail "Update failed — check VPS_HOST, VPS_SSH_KEY, and VPS_DEPLOY_DIR"
+  " && ok "strut updated on VPS" || fail "Update failed — strut binary missing after sync"
 }
 
 # pull_only_stack <stack> <env_file> [services_profile]

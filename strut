@@ -124,6 +124,7 @@ source "$LIB/notify.sh"
 source "$LIB/docker.sh"
 source "$LIB/registry.sh"
 source "$LIB/deploy.sh"
+source "$LIB/fleet.sh"
 source "$LIB/health.sh"
 source "$LIB/deploy_blue_green.sh"
 source "$LIB/logs.sh"
@@ -178,6 +179,7 @@ source "$LIB/recipes.sh"
 source "$LIB/cmd_tui.sh"
 source "$LIB/cmd_upgrade.sh"
 source "$LIB/version_check.sh"
+source "$LIB/cmd_sync.sh"
 
 # Project-local plugins are discovered once PROJECT_ROOT is known. find_project_root
 # above populates it when strut is invoked inside a project; outside one this is a no-op.
@@ -300,6 +302,7 @@ usage() {
   echo "  list                                                           List stacks"
   echo "  list plugins [--json]                                          List discovered project plugins"
   echo "  status-all [--env <name>] [--json]                             Dashboard across all stacks"
+  echo "  sync       [<host>|--all] [--env <name>] [--dry-run]          Bring host checkout in sync with origin"
   echo "  posture    [--stack <name>] [--category <c>] [--fail-on <l>]   Security/ops posture check"
   echo "  group      list|show|add|remove | <name> <command>             Stack groups (coordinated multi-stack ops)"
   echo "  scaffold <new-stack-name> [--recipe <name>]                    New stack (optionally from a recipe)"
@@ -524,6 +527,11 @@ case "${1:-}" in
     shift
     source "$LIB/cmd_status_all.sh"
     cmd_status_all "$@"
+    exit $?
+    ;;
+  sync)
+    shift
+    cmd_sync "$@"
     exit $?
     ;;
   posture)

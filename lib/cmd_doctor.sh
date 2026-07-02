@@ -240,9 +240,53 @@ _doc_check_vps() {
     # shellcheck disable=SC2086
     if timeout 5 ssh $ssh_opts "$vps_user@$vps_host" "echo ok" &>/dev/null; then
       _doc_pass "VPS ($env_name)" "reachable at $vps_host"
+
       # Run deep preflight against this host when --deep is set.
       if $_DOC_VPS_DEEP; then
         _doc_check_vps_deep "$env_name" "$ssh_opts" "$vps_user" "$vps_host"
+      fi
+
+      # Fleet git status — requires fleet_git_status from lib/fleet.sh
+      if declare -f fleet_git_status >/dev/null 2>&1; then
+        local vps_port="" deploy_dir="" gh_pat=""
+        vps_port=$(grep -E    '^VPS_PORT='       "$env_file" 2>/dev/null | head -1 | cut -d= -f2 | tr -d '"' | tr -d "'" | xargs 2>/dev/null || true)
+        deploy_dir=$(grep -E  '^VPS_DEPLOY_DIR=' "$env_file" 2>/dev/null | head -1 | cut -d= -f2 | tr -d '"' | tr -d "'" | xargs 2>/dev/null || true)
+        gh_pat=$(grep -E      '^GH_PAT='         "$env_file" 2>/dev/null | head -1 | cut -d= -f2 | tr -d '"' | tr -d "'" | xargs 2>/dev/null || true)
+        vps_port="${vps_port:-22}"
+        deploy_dir="${deploy_dir:-/home/$vps_user/strut}"
+        gh_pat="${gh_pat:-${GH_PAT:-}}"
+
+        local branch="${DEFAULT_BRANCH:-main}"
+        local fleet_out=""
+        fleet_out=$(fleet_git_status "$vps_user" "$vps_host" "$vps_port" "$ssh_key" \
+          "$deploy_dir" "$branch" "$gh_pat" 2>/dev/null || true)
+
+        if [ -n "$fleet_out" ]; then
+          local f_behind="" f_ahead="" f_dirty="" f_head=""
+          while IFS= read -r _fline; do
+            case "${_fline%%=*}" in
+              behind)      f_behind="${_fline#*=}" ;;
+              ahead)       f_ahead="${_fline#*=}" ;;
+              dirty_count) f_dirty="${_fline#*=}" ;;
+              head_sha)    f_head="${_fline#*=}" ;;
+            esac
+          done <<< "$fleet_out"
+
+          local _short_sha="${f_head:0:7}"
+          if [ "${f_behind:-?}" = "0" ] && [ "${f_dirty:-0}" = "0" ]; then
+            _doc_pass "VPS git ($env_name)" "in sync with origin/$branch (HEAD: $_short_sha)"
+          else
+            if [ "${f_behind:-?}" != "0" ] && [ "${f_behind:-?}" != "?" ] && [ -n "${f_behind:-}" ]; then
+              _doc_warn "VPS git ($env_name)" \
+                "$f_behind commit(s) behind origin/$branch — run: strut sync --env ${env_name#.}" \
+                "strut sync --env ${env_name#.}"
+            fi
+            if [ "${f_dirty:-0}" != "0" ] && [ -n "${f_dirty:-}" ]; then
+              _doc_warn "VPS dirty ($env_name)" \
+                "$f_dirty locally modified file(s) on $vps_host" ""
+            fi
+          fi
+        fi
       fi
     else
       _doc_fail "VPS ($env_name)" "cannot reach $vps_host" "Check VPS_HOST in $env_name and SSH key permissions"
