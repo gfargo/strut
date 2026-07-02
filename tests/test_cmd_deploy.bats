@@ -276,3 +276,53 @@ LOG_LEVEL=info"; }
   [ "$status" -eq 0 ]
   [[ "$output" == *"vps_release"* ]]
 }
+
+@test "cmd_rebuild: aborts on destructive INSTALL_DIR change without --confirm-data-move" {
+  cat > "$TEST_TMP/stacks/test-stack/docker-compose.yml" <<'EOF'
+services:
+  db:
+    image: postgres:15
+    volumes:
+      - ${INSTALL_DIR:-./plane}/data/db:/var/lib/postgresql/data
+EOF
+
+  cat > "$TEST_TMP/.test.env" <<'EOF'
+VPS_HOST=example.com
+INSTALL_DIR=/opt/plane
+EOF
+  export CMD_ENV_FILE="$TEST_TMP/.test.env"
+
+  # Remote env lacks INSTALL_DIR — changing a volume-defining var
+  diff_fetch_remote() { echo "VPS_HOST=example.com"; }
+  export -f diff_fetch_remote
+
+  run cmd_rebuild
+  [ "$status" -ne 0 ]
+  # Guard fires before deploy_stack is reached
+  [[ "$output" != *"deploy_stack"* ]]
+  [[ "$output" == *"INSTALL_DIR"* ]] || [[ "$output" == *"data-destructive"* ]] || \
+    [[ "$output" == *"DATA-DESTRUCTIVE"* ]] || [[ "$output" == *"abort"* ]]
+}
+
+@test "cmd_rebuild: proceeds with --confirm-data-move on destructive change" {
+  cat > "$TEST_TMP/stacks/test-stack/docker-compose.yml" <<'EOF'
+services:
+  db:
+    image: postgres:15
+    volumes:
+      - ${INSTALL_DIR:-./plane}/data/db:/var/lib/postgresql/data
+EOF
+
+  cat > "$TEST_TMP/.test.env" <<'EOF'
+VPS_HOST=example.com
+INSTALL_DIR=/opt/plane
+EOF
+  export CMD_ENV_FILE="$TEST_TMP/.test.env"
+
+  diff_fetch_remote() { echo "VPS_HOST=example.com"; }
+  export -f diff_fetch_remote
+
+  run cmd_rebuild --confirm-data-move
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"deploy_stack"* ]]
+}

@@ -174,7 +174,7 @@ cmd_update() {
   vps_update_repo "$stack" "$env_file"
 }
 
-# cmd_rebuild [--no-cache] [--pull] (reads CMD_*)
+# cmd_rebuild [--no-cache] [--pull] [--confirm-data-move] (reads CMD_*)
 # Builds images and restarts services. Equivalent to deploy with BUILD_MODE=local.
 cmd_rebuild() {
   local stack="$CMD_STACK"
@@ -184,10 +184,12 @@ cmd_rebuild() {
   # Parse rebuild-specific flags
   local no_cache=false
   local pull_base=false
+  local confirm_data_move=false
   while [[ $# -gt 0 ]]; do
     case $1 in
       --no-cache) no_cache=true; shift ;;
       --pull) pull_base=true; shift ;;
+      --confirm-data-move) confirm_data_move=true; shift ;;
       *) shift ;;
     esac
   done
@@ -200,6 +202,9 @@ cmd_rebuild() {
   if [ "$pull_base" = "true" ]; then
     export BUILD_PULL="true"
   fi
+
+  # Guard: detect data-destructive env changes before rebuilding
+  _deploy_volguard "$stack" "$env_file" "$confirm_data_move"
 
   # Delegate to the standard deploy pipeline
   deploy_stack "$stack" "$env_file" "$services"
