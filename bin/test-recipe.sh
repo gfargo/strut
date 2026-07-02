@@ -111,6 +111,48 @@ NEXTCLOUD_ADMIN_PASSWORD=placeholder-pw
 NEXTCLOUD_TRUSTED_DOMAINS=localhost ${host:-}
 EOF
       ;;
+    jellyfin)
+      cat <<EOF
+TZ=UTC
+MEDIA_PATH=./media
+EOF
+      ;;
+    vaultwarden)
+      cat <<EOF
+ADMIN_TOKEN=placeholder-token
+DOMAIN=https://vault.test.local
+EOF
+      ;;
+    uptime-kuma)
+      cat <<EOF
+TZ=UTC
+EOF
+      ;;
+    n8n)
+      cat <<EOF
+N8N_ENCRYPTION_KEY=placeholder-encryption-key-32chars
+N8N_HOST=n8n.test.local
+N8N_PROTOCOL=https
+GENERIC_TIMEZONE=UTC
+N8N_BASIC_AUTH_USER=admin
+N8N_BASIC_AUTH_PASSWORD=placeholder-pw
+EOF
+      ;;
+    homeassistant)
+      cat <<EOF
+TZ=UTC
+EOF
+      ;;
+    immich)
+      cat <<EOF
+DB_PASSWORD=placeholder-pw
+UPLOAD_LOCATION=./immich-library
+IMMICH_VERSION=release
+DB_HOSTNAME=postgres
+DB_USERNAME=postgres
+DB_DATABASE_NAME=immich
+EOF
+      ;;
     *)
       # Unknown recipe: emit an empty env; user should tune.
       : ;;

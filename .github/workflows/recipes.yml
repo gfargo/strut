@@ -43,6 +43,12 @@ jobs:
           - minecraft
           - pihole
           - nextcloud
+          - jellyfin
+          - immich
+          - vaultwarden
+          - n8n
+          - uptime-kuma
+          - homeassistant
     steps:
       - uses: actions/checkout@v4
 

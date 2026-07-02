@@ -258,3 +258,79 @@ EOF
     config --quiet
   [ "$status" -eq 0 ]
 }
+
+# ── 4. Tier-1 SEO recipes (self-hosted-space favorites) ─────────────────────
+
+@test "recipes: jellyfin compose config validates with placeholder env" {
+  local stack
+  stack="$(_scaffold_recipe jellyfin)" || { echo "scaffold failed"; false; }
+  cat > "$CLI_ROOT/.test.env" <<EOF
+TZ=UTC
+MEDIA_PATH=./media
+EOF
+  run docker compose --env-file "$CLI_ROOT/.test.env" \
+    -f "$CLI_ROOT/stacks/$stack/docker-compose.yml" config --quiet
+  [ "$status" -eq 0 ]
+}
+
+@test "recipes: vaultwarden compose config validates with placeholder env" {
+  local stack
+  stack="$(_scaffold_recipe vaultwarden)" || { echo "scaffold failed"; false; }
+  cat > "$CLI_ROOT/.test.env" <<EOF
+ADMIN_TOKEN=placeholder-token
+DOMAIN=https://vault.test.local
+EOF
+  run docker compose --env-file "$CLI_ROOT/.test.env" \
+    -f "$CLI_ROOT/stacks/$stack/docker-compose.yml" config --quiet
+  [ "$status" -eq 0 ]
+}
+
+@test "recipes: uptime-kuma compose config validates with placeholder env" {
+  local stack
+  stack="$(_scaffold_recipe uptime-kuma)" || { echo "scaffold failed"; false; }
+  echo 'TZ=UTC' > "$CLI_ROOT/.test.env"
+  run docker compose --env-file "$CLI_ROOT/.test.env" \
+    -f "$CLI_ROOT/stacks/$stack/docker-compose.yml" config --quiet
+  [ "$status" -eq 0 ]
+}
+
+@test "recipes: n8n compose config validates with placeholder env" {
+  local stack
+  stack="$(_scaffold_recipe n8n)" || { echo "scaffold failed"; false; }
+  cat > "$CLI_ROOT/.test.env" <<EOF
+N8N_ENCRYPTION_KEY=placeholder-encryption-key-32chars
+N8N_HOST=n8n.test.local
+N8N_PROTOCOL=https
+GENERIC_TIMEZONE=UTC
+N8N_BASIC_AUTH_USER=admin
+N8N_BASIC_AUTH_PASSWORD=placeholder-pw
+EOF
+  run docker compose --env-file "$CLI_ROOT/.test.env" \
+    -f "$CLI_ROOT/stacks/$stack/docker-compose.yml" config --quiet
+  [ "$status" -eq 0 ]
+}
+
+@test "recipes: homeassistant compose config validates with placeholder env" {
+  local stack
+  stack="$(_scaffold_recipe homeassistant)" || { echo "scaffold failed"; false; }
+  echo 'TZ=UTC' > "$CLI_ROOT/.test.env"
+  run docker compose --env-file "$CLI_ROOT/.test.env" \
+    -f "$CLI_ROOT/stacks/$stack/docker-compose.yml" config --quiet
+  [ "$status" -eq 0 ]
+}
+
+@test "recipes: immich compose config validates with placeholder env" {
+  local stack
+  stack="$(_scaffold_recipe immich)" || { echo "scaffold failed"; false; }
+  cat > "$CLI_ROOT/.test.env" <<EOF
+DB_PASSWORD=placeholder-pw
+UPLOAD_LOCATION=./immich-library
+IMMICH_VERSION=release
+DB_HOSTNAME=postgres
+DB_USERNAME=postgres
+DB_DATABASE_NAME=immich
+EOF
+  run docker compose --env-file "$CLI_ROOT/.test.env" \
+    -f "$CLI_ROOT/stacks/$stack/docker-compose.yml" config --quiet
+  [ "$status" -eq 0 ]
+}

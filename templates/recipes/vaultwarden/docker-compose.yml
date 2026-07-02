@@ -1,0 +1,22 @@
+services:
+  vaultwarden:
+    image: vaultwarden/server:latest
+    container_name: STACK_NAME_PLACEHOLDER-vaultwarden
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    environment:
+      - DOMAIN=${DOMAIN}
+      - ADMIN_TOKEN=${ADMIN_TOKEN}
+      - SIGNUPS_ALLOWED=${SIGNUPS_ALLOWED:-false}
+      - SMTP_HOST=${SMTP_HOST:-}
+      - SMTP_FROM=${SMTP_FROM:-}
+      - SMTP_PORT=${SMTP_PORT:-587}
+      - SMTP_SECURITY=${SMTP_SECURITY:-starttls}
+      - SMTP_USERNAME=${SMTP_USERNAME:-}
+      - SMTP_PASSWORD=${SMTP_PASSWORD:-}
+    volumes:
+      - vaultwarden_data:/data
+
+volumes:
+  vaultwarden_data:

@@ -1,0 +1,55 @@
+services:
+  server:
+    image: ghcr.io/immich-app/immich-server:${IMMICH_VERSION:-release}
+    container_name: STACK_NAME_PLACEHOLDER-server
+    restart: unless-stopped
+    ports:
+      - "2283:2283"
+    environment:
+      - DB_HOSTNAME=${DB_HOSTNAME:-postgres}
+      - DB_USERNAME=${DB_USERNAME:-postgres}
+      - DB_DATABASE_NAME=${DB_DATABASE_NAME:-immich}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - REDIS_HOSTNAME=redis
+    volumes:
+      - ${UPLOAD_LOCATION}:/usr/src/app/upload
+    depends_on:
+      - redis
+      - postgres
+
+  machine-learning:
+    image: ghcr.io/immich-app/immich-machine-learning:${IMMICH_VERSION:-release}
+    container_name: STACK_NAME_PLACEHOLDER-machine-learning
+    restart: unless-stopped
+    volumes:
+      - ml_cache:/cache
+
+  redis:
+    image: docker.io/valkey/valkey:8-bookworm
+    container_name: STACK_NAME_PLACEHOLDER-redis
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+
+  postgres:
+    image: docker.io/tensorchord/pgvecto-rs:pg16-v0.2.0
+    container_name: STACK_NAME_PLACEHOLDER-postgres
+    restart: unless-stopped
+    environment:
+      - POSTGRES_PASSWORD=${DB_PASSWORD}
+      - POSTGRES_USER=${DB_USERNAME:-postgres}
+      - POSTGRES_DB=${DB_DATABASE_NAME:-immich}
+      - POSTGRES_INITDB_ARGS=--data-checksums
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-postgres} -d ${DB_DATABASE_NAME:-immich}"]
+      interval: 30s
+
+volumes:
+  postgres_data:
+  redis_data:
+  ml_cache:
