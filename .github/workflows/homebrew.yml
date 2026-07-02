@@ -8,6 +8,9 @@ jobs:
   update-tap:
     name: Update gfargo/homebrew-tap
     runs-on: ubuntu-latest
+    # Only run for stable releases (not pre-releases / draft releases).
+    # Pre-releases (rc, alpha, beta) should not advance the tap formula.
+    if: ${{ !github.event.release.prerelease && !github.event.release.draft }}
     steps:
       - name: Get release info
         id: release

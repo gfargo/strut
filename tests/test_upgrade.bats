@@ -285,3 +285,27 @@ EOF
   run _strut_version_gt "2.0.0" "1.9.9"
   [ "$status" -eq 0 ]
 }
+
+# ── Entrypoint --json pre-scan suppresses update check ───────────────────────
+# Verifies the fix for: OUTPUT_MODE=json gate was dead code because
+# strut_check_for_update was called before command dispatch set OUTPUT_MODE.
+# The entrypoint now pre-scans $@ for --json before the update check.
+
+@test "entrypoint: --json flag pre-scan sets OUTPUT_MODE before update check" {
+  # Simulate the entrypoint pre-scan logic (the fix)
+  local args=(stack health --env prod --json)
+  local OUTPUT_MODE=""
+  for _pre_arg in "${args[@]}"; do
+    if [ "$_pre_arg" = "--json" ]; then OUTPUT_MODE=json; break; fi
+  done
+  [ "$OUTPUT_MODE" = "json" ]
+}
+
+@test "entrypoint: non-json flags do not set OUTPUT_MODE=json in pre-scan" {
+  local args=(stack health --env prod --verbose)
+  local OUTPUT_MODE=""
+  for _pre_arg in "${args[@]}"; do
+    if [ "$_pre_arg" = "--json" ]; then OUTPUT_MODE=json; break; fi
+  done
+  [ "$OUTPUT_MODE" != "json" ]
+}

@@ -185,6 +185,11 @@ plugins_discover
 
 # Lightweight update-available nag (best-effort, never blocking).
 # Suppressed by STRUT_NO_UPDATE_CHECK=1, CI=1, non-TTY stderr, or JSON mode.
+# Pre-scan args for --json so the OUTPUT_MODE gate fires before command dispatch.
+for _pre_arg in "$@"; do
+  if [ "$_pre_arg" = "--json" ]; then OUTPUT_MODE=json; break; fi
+done
+unset _pre_arg
 strut_check_for_update || true
 
 # ── TUI dispatch (early, before usage gate) ───────────────────────────────────
