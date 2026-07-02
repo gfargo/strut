@@ -228,7 +228,7 @@ usage() {
   echo "       strut list"
   echo "       strut init [--registry <type>] [--org <name>] [--completions]"
   echo "       strut upgrade"
-  echo "       strut doctor [--check-vps] [--json] [--fix]"
+  echo "       strut doctor [--check-vps] [--deep] [--json] [--fix]"
   echo "       strut --version"
   echo "       strut audit <vps-host> [vps-user] [ssh-key]"
   echo ""

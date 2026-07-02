@@ -6,7 +6,7 @@
 # Runs without a stack — top-level command.
 #
 # Provides:
-#   cmd_doctor [--check-vps] [--json] [--fix]
+#   cmd_doctor [--check-vps [--deep]] [--json] [--fix]
 
 set -euo pipefail
 
@@ -196,10 +196,19 @@ _doc_check_project() {
 _doc_check_vps() {
   local cli_root="${CLI_ROOT:-$(pwd)}"
 
-  # Find all env files
-  local env_files=()
+  # Find all env files. Both `.*env` and `.*.env` globs match `.prod.env`,
+  # so dedupe by tracking realpaths we've already added.
+  local env_files=() seen=()
   for f in "$cli_root"/.*env "$cli_root"/.*.env; do
     [ -f "$f" ] || continue
+    local rp
+    rp=$(cd "$(dirname "$f")" && pwd)/$(basename "$f")
+    local dup=false
+    for s in "${seen[@]+"${seen[@]}"}"; do
+      [ "$s" = "$rp" ] && { dup=true; break; }
+    done
+    $dup && continue
+    seen+=("$rp")
     env_files+=("$f")
   done
 
@@ -231,20 +240,152 @@ _doc_check_vps() {
     # shellcheck disable=SC2086
     if timeout 5 ssh $ssh_opts "$vps_user@$vps_host" "echo ok" &>/dev/null; then
       _doc_pass "VPS ($env_name)" "reachable at $vps_host"
+      # Run deep preflight against this host when --deep is set.
+      if $_DOC_VPS_DEEP; then
+        _doc_check_vps_deep "$env_name" "$ssh_opts" "$vps_user" "$vps_host"
+      fi
     else
       _doc_fail "VPS ($env_name)" "cannot reach $vps_host" "Check VPS_HOST in $env_name and SSH key permissions"
     fi
   done
 }
 
+# _doc_check_vps_deep <env_name> <ssh_opts> <vps_user> <vps_host>
+#
+# Deep preflight against a VPS: verifies the target is deploy-ready.
+# Answers: "Should I run strut against this box?" Each probe runs remotely
+# over the same SSH options as the base reachability check.
+#
+# Checks:
+#   docker present + version >= 20
+#   docker compose plugin present
+#   free disk on / (>= 5GB warn, >= 2GB fail)
+#   free memory (>= 1GB warn, >= 512MB fail)
+#   ports 80 / 443 not already bound
+#   sudo works without prompting (only if VPS_SUDO=true or non-root user)
+_doc_check_vps_deep() {
+  local env_name="$1" ssh_opts="$2" vps_user="$3" vps_host="$4"
+  local label="VPS-deep ($env_name)"
+
+  # Run all remote probes in a single SSH session for speed.
+  # shellcheck disable=SC2086
+  local out
+  if ! out=$(timeout 20 ssh $ssh_opts "$vps_user@$vps_host" bash -s <<'REMOTE' 2>/dev/null
+set -u
+echo "=== docker ==="
+command -v docker >/dev/null && docker --version 2>/dev/null || echo "docker: NOT_INSTALLED"
+echo "=== compose ==="
+docker compose version --short 2>/dev/null || echo "compose: NOT_INSTALLED"
+echo "=== disk ==="
+df -Pk / 2>/dev/null | awk 'NR==2{print $4}'
+echo "=== mem ==="
+awk '/^MemAvailable:/{print $2; exit} /^MemTotal:/{tot=$2} END{if (tot) print tot}' /proc/meminfo 2>/dev/null
+echo "=== ports ==="
+ss -tlnH 2>/dev/null | awk '{print $4}' | awk -F: '{print $NF}' | sort -u | tr '\n' ',' 2>/dev/null
+echo ""
+echo "=== sudo ==="
+sudo -n true 2>/dev/null && echo "sudo: PASSWORDLESS" || echo "sudo: NEEDS_PASSWORD"
+REMOTE
+); then
+    _doc_fail "$label" "remote probe failed (timeout or SSH error)" ""
+    return
+  fi
+
+  # ── docker ──
+  local docker_line
+  docker_line=$(echo "$out" | awk '/^=== docker ===/{flag=1; next} /^===/{flag=0} flag' | head -1)
+  if [[ "$docker_line" == *NOT_INSTALLED* ]] || [ -z "$docker_line" ]; then
+    _doc_fail "$label / docker" "Docker not installed on VPS" "ssh in and run: curl -fsSL https://get.docker.com | sh"
+  else
+    # extract N.N.N — parse "Docker version 24.0.7, build ..."
+    local dver
+    dver=$(echo "$docker_line" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+    local dmajor="${dver%%.*}"
+    if [ -n "$dmajor" ] && [ "$dmajor" -ge 20 ] 2>/dev/null; then
+      _doc_pass "$label / docker" "$dver"
+    else
+      _doc_warn "$label / docker" "installed but version $dver (< 20 recommended)" ""
+    fi
+  fi
+
+  # ── compose ──
+  local compose_line
+  compose_line=$(echo "$out" | awk '/^=== compose ===/{flag=1; next} /^===/{flag=0} flag' | head -1)
+  if [[ "$compose_line" == *NOT_INSTALLED* ]] || [ -z "$compose_line" ]; then
+    _doc_fail "$label / compose" "docker compose plugin not installed" "sudo apt install docker-compose-plugin"
+  else
+    _doc_pass "$label / compose" "$compose_line"
+  fi
+
+  # ── disk ── (value in KB)
+  local disk_kb
+  disk_kb=$(echo "$out" | awk '/^=== disk ===/{flag=1; next} /^===/{flag=0} flag' | head -1 | tr -d ' ')
+  if [ -n "$disk_kb" ] && [ "$disk_kb" -gt 0 ] 2>/dev/null; then
+    local disk_gb=$((disk_kb / 1024 / 1024))
+    if [ "$disk_gb" -ge 5 ]; then
+      _doc_pass "$label / disk" "${disk_gb}GB free on /"
+    elif [ "$disk_gb" -ge 2 ]; then
+      _doc_warn "$label / disk" "only ${disk_gb}GB free on / (recommend >= 5GB)" ""
+    else
+      _doc_fail "$label / disk" "only ${disk_gb}GB free on / (need >= 2GB)" "Free space before deploying"
+    fi
+  else
+    _doc_warn "$label / disk" "could not determine free disk space" ""
+  fi
+
+  # ── memory ── (value in KB)
+  local mem_kb
+  mem_kb=$(echo "$out" | awk '/^=== mem ===/{flag=1; next} /^===/{flag=0} flag' | head -1 | tr -d ' ')
+  if [ -n "$mem_kb" ] && [ "$mem_kb" -gt 0 ] 2>/dev/null; then
+    local mem_mb=$((mem_kb / 1024))
+    if [ "$mem_mb" -ge 1024 ]; then
+      _doc_pass "$label / memory" "${mem_mb}MB available"
+    elif [ "$mem_mb" -ge 512 ]; then
+      _doc_warn "$label / memory" "only ${mem_mb}MB available (recommend >= 1024MB)" ""
+    else
+      _doc_fail "$label / memory" "only ${mem_mb}MB available (need >= 512MB)" "Add swap or upgrade instance size"
+    fi
+  else
+    _doc_warn "$label / memory" "could not determine free memory" ""
+  fi
+
+  # ── ports ── (comma-separated list of ports currently bound)
+  local ports_line
+  ports_line=$(echo "$out" | awk '/^=== ports ===/{flag=1; next} /^===/{flag=0} flag' | head -1)
+  local port80_bound=false port443_bound=false
+  [[ ",${ports_line}," == *,80,* ]] && port80_bound=true
+  [[ ",${ports_line}," == *,443,* ]] && port443_bound=true
+  if $port80_bound || $port443_bound; then
+    local bound=""
+    $port80_bound && bound="80"
+    $port443_bound && bound="${bound:+$bound, }443"
+    _doc_warn "$label / ports" "port(s) $bound already in use (a running web server will conflict)" ""
+  else
+    _doc_pass "$label / ports" "80 + 443 free"
+  fi
+
+  # ── sudo ──
+  local sudo_line
+  sudo_line=$(echo "$out" | awk '/^=== sudo ===/{flag=1; next} /^===/{flag=0} flag' | head -1)
+  if [ "$vps_user" = "root" ]; then
+    _doc_pass "$label / sudo" "root (no sudo needed)"
+  elif [[ "$sudo_line" == *PASSWORDLESS* ]]; then
+    _doc_pass "$label / sudo" "passwordless sudo works"
+  else
+    _doc_warn "$label / sudo" "sudo requires a password (some strut ops will fail)" "Add '$vps_user ALL=(ALL) NOPASSWD:ALL' to /etc/sudoers.d/"
+  fi
+}
+
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 cmd_doctor() {
   local check_vps=false
+  _DOC_VPS_DEEP=false
 
   while [[ $# -gt 0 ]]; do
     case $1 in
       --check-vps) check_vps=true; shift ;;
+      --deep)      _DOC_VPS_DEEP=true; check_vps=true; shift ;;
       --json)      _DOC_JSON=true; shift ;;
       --fix)       _DOC_FIX=true; shift ;;
       --help|-h)   _usage_doctor; return 0 ;;
@@ -323,19 +464,22 @@ cmd_doctor() {
 
 _usage_doctor() {
   echo ""
-  echo "Usage: strut doctor [--check-vps] [--json] [--fix]"
+  echo "Usage: strut doctor [--check-vps] [--deep] [--json] [--fix]"
   echo ""
   echo "Run a comprehensive diagnostic check of your strut environment."
   echo ""
   echo "Flags:"
-  echo "  --check-vps    Include VPS connectivity checks (slower)"
+  echo "  --check-vps    Include VPS connectivity checks (SSH echo to each env file's host)"
+  echo "  --deep         Deep VPS preflight — Docker, Compose, disk, memory, ports, sudo"
+  echo "                 (implies --check-vps; the 'should I deploy strut here?' wizard)"
   echo "  --json         Output results as JSON"
   echo "  --fix          Show install commands for missing tools"
   echo ""
   echo "Examples:"
-  echo "  strut doctor"
-  echo "  strut doctor --fix"
-  echo "  strut doctor --check-vps"
-  echo "  strut doctor --json"
+  echo "  strut doctor                    # local checks only"
+  echo "  strut doctor --fix              # show install hints"
+  echo "  strut doctor --check-vps        # + SSH reachability per env"
+  echo "  strut doctor --deep             # full preflight against every configured VPS"
+  echo "  strut doctor --deep --json      # JSON output for CI / scripting"
   echo ""
 }
