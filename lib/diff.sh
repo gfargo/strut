@@ -461,7 +461,7 @@ _diff_render_destructive_text() {
   local NC="${NC:-\033[0m}"
 
   printf '\n'
-  printf "${RED}⚠  DATA-DESTRUCTIVE CHANGES (%d)${NC}\n" "$count"
+  printf '%s\n' "${RED}⚠  DATA-DESTRUCTIVE CHANGES ($count)${NC}"
   printf '   Changes to volume-defining vars or named volumes will repoint\n'
   printf '   data directories — containers may start with a blank database.\n'
 
@@ -469,9 +469,9 @@ _diff_render_destructive_text() {
   while IFS=$'\x1f' read -r kind key old new; do
     [ -z "$kind" ] && continue
     case "$kind" in
-      ADD)    printf "${YELLOW}  + %s=%s${NC}\n"        "$key" "$new" ;;
-      REMOVE) printf "${YELLOW}  - %s${NC}\n"           "$key" ;;
-      CHANGE) printf "${YELLOW}  ~ %s: %s → %s${NC}\n"  "$key" "$old" "$new" ;;
+      ADD)    printf '%s  + %s=%s%s\n'         "$YELLOW" "$key" "$new" "$NC" ;;
+      REMOVE) printf '%s  - %s%s\n'            "$YELLOW" "$key" "$NC" ;;
+      CHANGE) printf '%s  ~ %s: %s → %s%s\n'  "$YELLOW" "$key" "$old" "$new" "$NC" ;;
     esac
   done <<< "$tsv"
 }

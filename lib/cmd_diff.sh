@@ -139,7 +139,7 @@ cmd_diff() {
       if [ -n "$destructive_diff" ] || [ -n "$volume_renames" ]; then
         local RED="${RED:-\033[0;31m}"
         local NC="${NC:-\033[0m}"
-        printf "${RED}  Pass --confirm-data-move to proceed despite these risks.${NC}\n"
+        printf '%s\n' "${RED}  Pass --confirm-data-move to proceed despite these risks.${NC}"
         echo ""
       fi
     fi

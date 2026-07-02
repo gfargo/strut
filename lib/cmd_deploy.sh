@@ -76,7 +76,7 @@ _deploy_volguard() {
   local RED="${RED:-\033[0;31m}"
   local NC="${NC:-\033[0m}"
   echo "" >&2
-  printf "${RED}⚠  strut: Data-destructive changes detected${NC}\n" >&2
+  printf '%s\n' "${RED}⚠  strut: Data-destructive changes detected${NC}" >&2
   echo "" >&2
   if [ -n "$destructive_diff" ]; then
     _diff_render_destructive_text "$destructive_diff" >&2
