@@ -262,13 +262,14 @@ _doc_check_vps() {
           "$deploy_dir" "$branch" "$gh_pat" 2>/dev/null || true)
 
         if [ -n "$fleet_out" ]; then
-          local f_behind="" f_ahead="" f_dirty="" f_head=""
+          local f_behind="" f_ahead="" f_dirty="" f_head="" f_working_dir=""
           while IFS= read -r _fline; do
             case "${_fline%%=*}" in
               behind)      f_behind="${_fline#*=}" ;;
               ahead)       f_ahead="${_fline#*=}" ;;
               dirty_count) f_dirty="${_fline#*=}" ;;
               head_sha)    f_head="${_fline#*=}" ;;
+              working_dir) f_working_dir="${_fline#*=}" ;;
             esac
           done <<< "$fleet_out"
 
@@ -284,6 +285,14 @@ _doc_check_vps() {
             if [ "${f_dirty:-0}" != "0" ] && [ -n "${f_dirty:-}" ]; then
               _doc_warn "VPS dirty ($env_name)" \
                 "$f_dirty locally modified file(s) on $vps_host" ""
+            fi
+          fi
+
+          if [ -n "${f_working_dir:-}" ]; then
+            local _expected_prefix="$deploy_dir/stacks/"
+            if [[ "$f_working_dir" != "$_expected_prefix"* ]]; then
+              _doc_warn "VPS deploy-dir ($env_name)" \
+                "containers run from $f_working_dir, expected under ${_expected_prefix%/}" ""
             fi
           fi
         fi
