@@ -55,6 +55,8 @@ jobs:
           - paperless-ngx
           - audiobookshelf
           - ghost
+          - valheim
+          - factorio
     steps:
       - uses: actions/checkout@v4
 

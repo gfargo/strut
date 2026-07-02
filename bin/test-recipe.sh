@@ -197,6 +197,20 @@ GHOST_URL=https://blog.test.local
 GHOST_VERSION=5-alpine
 EOF
       ;;
+    valheim)
+      cat <<EOF
+SERVER_NAME=Test
+WORLD_NAME=Dedicated
+SERVER_PASS=changeme
+SERVER_PUBLIC=false
+EOF
+      ;;
+    factorio)
+      cat <<EOF
+FACTORIO_PORT=34197
+SAVE_NAME=world
+EOF
+      ;;
     *)
       # Unknown recipe: emit an empty env; user should tune.
       : ;;

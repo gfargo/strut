@@ -218,6 +218,44 @@ EOF
   [ "$status" -eq 0 ]
 }
 
+@test "recipes: valheim compose config validates with placeholder env" {
+  local stack
+  stack="$(_scaffold_recipe valheim)" || { echo "scaffold failed"; false; }
+  local stack_dir="$CLI_ROOT/stacks/$stack"
+  local env_file="$CLI_ROOT/.test.env"
+
+  cat > "$env_file" <<EOF
+SERVER_NAME=Test
+WORLD_NAME=Dedicated
+SERVER_PASS=changeme
+SERVER_PUBLIC=false
+EOF
+
+  run docker compose \
+    --env-file "$env_file" \
+    -f "$stack_dir/docker-compose.yml" \
+    config --quiet
+  [ "$status" -eq 0 ]
+}
+
+@test "recipes: factorio compose config validates with placeholder env" {
+  local stack
+  stack="$(_scaffold_recipe factorio)" || { echo "scaffold failed"; false; }
+  local stack_dir="$CLI_ROOT/stacks/$stack"
+  local env_file="$CLI_ROOT/.test.env"
+
+  cat > "$env_file" <<EOF
+FACTORIO_PORT=34197
+SAVE_NAME=world
+EOF
+
+  run docker compose \
+    --env-file "$env_file" \
+    -f "$stack_dir/docker-compose.yml" \
+    config --quiet
+  [ "$status" -eq 0 ]
+}
+
 @test "recipes: pihole compose config validates with placeholder env" {
   local stack
   stack="$(_scaffold_recipe pihole)" || { echo "scaffold failed"; false; }
