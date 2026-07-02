@@ -47,3 +47,19 @@
 #
 # include = .strut/shared.conf
 # include = ../common/strut.conf
+
+# ── DATA SAFETY (read before first deploy) ─────────────────────────────────────
+# `strut deploy` runs `git clean -fd` on the VPS checkout to sync it with
+# origin. Any untracked, non-ignored file or directory under the checkout —
+# including live database volumes, upload dirs, or generated assets — will be
+# DELETED by that step.
+#
+# Best practice: store all persistent data OUTSIDE the checkout directory
+# (e.g. /var/lib/<stack>/data rather than stacks/<stack>/data/).
+#
+# If bind-mounts inside the checkout are unavoidable, add every data path to
+# stacks/<stack>/.gitignore so git clean skips them. Running
+# `strut <stack> deploy` with untracked, non-ignored data dirs will abort with
+# an error and list the paths — pass --force-clean to override (data-loss risk).
+#
+# See: https://github.com/gfargo/strut/wiki/Deployment#git-clean-safety

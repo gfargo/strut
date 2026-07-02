@@ -1,0 +1,31 @@
+# ==================================================
+# .gitignore — stack-level ignores
+# ==================================================
+# IMPORTANT: Stack data dirs that live inside the checkout MUST be listed here.
+#
+# `strut deploy` runs `git clean -fd` on the VPS to sync the checkout with
+# origin. Any untracked, non-ignored file or directory — including live database
+# volumes, upload dirs, or generated assets — will be DELETED by that step.
+#
+# Rule of thumb:
+#   • Store persistent data outside the checkout (recommended), OR
+#   • Add every bind-mount host path below so git clean skips it.
+#
+# See: https://github.com/gfargo/strut/wiki/Deployment#git-clean-safety
+
+# ── Container data / volume bind-mounts ────────────────────────────────────────
+# Uncomment and adjust to match the bind-mount host paths in docker-compose.yml.
+#
+# data/
+# uploads/
+# storage/
+# STACK_NAME_PLACEHOLDER/
+
+# ── Generated / runtime files ──────────────────────────────────────────────────
+*.log
+logs/
+
+# ── Local secrets ──────────────────────────────────────────────────────────────
+.env
+.*.env
+!.env.template

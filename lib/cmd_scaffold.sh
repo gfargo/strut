@@ -115,6 +115,10 @@ cmd_scaffold() {
   # Copy template env
   [ -f "$templates_dir/env.template" ] && cp "$templates_dir/env.template" "$target/.env.template"
 
+  # Copy gitignore template — IMPORTANT: data dirs that live inside the checkout
+  # must be listed here or `git clean -fd` on deploy will delete them.
+  [ -f "$templates_dir/gitignore.template" ] && cp "$templates_dir/gitignore.template" "$target/.gitignore"
+
   # Copy template docker-compose files
   [ -f "$templates_dir/docker-compose.prod.yml" ] && cp "$templates_dir/docker-compose.prod.yml" "$target/docker-compose.yml"
   [ -f "$templates_dir/docker-compose.dev.yml" ]  && cp "$templates_dir/docker-compose.dev.yml"  "$target/docker-compose.dev.yml"
@@ -219,8 +223,13 @@ BACKUP_EOF
     nginx) echo "  4. Edit $target/nginx/conf.d/ → add your reverse proxy config" ;;
     caddy) echo "  4. Edit $target/caddy/Caddyfile → configure your reverse proxy" ;;
   esac
-  echo "  5. strut $new_name deploy --env prod"
+  echo "  5. Edit $target/.gitignore → add any bind-mount data dirs so deploy"
+  echo "     does not delete them (see comments inside the file)"
+  echo "  6. strut $new_name deploy --env prod"
   echo ""
+  warn "DATA SAFETY: 'strut deploy' runs 'git clean -fd' on the VPS."
+  warn "Any untracked, non-ignored path under the stack dir will be DELETED."
+  warn "Store persistent data outside the checkout, or add it to $target/.gitignore."
 }
 
 # _scaffold_substitute <target> <stack-name>
