@@ -205,6 +205,7 @@ cmd_rebuild() {
 
   # Guard: detect data-destructive env changes before rebuilding
   _deploy_volguard "$stack" "$env_file" "$confirm_data_move" || return 1
+  diff_warn_env_divergence "$stack" "$env_file" "${CMD_STACK_DIR:-$CLI_ROOT/stacks/$stack}"
 
   # Delegate to the standard deploy pipeline
   deploy_stack "$stack" "$env_file" "$services"
@@ -250,6 +251,7 @@ cmd_release() {
 
   # Guard: detect data-destructive env changes before releasing to VPS
   _deploy_volguard "$stack" "$env_file" "$confirm_data_move" || return 1
+  diff_warn_env_divergence "$stack" "$env_file" "${CMD_STACK_DIR:-$CLI_ROOT/stacks/$stack}"
 
   vps_release "$stack" "$env_file" "$services"
 }
@@ -343,6 +345,7 @@ cmd_deploy() {
 
   # Guard: detect data-destructive env changes before deploying
   _deploy_volguard "$stack" "$env_file" "$confirm_data_move" || return 1
+  diff_warn_env_divergence "$stack" "$env_file" "${CMD_STACK_DIR:-$CLI_ROOT/stacks/$stack}"
 
   case "$deploy_mode" in
     blue-green)

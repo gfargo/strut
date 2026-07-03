@@ -375,3 +375,69 @@ EOF
   run cmd_health
   [ "$status" -eq 2 ]
 }
+
+# ── diff_warn_env_divergence (OSS-327) ────────────────────────────────────────
+
+@test "diff_warn_env_divergence: silent when no VPS_HOST" {
+  export VPS_HOST=""
+  run diff_warn_env_divergence "test-stack" "$TEST_TMP/.prod.env" "$TEST_TMP/stacks/test-stack"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+}
+
+@test "diff_warn_env_divergence: silent when resolved file is .env itself" {
+  export VPS_HOST="example.com"
+  touch "$TEST_TMP/.env"
+  run diff_warn_env_divergence "test-stack" "$TEST_TMP/.env" "$TEST_TMP/stacks/test-stack"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+}
+
+@test "diff_warn_env_divergence: warns when host .env has different volume var" {
+  export VPS_HOST="example.com"
+  export VPS_USER="ubuntu"
+  export VPS_DEPLOY_DIR=""
+
+  # Local .prod.env
+  cat > "$TEST_TMP/.prod.env" <<'EOF'
+VPS_HOST=example.com
+INSTALL_DIR=/opt/plane
+EOF
+
+  # Stub diff_fetch_remote to return host's .env with different INSTALL_DIR
+  diff_fetch_remote() {
+    echo "VPS_HOST=example.com
+INSTALL_DIR=./plane"
+  }
+  export -f diff_fetch_remote
+
+  run diff_warn_env_divergence "test-stack" "$TEST_TMP/.prod.env" "$TEST_TMP/stacks/test-stack"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"INSTALL_DIR"* ]]
+  [[ "$output" == *"divergence"* ]] || [[ "$output" == *"Divergence"* ]]
+}
+
+@test "diff_warn_env_divergence: silent when volume vars match" {
+  export VPS_HOST="example.com"
+  export VPS_USER="ubuntu"
+  export VPS_DEPLOY_DIR=""
+
+  cat > "$TEST_TMP/.prod.env" <<'EOF'
+VPS_HOST=example.com
+INSTALL_DIR=/opt/plane
+LOG_LEVEL=info
+EOF
+
+  # Host .env has same INSTALL_DIR
+  diff_fetch_remote() {
+    echo "VPS_HOST=example.com
+INSTALL_DIR=/opt/plane
+LOG_LEVEL=debug"
+  }
+  export -f diff_fetch_remote
+
+  run diff_warn_env_divergence "test-stack" "$TEST_TMP/.prod.env" "$TEST_TMP/stacks/test-stack"
+  [ "$status" -eq 0 ]
+  # LOG_LEVEL differs but it's not a volume var — should be silent
+  [[ "$output" != *"divergence"* ]] && [[ "$output" != *"Divergence"* ]]
+}
