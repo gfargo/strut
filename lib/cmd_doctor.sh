@@ -338,6 +338,8 @@ ss -tlnH 2>/dev/null | awk '{print $4}' | awk -F: '{print $NF}' | sort -u | tr '
 echo ""
 echo "=== sudo ==="
 sudo -n true 2>/dev/null && echo "sudo: PASSWORDLESS" || echo "sudo: NEEDS_PASSWORD"
+echo "=== workingdir ==="
+docker ps -q 2>/dev/null | head -5 | xargs -r docker inspect --format '{{ index .Config.Labels "com.docker.compose.project.working_dir" }}' 2>/dev/null | sort -u | grep -v '^$' || echo "workingdir: EMPTY"
 REMOTE
 ); then
     _doc_fail "$label" "remote probe failed (timeout or SSH error)" ""
@@ -426,6 +428,29 @@ REMOTE
     _doc_pass "$label / sudo" "passwordless sudo works"
   else
     _doc_warn "$label / sudo" "sudo requires a password (some strut ops will fail)" "Add '$vps_user ALL=(ALL) NOPASSWD:ALL' to /etc/sudoers.d/"
+  fi
+
+  # ── workingdir ── (compose working_dir label from running containers)
+  local workingdir_lines
+  workingdir_lines=$(echo "$out" | awk '/^=== workingdir ===/{flag=1; next} /^===/{flag=0} flag')
+  if [[ "$workingdir_lines" == *"EMPTY"* ]] || [ -z "$workingdir_lines" ]; then
+    _doc_pass "$label / workingdir" "no running containers (skip)"
+  else
+    local expected_prefix
+    expected_prefix="$(resolve_deploy_dir)/stacks"
+    local mismatch_found=false
+    while IFS= read -r wdir; do
+      [ -z "$wdir" ] && continue
+      if [[ "$wdir" != "$expected_prefix"* ]]; then
+        _doc_warn "$label / workingdir" \
+          "container working_dir '$wdir' outside expected prefix '$expected_prefix'" \
+          "Check VPS_DEPLOY_DIR or re-deploy from the correct checkout"
+        mismatch_found=true
+      fi
+    done <<< "$workingdir_lines"
+    if ! $mismatch_found; then
+      _doc_pass "$label / workingdir" "all containers under $expected_prefix"
+    fi
   fi
 }
 

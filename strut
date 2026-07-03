@@ -450,14 +450,30 @@ cmd_list() {
 
 # resolve_env_file <stack> [env_name]
 # Returns the path to the env file.
-# If env_name is empty, defaults to .env in CLI_ROOT.
+# Resolution order (stack-aware, since v0.29.0):
+#   1. stacks/<stack>/.<env>.env  (stack-level override)
+#   2. $CLI_ROOT/.<env>.env       (project-level)
+#   3. stacks/<stack>/.env        (stack-level default, no env name)
+#   4. $CLI_ROOT/.env             (project-level default)
 resolve_env_file() {
   local stack="$1"
   local env_name="${2:-}"
+  local stack_dir="$CLI_ROOT/stacks/$stack"
+
   if [ -n "$env_name" ]; then
-    echo "$CLI_ROOT/.$env_name.env"
+    # Stack-level env file takes priority
+    if [ -f "$stack_dir/.$env_name.env" ]; then
+      echo "$stack_dir/.$env_name.env"
+    else
+      echo "$CLI_ROOT/.$env_name.env"
+    fi
   else
-    echo "$CLI_ROOT/.env"
+    # No env name: prefer stack-level .env, fallback to project root
+    if [ -f "$stack_dir/.env" ]; then
+      echo "$stack_dir/.env"
+    else
+      echo "$CLI_ROOT/.env"
+    fi
   fi
 }
 

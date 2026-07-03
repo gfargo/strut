@@ -287,3 +287,85 @@ teardown() {
   [[ "$output" == *"--deep"* ]]
   [[ "$output" == *"preflight"* ]]
 }
+
+# ── workingdir deep probe (OSS-325) ──────────────────────────────────────────
+
+@test "_doc_check_vps_deep: workingdir match emits pass" {
+  # Stub the SSH output to simulate a matching working_dir
+  local deploy_dir; deploy_dir=$(resolve_deploy_dir)
+  local fake_out="=== docker ===
+Docker version 24.0.7, build abcdef
+=== compose ===
+2.24.0
+=== disk ===
+10000000
+=== mem ===
+2000000
+=== ports ===
+22,
+=== sudo ===
+sudo: PASSWORDLESS
+=== workingdir ===
+${deploy_dir}/stacks/my-app"
+
+  # Override timeout+ssh to return our fake output
+  timeout() { shift; shift; echo "$fake_out"; }
+  export -f timeout
+
+  run _doc_check_vps_deep "prod" "-o BatchMode=yes" "ubuntu" "host.example.com"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"workingdir"* ]]
+  [[ "$output" == *"pass"* ]] || [[ "$output" == *"✓"* ]] || [[ "$output" == *"all containers"* ]]
+}
+
+@test "_doc_check_vps_deep: workingdir mismatch emits warn" {
+  local fake_out="=== docker ===
+Docker version 24.0.7, build abcdef
+=== compose ===
+2.24.0
+=== disk ===
+10000000
+=== mem ===
+2000000
+=== ports ===
+22,
+=== sudo ===
+sudo: PASSWORDLESS
+=== workingdir ===
+/opt/stacks/my-app"
+
+  timeout() { shift; shift; echo "$fake_out"; }
+  export -f timeout
+
+  export VPS_DEPLOY_DIR=""
+  export VPS_USER="ubuntu"
+
+  run _doc_check_vps_deep "prod" "-o BatchMode=yes" "ubuntu" "host.example.com"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"workingdir"* ]]
+  [[ "$output" == *"/opt/stacks/my-app"* ]]
+}
+
+@test "_doc_check_vps_deep: workingdir empty (no containers) skips cleanly" {
+  local fake_out="=== docker ===
+Docker version 24.0.7, build abcdef
+=== compose ===
+2.24.0
+=== disk ===
+10000000
+=== mem ===
+2000000
+=== ports ===
+22,
+=== sudo ===
+sudo: PASSWORDLESS
+=== workingdir ===
+workingdir: EMPTY"
+
+  timeout() { shift; shift; echo "$fake_out"; }
+  export -f timeout
+
+  run _doc_check_vps_deep "prod" "-o BatchMode=yes" "ubuntu" "host.example.com"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"no running containers"* ]]
+}

@@ -55,6 +55,46 @@ _load_cli_functions() {
   [[ "$result" == *"/.jitsi-prod.env" ]]
 }
 
+# ── resolve_env_file: stack-aware (since v0.29.0) ────────────────────────────
+
+@test "resolve_env_file: prefers stack-level env when file exists" {
+  _load_cli_functions
+  mkdir -p "$CLI_ROOT/stacks/my-stack"
+  echo "VPS_HOST=test" > "$CLI_ROOT/stacks/my-stack/.prod.env"
+  result=$(resolve_env_file "my-stack" "prod")
+  [[ "$result" == *"/stacks/my-stack/.prod.env" ]]
+}
+
+@test "resolve_env_file: falls back to project-level when stack-level absent" {
+  _load_cli_functions
+  local tmp_root; tmp_root=$(mktemp -d)
+  CLI_ROOT="$tmp_root"
+  mkdir -p "$tmp_root/stacks/my-stack"
+  # No .prod.env in stack dir
+  result=$(resolve_env_file "my-stack" "prod")
+  [[ "$result" == "$tmp_root/.prod.env" ]]
+  rm -rf "$tmp_root"
+}
+
+@test "resolve_env_file: no env name prefers stack-level .env" {
+  _load_cli_functions
+  mkdir -p "$CLI_ROOT/stacks/my-stack"
+  echo "VPS_HOST=test" > "$CLI_ROOT/stacks/my-stack/.env"
+  result=$(resolve_env_file "my-stack" "")
+  [[ "$result" == *"/stacks/my-stack/.env" ]]
+}
+
+@test "resolve_env_file: no env name falls back to project .env" {
+  _load_cli_functions
+  local tmp_root; tmp_root=$(mktemp -d)
+  CLI_ROOT="$tmp_root"
+  mkdir -p "$tmp_root/stacks/my-stack"
+  # No .env in stack dir
+  result=$(resolve_env_file "my-stack" "")
+  [[ "$result" == "$tmp_root/.env" ]]
+  rm -rf "$tmp_root"
+}
+
 # ── resolve_compose_cmd ───────────────────────────────────────────────────────
 
 @test "resolve_compose_cmd: builds correct command with stack and env" {
