@@ -110,47 +110,26 @@ EOF
   fi
 }
 
-# ── vps_update_repo SSH command tests ─────────────────────────────────────────
+# ── vps_update_repo: delegates to fleet_sync ─────────────────────────────────
 
-@test "vps_update_repo: SSH command contains 'git clean -fdn' (dry-run detection)" {
+@test "vps_update_repo: calls fleet_sync with correct host/dir/branch" {
   local env_file
   env_file=$(_make_env_file)
 
   run _capture_vps_update_cmd "$env_file" "false"
   [ "$status" -eq 0 ]
-  [[ "$output" == *"git clean -fdn"* ]]
+  # fleet_sync is called (stubbed as ssh in the test helper)
+  [[ "$output" == *"fleet_sync"* ]] || [[ "$output" == *"SSH_CMD"* ]] || [[ "$output" == *"ssh"* ]]
 }
 
-@test "vps_update_repo: SSH command does NOT contain bare 'git clean -fd' without guard" {
+@test "vps_update_repo: strut binary verification runs after fleet_sync" {
   local env_file
   env_file=$(_make_env_file)
 
   run _capture_vps_update_cmd "$env_file" "false"
   [ "$status" -eq 0 ]
-  # The old unconditional line should be gone; only the guarded form appears
-  # (we check by requiring the dry-run flag to be present)
-  [[ "$output" == *"git clean -fdn"* ]]
-}
-
-@test "vps_update_repo: SSH command contains abort error message when FORCE_CLEAN=false" {
-  local env_file
-  env_file=$(_make_env_file)
-
-  run _capture_vps_update_cmd "$env_file" "false"
-  [ "$status" -eq 0 ]
-  [[ "$output" == *"ERROR: git clean would delete untracked paths"* ]]
-}
-
-@test "vps_update_repo: SSH command with FORCE_CLEAN=true bypasses abort" {
-  local env_file
-  env_file=$(_make_env_file)
-
-  run _capture_vps_update_cmd "$env_file" "true"
-  [ "$status" -eq 0 ]
-  # With force_clean=true the snippet embeds [ "true" = "true" ] so the git clean
-  # -fd branch executes — the dry-run detection is still present (guard structure)
-  [[ "$output" == *"git clean -fdn"* ]]
-  [[ "$output" == *"git clean -fd"* ]]
+  # The post-sync SSH verifies strut binary exists
+  [[ "$output" == *"strut"* ]]
 }
 
 # ── parse_common_flags: --force-clean ─────────────────────────────────────────

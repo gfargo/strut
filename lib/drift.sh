@@ -268,6 +268,19 @@ drift_detect() {
     fi
   done
 
+  # Check if this checkout is behind origin — a host running N commits behind is
+  # considered drifted even when the specific stack files happen to match HEAD.
+  local branch="${DEFAULT_BRANCH:-main}"
+  if git -C "$cli_root" rev-parse --verify "origin/$branch" >/dev/null 2>&1; then
+    local _behind=0
+    _behind=$(git -C "$cli_root" rev-list --count "HEAD..origin/$branch" 2>/dev/null || echo 0)
+    if [ "${_behind:-0}" -gt 0 ]; then
+      drift_detected=true
+      drifted_files+=("<git: $_behind commit(s) behind origin/$branch>")
+      drift_details+=("{\"file\":\"<origin/$branch>\",\"behind\":$_behind,\"git_hash\":\"\",\"vps_hash\":\"\",\"diff\":\"\"}")
+    fi
+  fi
+
   # Report results
   if $drift_detected; then
     warn "Configuration drift detected!"
