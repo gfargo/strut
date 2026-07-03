@@ -257,7 +257,7 @@ local_sync_db() {
   local vps_host="${VPS_HOST:-}"
   local vps_user="${VPS_USER:-ubuntu}"
   local vps_ssh_key="${VPS_SSH_KEY:-}"
-  local vps_deploy_dir="${VPS_DEPLOY_DIR:-/home/${VPS_USER:-ubuntu}/strut}"
+  local vps_deploy_dir; vps_deploy_dir=$(resolve_deploy_dir)
 
   local ssh_opts
   ssh_opts=$(build_ssh_opts -k "$vps_ssh_key")

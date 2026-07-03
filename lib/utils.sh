@@ -266,6 +266,22 @@ is_running_on_vps() {
   return 1
 }
 
+# resolve_deploy_dir
+#
+# Echoes the canonical VPS deploy directory. All local code that constructs
+# remote paths should call this rather than inlining ${VPS_DEPLOY_DIR:-...}.
+#
+# Resolution order:
+#   1. $VPS_DEPLOY_DIR (explicit config, highest priority)
+#   2. /home/$VPS_USER/strut (derived from VPS_USER)
+#   3. /home/ubuntu/strut (default when VPS_USER is unset)
+#
+# The caller must source the env file BEFORE calling this so VPS_USER and
+# VPS_DEPLOY_DIR are populated.
+resolve_deploy_dir() {
+  echo "${VPS_DEPLOY_DIR:-/home/${VPS_USER:-ubuntu}/strut}"
+}
+
 # require_cmd <cmd> [install-hint]
 require_cmd() {
   local cmd="$1"
@@ -640,7 +656,7 @@ run_remote_strut() {
   local vps_user="${VPS_USER:-ubuntu}"
   local vps_ssh_key="${VPS_SSH_KEY:-}"
   local vps_port="${VPS_PORT:-22}"
-  local deploy_dir="${VPS_DEPLOY_DIR:-/home/$vps_user/strut}"
+  local deploy_dir; deploy_dir=$(resolve_deploy_dir)
 
   local ssh_opts
   ssh_opts=$(build_ssh_opts -p "$vps_port" -k "$vps_ssh_key" --batch "${extra_ssh_flags[@]+"${extra_ssh_flags[@]}"}")

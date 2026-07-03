@@ -75,7 +75,7 @@ cmd_remote_init() {
   user="${user:-${VPS_USER:-ubuntu}}"
   ssh_key="${ssh_key:-${VPS_SSH_KEY:-}}"
   port="${port:-${VPS_PORT:-22}}"
-  deploy_dir="${deploy_dir:-${VPS_DEPLOY_DIR:-/home/$user/strut}}"
+  deploy_dir="${deploy_dir:-$(resolve_deploy_dir)}"
   branch="${branch:-${DEFAULT_BRANCH:-main}}"
 
   # Validate required params

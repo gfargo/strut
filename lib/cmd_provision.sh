@@ -156,7 +156,7 @@ cmd_provision() {
 
   local ssh_opts
   ssh_opts=$(build_ssh_opts -p "$port" -k "$key_path" --tty)
-  local deploy_dir="${VPS_DEPLOY_DIR:-/home/$user/strut}"
+  local deploy_dir; deploy_dir=$(resolve_deploy_dir)
 
   print_banner "Provision: $host_alias"
   log "Target: $user@$host:$port"

@@ -679,7 +679,7 @@ db_pull() {
   local vps_user="${VPS_USER:-ubuntu}"
   local vps_ssh_key="${VPS_SSH_KEY:-}"
   local vps_port="${VPS_PORT:-22}"
-  local vps_deploy_dir="${VPS_DEPLOY_DIR:-/home/${VPS_USER:-ubuntu}/strut}"
+  local vps_deploy_dir; vps_deploy_dir=$(resolve_deploy_dir)
 
   [ -n "$vps_host" ] || fail "VPS_HOST not set in $env_file"
 
@@ -769,7 +769,7 @@ _db_push_postgres() {
 
     log "Creating safety backup on VPS before restore..."
     ssh $ssh_opts "$vps_user@$vps_host" \
-      "cd ${VPS_DEPLOY_DIR:-/home/${VPS_USER:-ubuntu}/strut} && \
+      "cd $(resolve_deploy_dir) && \
        [ -f stacks/$stack/backup.conf ] && . stacks/$stack/backup.conf; \
        ${_sudo}docker compose --project-name $project_name exec -T \${BACKUP_POSTGRES_SERVICE:-postgres} \
          pg_dump -U \${POSTGRES_USER:-postgres} \${POSTGRES_DB:-app_db} > $remote_dir/pre-push-safety-$(date +%Y%m%d-%H%M%S).sql" \
@@ -778,7 +778,7 @@ _db_push_postgres() {
 
     log "Restoring PostgreSQL on VPS..."
     if ssh $ssh_opts "$vps_user@$vps_host" \
-      "cd ${VPS_DEPLOY_DIR:-/home/${VPS_USER:-ubuntu}/strut} && \
+      "cd $(resolve_deploy_dir) && \
        [ -f stacks/$stack/backup.conf ] && . stacks/$stack/backup.conf; \
        ${_sudo}docker compose --project-name $project_name exec -T \${BACKUP_POSTGRES_SERVICE:-postgres} \
          psql -U \${POSTGRES_USER:-postgres} -d \${POSTGRES_DB:-app_db} < $remote_dir/$filename"; then
@@ -818,7 +818,7 @@ _db_push_neo4j() {
 
     log "Creating safety backup on VPS before restore..."
     ssh $ssh_opts "$vps_user@$vps_host" \
-      "cd ${VPS_DEPLOY_DIR:-/home/${VPS_USER:-ubuntu}/strut} && \
+      "cd $(resolve_deploy_dir) && \
        ${_sudo}docker compose --project-name $project_name exec -T neo4j \
          neo4j-admin database dump neo4j --to-path=/var/lib/neo4j/import/pre-push-safety-$(date +%Y%m%d-%H%M%S).dump" \
     2>/dev/null && ok "Safety backup created" \
@@ -826,7 +826,7 @@ _db_push_neo4j() {
 
     log "Restoring Neo4j on VPS (stopping service)..."
     if ssh $ssh_opts "$vps_user@$vps_host" \
-      "cd ${VPS_DEPLOY_DIR:-/home/${VPS_USER:-ubuntu}/strut} && \
+      "cd $(resolve_deploy_dir) && \
        ${_sudo}docker compose --project-name $project_name cp $remote_dir/$filename neo4j:/var/lib/neo4j/import/restore.dump && \
        ${_sudo}docker compose --project-name $project_name stop neo4j && \
        ${_sudo}docker compose --project-name $project_name run --rm --entrypoint neo4j-admin neo4j \
@@ -944,7 +944,7 @@ db_push() {
   local vps_user="${VPS_USER:-ubuntu}"
   local vps_ssh_key="${VPS_SSH_KEY:-}"
   local vps_port="${VPS_PORT:-22}"
-  local vps_deploy_dir="${VPS_DEPLOY_DIR:-/home/${VPS_USER:-ubuntu}/strut}"
+  local vps_deploy_dir; vps_deploy_dir=$(resolve_deploy_dir)
 
   [ -n "$vps_host" ] || fail "VPS_HOST not set in $env_file"
 
