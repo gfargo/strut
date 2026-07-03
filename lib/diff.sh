@@ -475,3 +475,70 @@ _diff_render_destructive_text() {
     esac
   done <<< "$tsv"
 }
+
+# diff_warn_env_divergence <stack> <env_file> <stack_dir>
+#
+# Warns (non-fatal) when the resolved env file differs from the host's
+# active .env for volume-defining vars. This catches the "wrong file entirely"
+# case: e.g., deploying with .prod.env while the host actually runs from .env
+# with different INSTALL_DIR. The volguard handles same-file value changes;
+# this function handles the file-identity mismatch.
+#
+# Skips silently when:
+#   - No VPS_HOST (local-only stack)
+#   - Remote fetch fails (non-blocking)
+#   - The resolved file IS the stack .env (no divergence possible)
+#   - No volume-defining vars differ
+diff_warn_env_divergence() {
+  local stack="$1"
+  local env_file="$2"
+  local stack_dir="$3"
+
+  # Only meaningful when deploying to a remote VPS
+  local vps_host="${VPS_HOST:-}"
+  [ -n "$vps_host" ] || return 0
+
+  # If the resolved file is already the stack-level .env, there's no
+  # secondary file to diverge from.
+  local basename_env
+  basename_env=$(basename "$env_file")
+  [ "$basename_env" != ".env" ] || return 0
+
+  # Fetch the host's active stack-level .env (compose auto-load path)
+  local deploy_dir
+  deploy_dir=$(resolve_deploy_dir)
+  local remote_stack_env_path="$deploy_dir/stacks/$stack/.env"
+  local remote_stack_env
+  remote_stack_env=$(diff_fetch_remote "$remote_stack_env_path" 2>/dev/null) || return 0
+  [ -n "$remote_stack_env" ] || return 0
+
+  # Read the local resolved env content
+  [ -f "$env_file" ] || return 0
+  local local_env_content
+  local_env_content=$(cat "$env_file")
+
+  # Diff and check for volume-defining var differences
+  local env_diff
+  env_diff=$(diff_env_content "$local_env_content" "$remote_stack_env")
+  [ -n "$env_diff" ] || return 0
+
+  # Filter to volume-defining vars only
+  local vol_diff=""
+  local kind key rest
+  while IFS=$'\x1f' read -r kind key rest; do
+    [ -z "$kind" ] && continue
+    if _diff_is_volume_heuristic_var "$key"; then
+      vol_diff="${vol_diff:+$vol_diff
+}$kind $key"
+    fi
+  done <<< "$env_diff"
+
+  [ -n "$vol_diff" ] || return 0
+
+  # Emit warning (non-fatal)
+  warn "Env divergence: '$basename_env' has different volume vars than the host's active .env"
+  warn "  Affected vars: $(echo "$vol_diff" | awk '{print $2}' | tr '\n' ' ')"
+  warn "  The host may be running from stacks/$stack/.env with different paths."
+  warn "  This is informational — the volguard will catch destructive changes."
+  return 0
+}
