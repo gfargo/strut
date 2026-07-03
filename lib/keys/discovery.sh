@@ -182,7 +182,7 @@ discover_vps_keys() {
 
   # Check for .env files
   local env_files
-  local vps_deploy_dir="${VPS_DEPLOY_DIR:-/home/$vps_user/strut}"
+  local vps_deploy_dir; vps_deploy_dir=$(resolve_deploy_dir)
   env_files=$(ssh $ssh_opts "$vps_user@$vps_host" "ls -1 $vps_deploy_dir/*.env 2>/dev/null || echo ''" 2>/dev/null || echo "")
 
   jq -n \

@@ -73,7 +73,7 @@ cmd_ship() {
   local vps_user="${VPS_USER:-ubuntu}"
   local vps_ssh_key="${VPS_SSH_KEY:-}"
   local vps_port="${VPS_PORT:-22}"
-  local deploy_dir="${VPS_DEPLOY_DIR:-/home/$vps_user/strut}"
+  local deploy_dir; deploy_dir=$(resolve_deploy_dir)
   local branch="${DEFAULT_BRANCH:-main}"
 
   local ssh_opts

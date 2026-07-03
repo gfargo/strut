@@ -38,7 +38,7 @@ _deploy_volguard() {
 
   # Fetch the remote env content — reuse diff_fetch_remote from diff.sh.
   # If the remote is unreachable, skip the guard (non-blocking).
-  local deploy_dir="${VPS_DEPLOY_DIR:-/home/${VPS_USER:-ubuntu}/strut}"
+  local deploy_dir; deploy_dir=$(resolve_deploy_dir)
   local env_name="${CMD_ENV_NAME:-prod}"
   local remote_env_path
 
@@ -327,7 +327,7 @@ cmd_deploy() {
       warn "  strut $stack release --env ${env_name:-prod}"
       warn ""
       warn "Or run deploy on the VPS:"
-      local deploy_dir="${VPS_DEPLOY_DIR:-/home/${VPS_USER:-ubuntu}/strut}"
+      local deploy_dir; deploy_dir=$(resolve_deploy_dir)
       warn "  strut $stack exec 'cd $deploy_dir && strut $stack deploy --env ${env_name:-prod}' --env ${env_name:-prod}"
       echo ""
       if ! confirm "Continue with local deployment anyway?"; then

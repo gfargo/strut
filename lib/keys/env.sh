@@ -402,7 +402,7 @@ keys_env_diff() {
   local vps_host="${VPS_HOST:-}"
   local vps_user="${VPS_USER:-ubuntu}"
   local vps_ssh_key="${VPS_SSH_KEY:-}"
-  local vps_deploy_dir="${VPS_DEPLOY_DIR:-/home/${vps_user}/strut}"
+  local vps_deploy_dir; vps_deploy_dir=$(resolve_deploy_dir)
 
   [ -n "$vps_host" ] || fail "VPS_HOST not set in $env_file"
 

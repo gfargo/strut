@@ -80,7 +80,7 @@ cmd_diff() {
 
   # Resolve remote paths — use _secrets_resolve_remote_path for consistency
   # with secrets push (which is the canonical uploader of .env to the VPS).
-  local deploy_dir="${VPS_DEPLOY_DIR:-/home/${VPS_USER:-ubuntu}/strut}"
+  local deploy_dir; deploy_dir=$(resolve_deploy_dir)
   local remote_env
   remote_env=$(_secrets_resolve_remote_path "$deploy_dir" "${env_name:-prod}")
   local remote_compose="$deploy_dir/stacks/$stack/docker-compose.yml"

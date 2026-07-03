@@ -303,7 +303,7 @@ vps_update_repo() {
   local vps_user="${VPS_USER:-ubuntu}"
   local vps_ssh_key="${VPS_SSH_KEY:-}"
   local vps_port="${VPS_PORT:-22}"
-  local deploy_dir="${VPS_DEPLOY_DIR:-/home/$vps_user/strut}"
+  local deploy_dir; deploy_dir=$(resolve_deploy_dir)
   local gh_pat="${GH_PAT:-}"
   local branch="${DEFAULT_BRANCH:-main}"
   local env_name; env_name=$(extract_env_name "$env_file")
@@ -411,7 +411,7 @@ vps_release() {
   local vps_user="${VPS_USER:-ubuntu}"
   local vps_ssh_key="${VPS_SSH_KEY:-}"
   local vps_port="${VPS_PORT:-22}"
-  local deploy_dir="${VPS_DEPLOY_DIR:-/home/$vps_user/strut}"
+  local deploy_dir; deploy_dir=$(resolve_deploy_dir)
   local env_name
   local env_filename
   env_filename=$(basename "$env_file")

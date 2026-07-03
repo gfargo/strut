@@ -142,7 +142,7 @@ _sync_via_topology_host() {
   fi
   vps_ssh_key="$key_path"
 
-  local deploy_dir="${VPS_DEPLOY_DIR:-/home/$vps_user/strut}"
+  local deploy_dir; deploy_dir=$(resolve_deploy_dir)
   local gh_pat="${GH_PAT:-}"
   local branch="${DEFAULT_BRANCH:-main}"
 

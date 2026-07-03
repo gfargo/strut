@@ -116,7 +116,7 @@ _ci_discover_secrets() {
   local port="$7"
   local key_name="$8"
 
-  local deploy_dir="${VPS_DEPLOY_DIR:-/home/$user/strut}"
+  local deploy_dir; deploy_dir=$(resolve_deploy_dir)
 
   # ── AUTO secrets (from topology) ─────────────────────────────────────────
   printf '%s\t%s\t%s\t%s\n' "DEPLOY_HOST" "AUTO" "$host" "strut.conf [hosts]"

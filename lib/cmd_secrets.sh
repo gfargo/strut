@@ -202,7 +202,7 @@ _secrets_push() {
   local vps_user="${VPS_USER:-ubuntu}"
   local vps_port="${VPS_PORT:-22}"
   local vps_ssh_key="${VPS_SSH_KEY:-}"
-  local deploy_dir="${VPS_DEPLOY_DIR:-/home/$vps_user/strut}"
+  local deploy_dir; deploy_dir=$(resolve_deploy_dir)
 
   [ -n "$vps_host" ] || fail "VPS_HOST not set. Cannot determine target host."
 
@@ -336,7 +336,7 @@ _secrets_pull() {
   local vps_user="${VPS_USER:-ubuntu}"
   local vps_port="${VPS_PORT:-22}"
   local vps_ssh_key="${VPS_SSH_KEY:-}"
-  local deploy_dir="${VPS_DEPLOY_DIR:-/home/$vps_user/strut}"
+  local deploy_dir; deploy_dir=$(resolve_deploy_dir)
 
   [ -n "$vps_host" ] || fail "VPS_HOST not set. Cannot determine source host."
 
@@ -429,7 +429,7 @@ _secrets_diff() {
   local vps_user="${VPS_USER:-ubuntu}"
   local vps_port="${VPS_PORT:-22}"
   local vps_ssh_key="${VPS_SSH_KEY:-}"
-  local deploy_dir="${VPS_DEPLOY_DIR:-/home/$vps_user/strut}"
+  local deploy_dir; deploy_dir=$(resolve_deploy_dir)
 
   [ -n "$vps_host" ] || fail "VPS_HOST not set."
 
@@ -860,7 +860,7 @@ _secrets_status() {
     local vps_user="${VPS_USER:-ubuntu}"
     local vps_port="${VPS_PORT:-22}"
     local vps_ssh_key="${VPS_SSH_KEY:-}"
-    local deploy_dir="${VPS_DEPLOY_DIR:-/home/$vps_user/strut}"
+    local deploy_dir; deploy_dir=$(resolve_deploy_dir)
     local remote_path
     remote_path=$(_secrets_resolve_remote_path "$deploy_dir" "$env_name")
 
@@ -1050,7 +1050,7 @@ _secrets_rotate() {
     local vps_user="${VPS_USER:-ubuntu}"
     local vps_port="${VPS_PORT:-22}"
     local vps_ssh_key="${VPS_SSH_KEY:-}"
-    local deploy_dir="${VPS_DEPLOY_DIR:-/home/$vps_user/strut}"
+    local deploy_dir; deploy_dir=$(resolve_deploy_dir)
 
     [ -n "$vps_host" ] || { warn "VPS_HOST not set — skipping container restart"; return 0; }
 

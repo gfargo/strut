@@ -41,7 +41,7 @@ domain_command() {
   local vps_user="${VPS_USER:-ubuntu}"
   local vps_ssh_key="${VPS_SSH_KEY:-}"
   local vps_port="${VPS_PORT:-22}"
-  local deploy_dir="${VPS_DEPLOY_DIR:-/home/${vps_user}/strut}"
+  local deploy_dir; deploy_dir=$(resolve_deploy_dir)
 
   local ssh_opts
   ssh_opts=$(build_ssh_opts -p "$vps_port" -k "$vps_ssh_key" --batch)
