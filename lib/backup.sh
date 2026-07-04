@@ -421,6 +421,21 @@ restore_neo4j_from_targz() {
   data_volume=$(docker inspect "$container_name" --format '{{range .Mounts}}{{if eq .Destination "/data"}}{{.Name}}{{end}}{{end}}')
   [ -n "$data_volume" ] || fail "Could not resolve /data volume for container '$container_name' (container running? correct mount?) — aborting restore to avoid wiping the wrong volume"
 
+  # Get absolute path to tar.gz file
+  local abs_targz_path
+  abs_targz_path=$(cd "$(dirname "$targz_file")" && pwd)/$(basename "$targz_file")
+
+  # Validate the archive is readable and non-empty BEFORE wiping the volume.
+  # Otherwise a corrupt archive would destroy the existing data with nothing
+  # to restore from.
+  [ -s "$abs_targz_path" ] || fail "Refusing to restore: archive is empty or missing: $abs_targz_path"
+  if ! docker run --rm \
+    -v "$(dirname "$abs_targz_path"):/backup:ro" \
+    alpine:latest \
+    sh -c "tar -tzf /backup/$(basename "$abs_targz_path") >/dev/null"; then
+    fail "Refusing to restore: archive failed tar integrity check: $abs_targz_path"
+  fi
+
   log "Clearing existing data..."
   docker run --rm \
     -v "$data_volume:/data" \
@@ -428,18 +443,13 @@ restore_neo4j_from_targz() {
     sh -c "rm -rf /data/*"
 
   log "Extracting tar.gz archive to data volume..."
-  # Get absolute path to tar.gz file
-  local abs_targz_path
-  abs_targz_path=$(cd "$(dirname "$targz_file")" && pwd)/$(basename "$targz_file")
-
-  # Extract the tar.gz directly into the data volume
-  docker run --rm \
+  # Use `if !` so the failure branch actually runs under `set -e` (a bare
+  # command would exit the whole script before the `$?` check).
+  if ! docker run --rm \
     -v "$data_volume:/data" \
-    -v "$(dirname "$abs_targz_path"):/backup" \
+    -v "$(dirname "$abs_targz_path"):/backup:ro" \
     alpine:latest \
-    sh -c "cd /data && tar -xzf /backup/$(basename "$abs_targz_path") --strip-components=1"
-
-  if [ $? -ne 0 ]; then
+    sh -c "cd /data && tar -xzf /backup/$(basename "$abs_targz_path") --strip-components=1"; then
     error "Failed to extract tar.gz archive"
     docker start "$container_name" >/dev/null 2>&1
     return 1
@@ -484,6 +494,13 @@ restore_postgres() {
     compose_cmd=$(resolve_compose_cmd "$stack" "$target_env_file" "")
   fi
 
+  # Validate the dump BEFORE any destructive action, so a truncated/empty
+  # dump can never drop a live database with nothing to restore from.
+  [ -s "$sql_file" ] || fail "Refusing to restore: dump is empty or missing: $sql_file"
+  if [[ "$sql_file" == *.gz ]]; then
+    gzip -t "$sql_file" 2>/dev/null || fail "Refusing to restore: gzip integrity check failed for $sql_file"
+  fi
+
   warn "This will restore PostgreSQL from: $sql_file"
   confirm "Continue?" || { ok "Restore cancelled"; return 0; }
 
@@ -495,16 +512,18 @@ restore_postgres() {
   # Drop and recreate the database to avoid "already exists" errors
   log "Dropping and recreating database..."
   $compose_cmd exec -T "$pg_service" \
-    psql -U "${POSTGRES_USER:-postgres}" -d postgres \
+    psql -v ON_ERROR_STOP=1 -U "${POSTGRES_USER:-postgres}" -d postgres \
     -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname='${POSTGRES_DB:-app_db}' AND pid <> pg_backend_pid();" \
     -c "DROP DATABASE IF EXISTS \"${POSTGRES_DB:-app_db}\";" \
     -c "CREATE DATABASE \"${POSTGRES_DB:-app_db}\";" \
   || { error "Failed to recreate database"; return 1; }
 
+  # ON_ERROR_STOP=1 makes psql exit non-zero on the first failed statement,
+  # so a partial restore is reported as a failure instead of "complete".
   $compose_cmd exec -T "$pg_service" \
-    psql -U "${POSTGRES_USER:-postgres}" "${POSTGRES_DB:-app_db}" < "$sql_file" \
+    psql -v ON_ERROR_STOP=1 -U "${POSTGRES_USER:-postgres}" "${POSTGRES_DB:-app_db}" < "$sql_file" \
   && ok "PostgreSQL restore complete" \
-  || { error "PostgreSQL restore failed"; return 1; }
+  || { error "PostgreSQL restore failed — database was dropped/recreated but the dump did not fully apply"; return 1; }
 }
 
 # restore_gdrive_transcripts <stack> <compose_cmd> <tar_file>
@@ -552,12 +571,15 @@ _db_pull_find_and_download() {
   filename=$(basename "$latest")
   local local_file="$local_dir/$filename"
 
-  log "Downloading $filename from VPS..."
+  # This function's stdout is captured by callers as the downloaded path, so
+  # all human-facing logging MUST go to stderr — otherwise log lines and rsync
+  # output get spliced into the returned path and every `[ -f "$file" ]` fails.
+  log "Downloading $filename from VPS..." >&2
   rsync -avz -e "ssh $ssh_opts" \
     "$vps_user@$vps_host:$latest" \
-    "$local_file" \
-  && ok "Downloaded: $local_file" \
-  || { error "Failed to download backup"; return 1; }
+    "$local_file" >&2 \
+  && ok "Downloaded: $local_file" >&2 \
+  || { error "Failed to download backup" >&2; return 1; }
 
   echo "$local_file"
 }
@@ -658,7 +680,10 @@ _db_pull_sqlite() {
     log "Restoring SQLite to local environment..."
     warn "This will overwrite your local SQLite database"
     confirm "Continue with restore?" || { ok "Restore skipped"; return 0; }
-    restore_sqlite "$stack" "$compose_cmd" "$local_file"
+    # db:pull always restores to the LOCAL environment. db_pull sources the
+    # remote env (which sets VPS_HOST), and restore_sqlite routes on VPS_HOST —
+    # so force it empty here to prevent a pull from overwriting production.
+    VPS_HOST="" restore_sqlite "$stack" "$compose_cmd" "$local_file"
   fi
 }
 
@@ -777,11 +802,19 @@ _db_push_postgres() {
     || warn "Failed to create safety backup (continuing anyway)"
 
     log "Restoring PostgreSQL on VPS..."
+    # Drop/recreate the target DB and use ON_ERROR_STOP=1 so the remote restore
+    # is a clean replace that fails loudly on error — not a silent merge that
+    # errors on every existing object yet reports success.
     if ssh $ssh_opts "$vps_user@$vps_host" \
       "cd $(resolve_deploy_dir) && \
        [ -f stacks/$stack/backup.conf ] && . stacks/$stack/backup.conf; \
        ${_sudo}docker compose --project-name $project_name exec -T \${BACKUP_POSTGRES_SERVICE:-postgres} \
-         psql -U \${POSTGRES_USER:-postgres} -d \${POSTGRES_DB:-app_db} < $remote_dir/$filename"; then
+         psql -v ON_ERROR_STOP=1 -U \${POSTGRES_USER:-postgres} -d postgres \
+           -c \"SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname='\${POSTGRES_DB:-app_db}' AND pid <> pg_backend_pid();\" \
+           -c \"DROP DATABASE IF EXISTS \\\"\${POSTGRES_DB:-app_db}\\\";\" \
+           -c \"CREATE DATABASE \\\"\${POSTGRES_DB:-app_db}\\\";\" && \
+       ${_sudo}docker compose --project-name $project_name exec -T \${BACKUP_POSTGRES_SERVICE:-postgres} \
+         psql -v ON_ERROR_STOP=1 -U \${POSTGRES_USER:-postgres} -d \${POSTGRES_DB:-app_db} < $remote_dir/$filename"; then
       ok "PostgreSQL restore complete on VPS"
     else
       error "PostgreSQL restore failed on VPS"

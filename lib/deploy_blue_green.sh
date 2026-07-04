@@ -133,6 +133,14 @@ _bg_start_color() {
   log "Pulling images for green"
   # shellcheck disable=SC2086
   $compose_cmd pull 2>&1 | grep -v '^$' || true
+  # Fail before starting green if a required image didn't pull (expired token,
+  # registry down) — otherwise green comes up from stale cache or crash-loops.
+  # Skipped for local-build stacks (build_mode=local), which have no registry
+  # images to require.
+  if [ "${BUILD_MODE:-registry}" != "local" ] && declare -F docker_require_images >/dev/null; then
+    docker_require_images "$compose_cmd" \
+      || fail "Aborting blue-green deploy: required images could not be pulled — green was not started, blue is untouched."
+  fi
   log "Starting green project"
   # shellcheck disable=SC2086
   $compose_cmd up -d --remove-orphans
@@ -153,9 +161,11 @@ _bg_wait_healthy() {
 
   log "Waiting for green health (timeout: ${timeout}s)"
   while [ "$elapsed" -lt "$timeout" ]; do
-    # Re-source health.sh into a subshell so the probe's counters don't
-    # clobber the caller's state. We only care about the exit code.
-    if ( health_run_all "$(basename "$stack_dir")" "$compose_cmd" "$compose_file" --json >/dev/null 2>&1 ); then
+    # Use the project-scoped green readiness gate, NOT health_run_all: the
+    # latter probes host ports (answered by the still-live blue color, so a
+    # dead green would pass) and host-global resources (a load spike during
+    # pull would fail a healthy deploy). Subshell keeps its counters local.
+    if ( health_check_green "$(basename "$stack_dir")" "$compose_cmd" "$compose_file" >/dev/null 2>&1 ); then
       ok "green healthy"
       return 0
     fi

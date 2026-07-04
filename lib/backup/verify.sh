@@ -20,6 +20,14 @@ verify_postgres_backup() {
     error "Backup file not found: $backup_file"
     return 1
   }
+  [ -s "$backup_file" ] || {
+    error "Verification failed: backup file is empty: $backup_file"
+    return 1
+  }
+  if [[ "$backup_file" == *.gz ]] && ! gzip -t "$backup_file" 2>/dev/null; then
+    error "Verification failed: gzip integrity check failed: $backup_file"
+    return 1
+  fi
 
   local temp_db="verify_temp_$(date +%s)"
   local start_time
@@ -35,10 +43,12 @@ verify_postgres_backup() {
     return 1
   fi
 
-  # Restore backup to temporary database
+  # Restore backup to temporary database.
+  # ON_ERROR_STOP=1 is essential: without it psql exits 0 on a truncated dump
+  # and verification "passes" on a corrupt backup.
   log "Restoring backup to temporary database..." >&2
   if ! $compose_cmd exec -T postgres \
-    psql -U "${POSTGRES_USER:-postgres}" -d "$temp_db" <"$backup_file" >/dev/null 2>&1; then
+    psql -v ON_ERROR_STOP=1 -U "${POSTGRES_USER:-postgres}" -d "$temp_db" <"$backup_file" >/dev/null 2>&1; then
     error "Failed to restore backup to temporary database"
     # Cleanup
     $compose_cmd exec -T postgres \

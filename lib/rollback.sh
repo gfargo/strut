@@ -42,26 +42,28 @@ rollback_save_snapshot() {
   filename=$(date -u +"%Y%m%d-%H%M%S")
   local snapshot_file="$rollback_dir/${filename}.json"
 
-  # Get running service images via compose
+  # Get running service images via compose. We record BOTH the compose image
+  # reference (tag) and the concrete image ID (sha256) of the running container.
+  # The image ID is what makes rollback real: a mutable tag like ":latest" will
+  # have moved to the bad image by the time you roll back, so restore re-tags
+  # the recorded image ID rather than re-pulling the tag.
   local services_json="{"
   local first=true
   local service_count=0
 
-  while IFS= read -r line; do
-    [ -z "$line" ] && continue
-    local service image
-    service=$(echo "$line" | awk '{print $1}')
-    image=$(echo "$line" | awk '{print $2}')
+  while IFS='|' read -r service image cid; do
     [ -z "$service" ] || [ -z "$image" ] && continue
+    local image_id=""
+    [ -n "$cid" ] && image_id=$(docker inspect --format '{{.Image}}' "$cid" 2>/dev/null || echo "")
 
     if $first; then
       first=false
     else
       services_json+=","
     fi
-    services_json+="\"$service\":{\"image\":\"$image\"}"
+    services_json+="\"$service\":{\"image\":\"$image\",\"image_id\":\"$image_id\"}"
     service_count=$((service_count + 1))
-  done < <($compose_cmd ps --format '{{.Service}} {{.Image}}' 2>/dev/null || true)
+  done < <($compose_cmd ps --format '{{.Service}}|{{.Image}}|{{.ID}}' 2>/dev/null || true)
 
   services_json+="}"
 
@@ -121,29 +123,48 @@ rollback_restore_snapshot() {
   log "  Timestamp: $timestamp"
   log "  Services: $service_count"
 
-  # Pull the specific image versions from the snapshot
+  # Re-point each compose tag at the recorded image ID so `up -d` starts the
+  # ORIGINAL image, not whatever the (possibly mutated) tag resolves to now.
+  # Tab-separated so image refs with spaces can't split.
   local services
-  services=$(jq -r '.services | to_entries[] | "\(.key) \(.value.image)"' "$snapshot_file")
+  services=$(jq -r '.services | to_entries[] | "\(.key)\t\(.value.image)\t\(.value.image_id // "")"' "$snapshot_file")
 
-  while IFS= read -r line; do
-    [ -z "$line" ] && continue
-    local service image
-    service=$(echo "$line" | awk '{print $1}')
-    image=$(echo "$line" | awk '{print $2}')
+  local pinned=0 unpinnable=0
+  while IFS=$'\t' read -r service image image_id; do
+    [ -z "$service" ] && continue
 
-    log "  Pulling $service → $image"
-    docker pull "$image" 2>/dev/null || warn "Failed to pull $image (may have been removed from registry)"
+    if [ -n "$image_id" ] && docker image inspect "$image_id" >/dev/null 2>&1; then
+      if [[ "$image" == *"@sha256:"* ]]; then
+        # Already a digest-pinned ref — up -d will use exactly this image.
+        log "  $service → $image (digest-pinned)"
+      else
+        log "  $service → re-tagging $image to recorded image ${image_id:0:19}"
+        docker tag "$image_id" "$image" 2>/dev/null || warn "Failed to re-tag $image"
+      fi
+      pinned=$((pinned + 1))
+    else
+      # The original image is no longer present locally (pruned/removed) and we
+      # only have a mutable tag — pulling it may fetch a DIFFERENT image. Warn
+      # loudly so the operator knows this service is not truly rolled back.
+      warn "  $service: original image not available locally (id=${image_id:-none}); falling back to 'docker pull $image' which may NOT be the snapshot version"
+      docker pull "$image" 2>/dev/null || warn "Failed to pull $image (may have been removed from registry)"
+      unpinnable=$((unpinnable + 1))
+    fi
   done <<< "$services"
+
+  if [ "$unpinnable" -gt 0 ]; then
+    warn "$unpinnable service(s) could not be pinned to the snapshot image — rollback is best-effort for those"
+  fi
 
   # Stop current containers
   log "Stopping current containers..."
   $compose_cmd down --remove-orphans 2>/dev/null || true
 
-  # Start with the restored images
+  # Start with the restored images (compose uses the now-re-tagged local images)
   log "Starting services with restored images..."
   $compose_cmd up -d --remove-orphans
 
-  ok "Rollback complete"
+  ok "Rollback complete ($pinned pinned, $unpinnable best-effort)"
   return 0
 }
 

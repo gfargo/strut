@@ -80,16 +80,35 @@ EOF
 
   log "Generated strut.conf"
 
-  # ── Generate .gitignore ───────────────────────────
-  cat > "$PWD/.gitignore" <<'GITIGNORE_EOF'
-# strut — generated .gitignore
-.env
-.env.*
-!.env.template
-backups/
-data/
-GITIGNORE_EOF
-  log "Generated .gitignore"
+  # ── Generate/update .gitignore ────────────────────
+  # NEVER truncate an existing .gitignore — it is the primary defense against
+  # `git clean -fd` deleting untracked data dirs on deploy. Append a marker
+  # block with only the rules that are missing.
+  local -a strut_ignores=('.env' '.env.*' '!.env.template' 'backups/' 'data/')
+  if [ ! -f "$PWD/.gitignore" ]; then
+    {
+      echo "# strut — generated .gitignore"
+      printf '%s\n' "${strut_ignores[@]}"
+    } > "$PWD/.gitignore"
+    log "Generated .gitignore"
+  elif ! grep -qxF "# strut — managed rules" "$PWD/.gitignore"; then
+    local added=""
+    for rule in "${strut_ignores[@]}"; do
+      grep -qxF "$rule" "$PWD/.gitignore" || added+="$rule"$'\n'
+    done
+    if [ -n "$added" ]; then
+      {
+        echo ""
+        echo "# strut — managed rules"
+        printf '%s' "$added"
+      } >> "$PWD/.gitignore"
+      log "Updated existing .gitignore (appended strut rules)"
+    else
+      log ".gitignore already covers strut rules — left unchanged"
+    fi
+  else
+    log ".gitignore already has strut-managed rules — left unchanged"
+  fi
 
   # ── Optional: install shell completions ──────────
   if [ "$install_completions" = "true" ]; then

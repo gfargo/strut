@@ -90,7 +90,30 @@ cmd_scaffold() {
     # tar pipe preserves hidden files (.gitignore etc.) and subdirs.
     ( cd "$recipe_dir" && tar --exclude=recipe.conf -cf - . ) | ( cd "$target" && tar -xf - )
 
+    # DATA SAFETY: guarantee a .gitignore exists BEFORE substitution (so any
+    # STACK_NAME_PLACEHOLDER in the template is substituted too). `strut deploy`
+    # runs `git clean -fd` on the VPS, which deletes any untracked, non-ignored
+    # path — including recipe data dirs that bind-mount inside the checkout
+    # (e.g. ./media, ./immich-library). Recipes rarely ship a .gitignore, so
+    # seed/merge the base template.
+    if [ -f "$templates_dir/gitignore.template" ]; then
+      if [ ! -f "$target/.gitignore" ]; then
+        cp "$templates_dir/gitignore.template" "$target/.gitignore"
+      else
+        while IFS= read -r rule; do
+          [ -z "$rule" ] && continue
+          case "$rule" in \#*) continue ;; esac
+          grep -qxF "$rule" "$target/.gitignore" || echo "$rule" >> "$target/.gitignore"
+        done < "$templates_dir/gitignore.template"
+      fi
+    fi
+
     _scaffold_substitute "$target" "$new_name"
+
+    # Warn about bind-mounts that resolve inside the checkout.
+    if grep -qE '^\s*-\s*\./' "$target/docker-compose.yml" 2>/dev/null; then
+      warn "This recipe bind-mounts data inside the stack dir. Ensure those paths are in $target/.gitignore or store data outside the checkout, or 'git clean' on deploy will delete them."
+    fi
 
     ok "Stack scaffolded from recipe '$recipe_flag': $target"
     echo ""

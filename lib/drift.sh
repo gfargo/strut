@@ -384,8 +384,9 @@ drift_fix() {
   local env="${2:-prod}"
   local dry_run=false
 
-  # Check for --dry-run flag
-  if [[ "$3" == "--dry-run" || "$env" == "--dry-run" ]]; then
+  # Check for --dry-run flag (${3:-} — $3 is unbound when called with 2 args,
+  # which under `set -u` would abort the whole process, not just this function).
+  if [[ "${3:-}" == "--dry-run" || "$env" == "--dry-run" ]]; then
     dry_run=true
     [ "$env" == "--dry-run" ] && env="prod"
   fi
@@ -465,18 +466,24 @@ drift_fix() {
 
   for file in "${drifted_files[@]}"; do
     local git_file="$stack_dir/$file"
-    local vps_file="$stack_dir/$file"
+    local relative_path="${git_file#"$cli_root"/}"
 
-    log "  Fixing: $file"
+    log "  Restoring from git HEAD: $file"
 
-    # Copy git-tracked file to VPS location
-    # In a real scenario, this would sync from git repo to VPS
-    # For now, we assume git-tracked files are already in place
-    # and we just need to ensure they match
+    # Actually restore the tracked version into the working tree. This loop
+    # previously only ran a syntax check and changed NOTHING, yet reported
+    # "fixed successfully" — real remediation is `git checkout HEAD -- <path>`.
+    # (Only git-tracked files reach here: untracked files hash-match themselves
+    # in detection and never register as drift.)
+    if ! git -C "$cli_root" checkout HEAD -- "$relative_path" 2>/dev/null; then
+      error "  Failed to restore $file from git HEAD (is it committed?)"
+      fix_failed=true
+      continue
+    fi
 
-    # Validate syntax before applying
+    # Validate syntax of the now-restored file
     if ! drift_validate_syntax "$git_file"; then
-      error "  Syntax validation failed for $file, skipping"
+      error "  Syntax validation failed for $file after restore"
       fix_failed=true
       continue
     fi

@@ -51,7 +51,10 @@ registry_login() {
 _registry_login_ghcr() {
   [ -n "${GH_PAT:-}" ] || fail "GH_PAT not set — needed for GHCR authentication"
   log "Authenticating with GHCR..."
-  local sudo_prefix="${DOCKER_SUDO_PREFIX:-}"
+  # Match the compose path's sudo behavior (DOCKER_SUDO_PREFIX was never set,
+  # so on VPS_SUDO hosts docker login ran without sudo → socket-permission
+  # failure → unauthenticated pulls).
+  local sudo_prefix="${DOCKER_SUDO_PREFIX:-$([ "${VPS_SUDO:-false}" = "true" ] && echo "sudo " || echo "")}"
   echo "$GH_PAT" | ${sudo_prefix}docker login ghcr.io -u github-actions --password-stdin \
     && ok "GHCR login successful" \
     || warn "GHCR login failed — will try to build locally"
@@ -61,7 +64,7 @@ _registry_login_dockerhub() {
   [ -n "${DOCKER_USER:-}" ] || fail "DOCKER_USER not set — needed for Docker Hub authentication"
   [ -n "${DOCKER_PASS:-}" ] || fail "DOCKER_PASS not set — needed for Docker Hub authentication"
   log "Authenticating with Docker Hub..."
-  local sudo_prefix="${DOCKER_SUDO_PREFIX:-}"
+  local sudo_prefix="${DOCKER_SUDO_PREFIX:-$([ "${VPS_SUDO:-false}" = "true" ] && echo "sudo " || echo "")}"
   echo "$DOCKER_PASS" | ${sudo_prefix}docker login -u "$DOCKER_USER" --password-stdin \
     && ok "Docker Hub login successful" \
     || warn "Docker Hub login failed — will try to build locally"
@@ -70,7 +73,7 @@ _registry_login_dockerhub() {
 _registry_login_ecr() {
   [ -n "${REGISTRY_HOST:-}" ] || fail "REGISTRY_HOST not set — needed for ECR authentication"
   log "Authenticating with ECR ($REGISTRY_HOST)..."
-  local sudo_prefix="${DOCKER_SUDO_PREFIX:-}"
+  local sudo_prefix="${DOCKER_SUDO_PREFIX:-$([ "${VPS_SUDO:-false}" = "true" ] && echo "sudo " || echo "")}"
   aws ecr get-login-password | ${sudo_prefix}docker login --username AWS --password-stdin "$REGISTRY_HOST" \
     && ok "ECR login successful" \
     || warn "ECR login failed — will try to build locally"

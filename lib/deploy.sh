@@ -211,6 +211,11 @@ $_hint"
   else
     log "[3/5] Pulling latest images..."
     docker_pull_stack "$compose_cmd"
+    # Abort BEFORE stopping the running stack if a required image is missing
+    # (e.g. expired registry token). Prevents tearing the stack down only to
+    # fail on restart, or silently deploying stale cached images.
+    docker_require_images "$compose_cmd" \
+      || fail "Aborting deploy: required images could not be pulled — the running stack was left untouched. Check registry auth (GH_PAT/DOCKER_PASS) and network connectivity."
   fi
 
   # Data directories — read from services.conf or use defaults
