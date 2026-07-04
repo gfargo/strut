@@ -93,15 +93,26 @@ health_check_containers() {
 
   [ -f "$compose_file" ] || { _health_record fail "Compose File" "Not found: $compose_file"; return 1; }
 
-  local containers
-  containers=$($compose_cmd ps --format json 2>/dev/null || echo "[]")
-  if [ "$containers" = "[]" ]; then
+  # `docker compose ps --format json` emits NDJSON (one object per line) on
+  # compose >= 2.21 and a JSON array on older versions. Normalize both to a
+  # flat stream with `jq -s` (slurp): NDJSON slurps to [obj,obj,...]; a lone
+  # array slurps to [[...]] which we unwrap.
+  local raw rows
+  raw=$($compose_cmd ps --format json 2>/dev/null || true)
+  rows=$(printf '%s' "$raw" | jq -rs '
+    (if (length == 1 and (.[0] | type) == "array") then .[0] else . end)
+    | .[] | "\(.Name)|\(.State)|\(.Health // "")"' 2>/dev/null || true)
+
+  if [ -z "$rows" ]; then
     _health_record fail "Containers" "No containers running"
     return 1
   fi
 
-  echo "$containers" | jq -r '.[] | "\(.Name)|\(.State)|\(.Health)"' 2>/dev/null | \
+  # Feed via a here-string, NOT a pipe: a `... | while` runs the loop in a
+  # subshell and its _health_record counter updates (HEALTH_FAILED etc.) are
+  # lost — the whole point of the check.
   while IFS='|' read -r name state health; do
+    [ -z "$name" ] && continue
     if [ "$state" = "running" ]; then
       if [ "$health" = "healthy" ] || [ -z "$health" ]; then
         _health_record pass "Container: $name" "Running"
@@ -111,8 +122,30 @@ health_check_containers() {
     else
       _health_record fail "Container: $name" "State: $state"
     fi
-  done
+  done <<< "$rows"
   $HEALTH_JSON_OUTPUT || echo ""
+}
+
+# health_check_green <stack> <compose_cmd> <compose_file>
+#
+# Project-scoped readiness gate for a blue-green color. Judges ONLY the target
+# project's own containers (running + Docker health) — never host ports (which
+# the other, still-live color answers) and never host-global resources (load
+# spikes during image pull are not a reason to fail a deploy). Intended to be
+# polled until healthy or timeout.
+#
+# Returns: 0 when every container is running and healthy (or has no healthcheck),
+#          1 otherwise (a container is down, unhealthy, or still starting).
+health_check_green() {
+  local compose_cmd="$2" compose_file="$3"
+  local prev_json="$HEALTH_JSON_OUTPUT"
+  HEALTH_JSON_OUTPUT=true  # suppress human output while polling
+  HEALTH_OVERALL="healthy"; HEALTH_PASSED=0; HEALTH_FAILED=0; HEALTH_WARNED=0; HEALTH_JSON_RESULTS="[]"
+  health_check_containers "$compose_cmd" "$compose_file" || true
+  HEALTH_JSON_OUTPUT="$prev_json"
+  # Healthy only when at least one container is up and none failed or are
+  # merely "running but not yet healthy" (warn) — the latter keeps us polling.
+  [ "$HEALTH_PASSED" -gt 0 ] && [ "$HEALTH_FAILED" -eq 0 ] && [ "$HEALTH_WARNED" -eq 0 ]
 }
 
 # health_check_application <stack_dir>
