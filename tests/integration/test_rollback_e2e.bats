@@ -131,6 +131,14 @@ setup() { _skip_without_docker; }
   # Roll back. The compose tag still resolves to B locally — a rollback that
   # merely re-resolved the tag would redeploy B. It must instead restore A.
   run "$CLI_ROOT/strut" "$RB_STACK" rollback --env "$RB_ENV"
+  echo "--- rollback output ---"
+  echo "$output"
+  echo "--- snapshot file(s) ---"
+  cat "$RB_STACK_DIR/.rollback"/*.json 2>&1
+  echo "--- tag resolution ---"
+  docker image inspect --format '{{.ID}}' "$RB_TAG" 2>&1
+  echo "digest_a=$digest_a digest_b=$digest_b"
+  echo "--- end debug ---"
   [ "$status" -eq 0 ]
   [[ "$output" == *"health"* ]]
 
