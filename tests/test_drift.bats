@@ -196,6 +196,165 @@ EOF
   [[ "$output" == *"VPS file missing"* ]]
 }
 
+# ── drift_fix ──────────────────────────────────────────────────────────────────
+# These tests use a throwaway git repo (not the strut checkout) as CLI_ROOT so
+# that "git checkout HEAD -- <tracked file>" has a real commit to restore from,
+# without touching this repo's own git history.
+
+# _drift_fixture_init <fixture_root> <stack> <content>
+# Creates a one-off git repo with a committed stacks/<stack>/docker-compose.yml
+_drift_fixture_init() {
+  local fixture_root="$1"
+  local stack="$2"
+  local content="$3"
+
+  mkdir -p "$fixture_root/stacks/$stack"
+  echo "$content" > "$fixture_root/stacks/$stack/docker-compose.yml"
+  (
+    cd "$fixture_root" || exit 1
+    git init -q
+    git config user.email "test@strut.local"
+    git config user.name "strut-tests"
+    git add -A
+    git commit -q -m "seed fixture"
+  ) >/dev/null 2>&1
+}
+
+@test "drift_fix: restores drifted file from git HEAD and re-detect reports clean" {
+  local stack="test-drift-fix-restore-$$"
+  local fixture_root="$TEST_TMP/fixture-restore"
+  _drift_fixture_init "$fixture_root" "$stack" "version: '3.8'"
+
+  local orig_cli_root="$CLI_ROOT"
+  export CLI_ROOT="$fixture_root"
+
+  echo "drifted content" > "$fixture_root/stacks/$stack/docker-compose.yml"
+
+  run drift_detect "$stack" "prod"
+  [ "$status" -eq 1 ]
+
+  run drift_fix "$stack" "prod"
+  local fix_status="$status"
+  local fix_output="$output"
+
+  local restored_content
+  restored_content=$(cat "$fixture_root/stacks/$stack/docker-compose.yml")
+
+  run drift_detect "$stack" "prod"
+  local redetect_status="$status"
+
+  export CLI_ROOT="$orig_cli_root"
+
+  [ "$fix_status" -eq 0 ]
+  [[ "$fix_output" == *"fixed successfully"* ]]
+  [ "$restored_content" = "version: '3.8'" ]
+  [ "$redetect_status" -eq 0 ]
+}
+
+@test "drift_fix: records resolution success only after real restore" {
+  if ! command -v jq &>/dev/null; then
+    skip "jq not available"
+  fi
+
+  local stack="test-drift-fix-resolve-$$"
+  local fixture_root="$TEST_TMP/fixture-resolve"
+  _drift_fixture_init "$fixture_root" "$stack" "version: '3.8'"
+
+  local orig_cli_root="$CLI_ROOT"
+  export CLI_ROOT="$fixture_root"
+
+  echo "drifted content" > "$fixture_root/stacks/$stack/docker-compose.yml"
+
+  run drift_detect "$stack" "prod"
+  [ "$status" -eq 1 ]
+
+  run drift_fix "$stack" "prod"
+  local fix_status="$status"
+
+  local drift_file
+  drift_file=$(ls -t "$fixture_root/stacks/$stack/drift-history"/*.json 2>/dev/null | head -1)
+  local resolution_status
+  resolution_status=$(jq -r '.resolution.status' "$drift_file")
+
+  export CLI_ROOT="$orig_cli_root"
+
+  [ "$fix_status" -eq 0 ]
+  [ -n "$drift_file" ]
+  [ "$resolution_status" = "success" ]
+}
+
+@test "drift_fix: dry-run makes no changes and writes no resolution" {
+  local stack="test-drift-fix-dryrun-$$"
+  local fixture_root="$TEST_TMP/fixture-dryrun"
+  _drift_fixture_init "$fixture_root" "$stack" "version: '3.8'"
+
+  local orig_cli_root="$CLI_ROOT"
+  export CLI_ROOT="$fixture_root"
+
+  echo "drifted content" > "$fixture_root/stacks/$stack/docker-compose.yml"
+
+  run drift_detect "$stack" "prod"
+  [ "$status" -eq 1 ]
+
+  run drift_fix "$stack" "prod" "--dry-run"
+  local fix_status="$status"
+  local fix_output="$output"
+
+  local content_after
+  content_after=$(cat "$fixture_root/stacks/$stack/docker-compose.yml")
+
+  local resolution_status="null"
+  if command -v jq &>/dev/null; then
+    local drift_file
+    drift_file=$(ls -t "$fixture_root/stacks/$stack/drift-history"/*.json 2>/dev/null | head -1)
+    resolution_status=$(jq -r '.resolution' "$drift_file")
+  fi
+
+  export CLI_ROOT="$orig_cli_root"
+
+  [ "$fix_status" -eq 0 ]
+  [[ "$fix_output" == *"Dry-run"* ]]
+  [ "$content_after" = "drifted content" ]
+  [ "$resolution_status" = "null" ]
+}
+
+@test "drift_fix: leaves resolution unrecorded when git checkout fails" {
+  if [ "$(id -u)" -eq 0 ]; then
+    skip "permission checks are bypassed when running as root"
+  fi
+
+  local stack="test-drift-fix-fail-$$"
+  local fixture_root="$TEST_TMP/fixture-fail"
+  _drift_fixture_init "$fixture_root" "$stack" "version: '3.8'"
+
+  local orig_cli_root="$CLI_ROOT"
+  export CLI_ROOT="$fixture_root"
+
+  local stack_dir="$fixture_root/stacks/$stack"
+  echo "drifted content" > "$stack_dir/docker-compose.yml"
+
+  # Pre-create drift-backups (kept writable) so the backup step still
+  # succeeds; only the stack dir itself (the checkout target) is locked
+  # down, so the failure is isolated to the "git checkout HEAD" step.
+  mkdir -p "$stack_dir/drift-backups"
+  chmod 555 "$stack_dir"
+
+  run drift_fix "$stack" "prod"
+  local fix_status="$status"
+  local fix_output="$output"
+
+  chmod 755 "$stack_dir"
+
+  local content_after
+  content_after=$(cat "$stack_dir/docker-compose.yml")
+
+  export CLI_ROOT="$orig_cli_root"
+
+  [ "$fix_status" -ne 0 ]
+  [[ "$fix_output" == *"Failed to restore"* ]]
+  [ "$content_after" = "drifted content" ]
+}
+
 # ── Property: drift_store_event always creates valid JSON ─────────────────────
 
 @test "Property: drift_store_event always creates valid JSON (100 iterations)" {
