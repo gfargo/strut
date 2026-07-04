@@ -103,8 +103,8 @@ teardown() { common_teardown; }
   # Stub topology
   source "$CLI_ROOT/lib/topology.sh" 2>/dev/null || true
   topology_load() { :; }
-  topology_has_host() { return 1; }
-  export -f topology_load topology_has_host
+  topology_is_host_alias() { return 1; }
+  export -f topology_load topology_is_host_alias
   export VPS_HOST="10.0.0.1"
   export VPS_USER="deploy"
   export VPS_PORT="22"
@@ -125,8 +125,8 @@ teardown() { common_teardown; }
   echo "#!/bin/bash" > "$TEST_TMP/scripts/provision-harbor.sh"
 
   topology_load() { :; }
-  topology_has_host() { return 1; }
-  export -f topology_load topology_has_host
+  topology_is_host_alias() { return 1; }
+  export -f topology_load topology_is_host_alias
   export VPS_HOST="10.0.0.1"
   export VPS_USER="deploy"
 
@@ -156,8 +156,8 @@ teardown() { common_teardown; }
   export -f fail
 
   topology_load() { :; }
-  topology_has_host() { return 1; }
-  export -f topology_load topology_has_host
+  topology_is_host_alias() { return 1; }
+  export -f topology_load topology_is_host_alias
   export VPS_HOST="10.0.0.1"
 
   run cmd_provision --dry-run
@@ -173,8 +173,8 @@ teardown() { common_teardown; }
   unset VPS_HOST
 
   topology_load() { :; }
-  topology_has_host() { return 1; }
-  export -f topology_load topology_has_host
+  topology_is_host_alias() { return 1; }
+  export -f topology_load topology_is_host_alias
 
   fail() { echo "FAIL: $1" >&2; exit 1; }
   export -f fail

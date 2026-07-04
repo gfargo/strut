@@ -822,6 +822,18 @@ else
   export _error_context="$STACK/$COMMAND"
 fi
 
+# gateway is a virtual "stack" dispatched by STACK, not COMMAND — its
+# subcommands (deploy/status/reload/validate) collide with real command
+# names in the case below, so route it here before the generic dispatch.
+if [ "$STACK" = "gateway" ]; then
+  if [ "$FLAGS_HELP" = "true" ]; then
+    _usage_gateway
+    exit 0
+  fi
+  cmd_gateway "$COMMAND" "${CMD_ARGS[@]+"${CMD_ARGS[@]}"}"
+  exit $?
+fi
+
 # parse_common_flags already consumed --help/-h into FLAGS_HELP
 if [ "$FLAGS_HELP" = "true" ]; then
   case "$COMMAND" in
@@ -853,7 +865,6 @@ if [ "$FLAGS_HELP" = "true" ]; then
 
     cert:renew|cert:status) _usage_cert_renew ;;
 
-    gateway) _usage_gateway ;;
     lock)     _usage_lock ;;
     *)        usage ;;
   esac
@@ -890,7 +901,6 @@ case "$COMMAND" in
   cert:renew)          cmd_cert_renew "${CMD_ARGS[@]+"${CMD_ARGS[@]}"}" ;;
   cert:status)         cmd_cert_status "${CMD_ARGS[@]+"${CMD_ARGS[@]}"}" ;;
 
-  gateway)             cmd_gateway "${CMD_ARGS[@]+"${CMD_ARGS[@]}"}" ;;
   status)              cmd_status ;;
   prune)               cmd_prune "${CMD_ARGS[@]+"${CMD_ARGS[@]}"}" ;;
   volumes)             cmd_volumes "${CMD_ARGS[@]+"${CMD_ARGS[@]}"}" ;;
