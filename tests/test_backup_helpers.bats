@@ -177,3 +177,51 @@ EOF
   [ "$status" -eq 0 ]
   [ "$output" -ge 4 ]  # Allow 1-day rounding tolerance
 }
+
+# ── db_pull helpers (OSS-476 regression) ──────────────────────────────────────
+# Guards against: _db_pull_find_and_download's log/rsync noise leaking into the
+# captured stdout path (restore was silently broken for every engine), and
+# _db_pull_sqlite restoring to production when the sourced env sets VPS_HOST.
+
+@test "_db_pull_find_and_download: stdout is only the downloaded path, no log/rsync noise" {
+  local remote_dir="/remote/backups"
+  local local_dir="$TEST_TMP/download"
+  mkdir -p "$local_dir"
+
+  # Mocks: ssh emits the remote filename found by `ls -t | head -1`;
+  # rsync "downloads" by touching the local destination (last positional arg).
+  ssh() { echo "sqlite-20260101-000000.db"; }
+  rsync() { touch "${!#}"; }
+
+  local local_file
+  local_file=$(_db_pull_find_and_download "-o Test=1" "vpsuser" "vpshost" \
+    "$remote_dir" "$local_dir" "sqlite-*.db" "")
+
+  [ "$local_file" = "$local_dir/sqlite-20260101-000000.db" ]
+  [ -f "$local_file" ]
+  [[ "$local_file" != *"[strut]"* ]]
+  [[ "$local_file" != *"Downloading"* ]]
+}
+
+@test "_db_pull_sqlite: restores locally even when ambient VPS_HOST is set (no prod overwrite)" {
+  local remote_dir="/remote/backups"
+  local backup_dir="$TEST_TMP/download"
+  mkdir -p "$backup_dir"
+
+  ssh() { echo "sqlite-20260101-000000.db"; }
+  rsync() { touch "${!#}"; }
+  confirm() { return 0; }
+  restore_sqlite() { echo "restore_sqlite called with VPS_HOST=[${VPS_HOST:-}] args=$*"; }
+
+  # Simulates db_pull sourcing a remote env file, which sets VPS_HOST.
+  export VPS_HOST="prod.example.com"
+  # _db_pull_sqlite references $stack (not one of its own params) via the
+  # caller's (db_pull's) local scope — set it here to match that contract.
+  local stack="test-stack"
+
+  local output
+  output=$(_db_pull_sqlite "-o Test=1" "vpsuser" "vpshost" \
+    "$remote_dir" "$backup_dir" "echo COMPOSE" "false" "sqlite" "" 2>&1)
+
+  [[ "$output" == *"restore_sqlite called with VPS_HOST=[]"* ]]
+}
