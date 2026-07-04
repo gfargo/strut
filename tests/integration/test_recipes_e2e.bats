@@ -156,8 +156,12 @@ EOF
   local stack_dir="$CLI_ROOT/stacks/$stack"
   local env_file="$CLI_ROOT/.test.env"
 
+  # BUILD_MODE=local: the api service is `build: ./app` with no registry
+  # image, so the default BUILD_MODE=registry would try (and fail) to pull
+  # it, then abort the deploy via docker_require_images before it's ever built.
   cat > "$env_file" <<EOF
 REGISTRY_TYPE=none
+BUILD_MODE=local
 POSTGRES_PASSWORD=e2e-test-pw
 DATABASE_URL=postgresql://${stack}:e2e-test-pw@postgres:5432/${stack}
 EOF

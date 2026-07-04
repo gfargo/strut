@@ -38,14 +38,15 @@ teardown() {
   local stack="test-rb-save-$$"
   mkdir -p "$CLI_ROOT/stacks/$stack"
 
-  # Stub compose command that returns service|image|containerid triples
-  # (rollback captures the container ID to resolve the concrete image digest).
+  # Stub compose command mimicking `docker compose ps --format json` NDJSON
+  # output (rollback captures the container name to resolve the concrete
+  # image digest via `docker inspect`).
   local fake_compose="$TEST_TMP/fake-compose"
   cat > "$fake_compose" <<'EOF'
 #!/usr/bin/env bash
-echo "app|ghcr.io/org/app:sha-abc123|cid-app"
-echo "worker|ghcr.io/org/worker:sha-def456|cid-worker"
-echo "nginx|nginx:1.25|cid-nginx"
+echo '{"Service":"app","Image":"ghcr.io/org/app:sha-abc123","Name":"cid-app"}'
+echo '{"Service":"worker","Image":"ghcr.io/org/worker:sha-def456","Name":"cid-worker"}'
+echo '{"Service":"nginx","Image":"nginx:1.25","Name":"cid-nginx"}'
 EOF
   chmod +x "$fake_compose"
 
@@ -248,8 +249,8 @@ EOF
   local fake_compose="$TEST_TMP/fake-compose-prop"
   cat > "$fake_compose" <<'EOF'
 #!/usr/bin/env bash
-echo "app|ghcr.io/org/app:latest|cid-app"
-echo "db|postgres:16|cid-db"
+echo '{"Service":"app","Image":"ghcr.io/org/app:latest","Name":"cid-app"}'
+echo '{"Service":"db","Image":"postgres:16","Name":"cid-db"}'
 EOF
   chmod +x "$fake_compose"
 

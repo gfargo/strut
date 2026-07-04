@@ -51,10 +51,22 @@ rollback_save_snapshot() {
   local first=true
   local service_count=0
 
-  while IFS='|' read -r service image cid; do
+  # `--format json` (not a raw multi-field Go template) because it's the
+  # form docker compose reliably supports across versions — the same
+  # NDJSON-vs-array normalization health_check_containers already relies on.
+  # We resolve the image ID by container NAME (always present) rather than
+  # trusting an `.ID` template field, since name-based `docker inspect` is
+  # the more portable lookup.
+  local raw rows
+  raw=$($compose_cmd ps --format json 2>/dev/null || true)
+  rows=$(printf '%s' "$raw" | jq -rs '
+    (if (length == 1 and (.[0] | type) == "array") then .[0] else . end)
+    | .[] | "\(.Service)\t\(.Image)\t\(.Name)"' 2>/dev/null || true)
+
+  while IFS=$'\t' read -r service image cname; do
     [ -z "$service" ] || [ -z "$image" ] && continue
     local image_id=""
-    [ -n "$cid" ] && image_id=$(docker inspect --format '{{.Image}}' "$cid" 2>/dev/null || echo "")
+    [ -n "$cname" ] && image_id=$(docker inspect --format '{{.Image}}' "$cname" 2>/dev/null || echo "")
 
     if $first; then
       first=false
@@ -63,7 +75,7 @@ rollback_save_snapshot() {
     fi
     services_json+="\"$service\":{\"image\":\"$image\",\"image_id\":\"$image_id\"}"
     service_count=$((service_count + 1))
-  done < <($compose_cmd ps --format '{{.Service}}|{{.Image}}|{{.ID}}' 2>/dev/null || true)
+  done <<< "$rows"
 
   services_json+="}"
 
