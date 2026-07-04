@@ -199,4 +199,17 @@ cmd_rollback() {
   compose_cmd=$(resolve_compose_cmd "$stack" "$env_file" "$services")
 
   rollback_restore_snapshot "$stack" "$compose_cmd" "$snapshot_file"
+
+  # Post-restore health gate — without this, a rollback that restores a
+  # broken image (or fails to restart cleanly) still prints "Rollback
+  # complete" and the operator has no signal that they need to intervene.
+  local compose_file="$stack_dir/docker-compose.yml"
+  log "Verifying restored containers are healthy..."
+  HEALTH_OVERALL="healthy"; HEALTH_PASSED=0; HEALTH_FAILED=0; HEALTH_WARNED=0; HEALTH_JSON_RESULTS="[]"
+  health_check_containers "$compose_cmd" "$compose_file" || true
+  if [ "$HEALTH_FAILED" -gt 0 ]; then
+    warn "Rollback restored the snapshot images, but $HEALTH_FAILED container(s) are unhealthy — investigate before trusting this rollback"
+    return 1
+  fi
+  ok "Post-restore health check passed"
 }
