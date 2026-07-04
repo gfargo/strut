@@ -741,12 +741,22 @@ COMMAND="${2:-}"
 [ -n "$STACK" ]   || { usage; fail "Missing stack argument"; }
 [ -n "$COMMAND" ] || { usage; fail "Missing command argument"; }
 
-# Validate stack exists.
+# Host-scoped commands operate on a HOST ALIAS, not a stack:
+#   strut <host> provision | cert:renew | cert:status   (alias is $1 / CMD_STACK)
+#   strut gateway <deploy|status|reload> --host <alias>  (alias is --host)
+# For these, skip the stacks/<name> existence check (the alias is not a stack).
+IS_HOST_SCOPED=false
+case "$COMMAND" in
+  provision|cert:renew|cert:status) IS_HOST_SCOPED=true ;;
+esac
+[ "$STACK" = "gateway" ] && IS_HOST_SCOPED=true
+
+# Validate stack exists (stack commands only).
 # When PROJECT_ROOT is unset the user is outside any initialized project —
 # surface that explicitly instead of letting them puzzle over a generic
 # "stack not found" pointing at the engine's own directory.
 STACK_DIR="$CLI_ROOT/stacks/$STACK"
-if [ ! -d "$STACK_DIR" ]; then
+if [ "$IS_HOST_SCOPED" = false ] && [ ! -d "$STACK_DIR" ]; then
   if [ -z "${PROJECT_ROOT:-}" ]; then
     fail "Not inside a strut project (no strut.conf found walking up from $PWD). Run 'strut init' to create one, or cd into an existing project."
   fi
@@ -770,6 +780,13 @@ if [ "$FLAGS_FORCE_CLEAN" = "true" ]; then
 fi
 CMD_ARGS=("${FLAGS_POSITIONAL[@]+"${FLAGS_POSITIONAL[@]}"}")
 
+# parse_common_flags consumes --host into FLAGS_HOST. The gateway handler reads
+# --host from its own args, so re-inject it (otherwise gateway deploy/status/
+# reload can never see the target host — issue #214).
+if [ "$STACK" = "gateway" ] && [ -n "$FLAGS_HOST" ]; then
+  CMD_ARGS+=(--host "$FLAGS_HOST")
+fi
+
 ENV_FILE=$(resolve_env_file "$STACK" "$ENV_NAME")
 
 # ── Dispatch ──────────────────────────────────────────────────────────────────
@@ -788,7 +805,9 @@ export CMD_JSON="$JSON_FLAG"
 if [ -f "$ENV_FILE" ]; then
   set -a; source "$ENV_FILE" 2>/dev/null; set +a
 fi
-if [ -n "$FLAGS_HOST" ]; then
+if [ "$IS_HOST_SCOPED" = true ]; then
+  : # host-scoped commands resolve their own host from the alias/--host
+elif [ -n "$FLAGS_HOST" ]; then
   # --host flag overrides topology target and applies per-host env
   topology_apply_host_override "$STACK" "$FLAGS_HOST" "$STACK_DIR"
 else
