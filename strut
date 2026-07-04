@@ -95,9 +95,14 @@ find_project_root || true  # OK if not in a project (init, --version, etc.)
 CLI_ROOT="${PROJECT_ROOT:-$STRUT_HOME}"
 export CLI_ROOT
 
+# Source utils.sh BEFORE load_strut_config: config validation calls fail()/warn(),
+# which live in utils.sh. Loading config first meant any invalid config value
+# crashed with "fail: command not found" (exit 127) instead of the intended
+# validation message — and took down --version/init too.
+source "$LIB/utils.sh"
+
 load_strut_config
 
-source "$LIB/utils.sh"
 source "$LIB/topology.sh"
 
 # Unified EXIT trap — runs every cleanup registered via `strut_register_cleanup`.

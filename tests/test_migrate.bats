@@ -25,10 +25,23 @@ teardown() {
 
 # ── confirm helper ────────────────────────────────────────────────────────────
 
-@test "confirm: auto-yes mode returns 0" {
-  MIGRATE_AUTO_YES=true
+# With utils.sh sourced first (as the entrypoint does), utils' safe confirm()
+# is the one in effect — migrate.sh's definition is guarded out so it can't
+# clobber STRUT_YES/--yes CLI-wide. The migrate --yes flag bridges to STRUT_YES,
+# so auto-approval flows through utils' confirm.
+@test "confirm: auto-yes mode returns 0 (via STRUT_YES bridge)" {
+  STRUT_YES=1
   run confirm "Continue?"
   [ "$status" -eq 0 ]
+  unset STRUT_YES
+}
+
+@test "confirm: migrate.sh does not clobber utils' confirm (guard)" {
+  # utils' confirm honors STRUT_YES; migrate's old one honored only
+  # MIGRATE_AUTO_YES. With both sourced (utils first), MIGRATE_AUTO_YES alone
+  # must NOT auto-approve — proving migrate no longer clobbers utils' confirm.
+  run bash -c 'unset STRUT_YES; source "$CLI_ROOT/lib/utils.sh"; source "$CLI_ROOT/lib/migrate.sh"; MIGRATE_AUTO_YES=true; confirm "x" </dev/null'
+  [ "$status" -eq 1 ]
 }
 
 @test "confirm: rejects 'no' input" {

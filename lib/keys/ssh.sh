@@ -308,13 +308,19 @@ keys_ssh_revoke() {
 
   log "Revoking SSH key from VPS..."
 
-  # Remove key from VPS (by fingerprint pattern)
+  # Remove ONLY the key whose trailing comment field == the username.
+  # The old `grep -v "$username"` matched the username as a substring of the
+  # WHOLE line (incl. the base64 blob and the "ssh-ed25519" type), so revoking
+  # a short/common username could strip every key = total lockout. awk on the
+  # last field ($NF) is an exact comment match. printf %q keeps the value from
+  # breaking the remote quoting / injecting shell.
+  local safe_user
+  safe_user=$(printf '%q' "$username")
   ssh $ssh_opts "$vps_user@$vps_host" "
     if [ -f ~/.ssh/authorized_keys ]; then
-      # Backup
       cp ~/.ssh/authorized_keys ~/.ssh/authorized_keys.backup
-      # Remove lines containing the fingerprint comment (username)
-      grep -v '$username' ~/.ssh/authorized_keys > ~/.ssh/authorized_keys.tmp || true  # no match is fine
+      awk -v u=$safe_user 'NF && \$NF == u { next } { print }' \
+        ~/.ssh/authorized_keys > ~/.ssh/authorized_keys.tmp
       mv ~/.ssh/authorized_keys.tmp ~/.ssh/authorized_keys
       chmod 600 ~/.ssh/authorized_keys
     fi

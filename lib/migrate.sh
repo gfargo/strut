@@ -31,11 +31,19 @@ MIGRATE_START_PHASE=1
 # Helper function for yes/no prompts (accepts yes/y/no/n)
 # Usage: if confirm "Continue?"; then ... fi
 # Set MIGRATE_AUTO_YES=true to auto-answer yes
+#
+# GUARD: migrate.sh is sourced unconditionally by the entrypoint (after
+# utils.sh), so an unguarded definition here would clobber utils.sh's safe
+# confirm() for the ENTIRE CLI, silently breaking STRUT_YES/--yes in deploy,
+# backup, etc. Only define our variant if utils.sh's confirm isn't present
+# (e.g. migrate.sh sourced standalone in tests). The migrate --yes flag also
+# bridges to STRUT_YES so utils' confirm auto-approves.
+if ! declare -f confirm >/dev/null 2>&1; then
 confirm() {
   local prompt="${1:-Continue?}"
 
   # Auto-yes mode
-  if [ "$MIGRATE_AUTO_YES" = true ]; then
+  if [ "$MIGRATE_AUTO_YES" = true ] || [ -n "${STRUT_YES:-}" ]; then
     echo "$prompt (yes/no): yes [auto]"
     return 0
   fi
@@ -45,6 +53,7 @@ confirm() {
   REPLY=$(echo "$REPLY" | xargs)
   [[ $REPLY =~ ^[Yy]([Ee][Ss])?$ ]]
 }
+fi
 
 # Helper function for input prompts with default values
 # Usage: response=$(prompt_with_default "Enter name" "default-value")
@@ -85,6 +94,7 @@ migrate_wizard() {
   for arg in "${args[@]}"; do
     if [ "$arg" = "--yes" ] || [ "$arg" = "-y" ]; then
       MIGRATE_AUTO_YES=true
+      export STRUT_YES=1  # so the (guarded) utils confirm auto-approves too
     elif [ "$arg" = "--sudo" ]; then
       export VPS_SUDO=true
     elif [[ "$arg" =~ ^--start-phase=([0-9]+)$ ]]; then
