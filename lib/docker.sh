@@ -33,6 +33,41 @@ docker_pull_stack() {
     || warn "Some images could not be pulled (may need to build from source)"
 }
 
+# docker_require_images <compose_cmd>
+#
+# Verifies every image referenced by the compose config is present locally.
+# Call this AFTER a registry-mode pull and BEFORE tearing down the running
+# stack: `compose pull --ignore-pull-failures` returns 0 even when every pull
+# fails (expired PAT, registry down), so without this check the deploy would
+# `down` the running stack and then fail to `up` (outage) or silently recreate
+# from stale cache. Returns non-zero (and lists the offenders) if any image is
+# missing, so the caller can abort while the running stack is still intact.
+docker_require_images() {
+  local compose_cmd="$1"
+  local sudo_prefix
+  sudo_prefix="$(_docker_sudo)"
+
+  local images
+  images=$(${sudo_prefix}${compose_cmd} config --images 2>/dev/null) || {
+    warn "Could not enumerate compose images (compose predates 'config --images') — skipping pre-teardown image check"
+    return 0
+  }
+
+  local img
+  local -a missing=()
+  while IFS= read -r img; do
+    [ -z "$img" ] && continue
+    ${sudo_prefix}docker image inspect "$img" >/dev/null 2>&1 || missing+=("$img")
+  done <<< "$images"
+
+  if [ "${#missing[@]}" -gt 0 ]; then
+    error "Required image(s) not available locally after pull:"
+    for img in "${missing[@]}"; do echo "  • $img" >&2; done
+    return 1
+  fi
+  return 0
+}
+
 # _docker_unused_images
 #   Emits `<repo:tag>\n` for every image that is not currently in use by a
 #   running container. Filters out `<none>:<none>` dangling images (those

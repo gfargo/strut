@@ -38,13 +38,14 @@ teardown() {
   local stack="test-rb-save-$$"
   mkdir -p "$CLI_ROOT/stacks/$stack"
 
-  # Stub compose command that returns service/image pairs
+  # Stub compose command that returns service|image|containerid triples
+  # (rollback captures the container ID to resolve the concrete image digest).
   local fake_compose="$TEST_TMP/fake-compose"
   cat > "$fake_compose" <<'EOF'
 #!/usr/bin/env bash
-echo "app ghcr.io/org/app:sha-abc123"
-echo "worker ghcr.io/org/worker:sha-def456"
-echo "nginx nginx:1.25"
+echo "app|ghcr.io/org/app:sha-abc123|cid-app"
+echo "worker|ghcr.io/org/worker:sha-def456|cid-worker"
+echo "nginx|nginx:1.25|cid-nginx"
 EOF
   chmod +x "$fake_compose"
 
@@ -247,8 +248,8 @@ EOF
   local fake_compose="$TEST_TMP/fake-compose-prop"
   cat > "$fake_compose" <<'EOF'
 #!/usr/bin/env bash
-echo "app ghcr.io/org/app:latest"
-echo "db postgres:16"
+echo "app|ghcr.io/org/app:latest|cid-app"
+echo "db|postgres:16|cid-db"
 EOF
   chmod +x "$fake_compose"
 
