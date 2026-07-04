@@ -35,13 +35,21 @@ docker_pull_stack() {
 
 # docker_require_images <compose_cmd>
 #
-# Verifies every image referenced by the compose config is present locally.
-# Call this AFTER a registry-mode pull and BEFORE tearing down the running
-# stack: `compose pull --ignore-pull-failures` returns 0 even when every pull
-# fails (expired PAT, registry down), so without this check the deploy would
-# `down` the running stack and then fail to `up` (outage) or silently recreate
-# from stale cache. Returns non-zero (and lists the offenders) if any image is
-# missing, so the caller can abort while the running stack is still intact.
+# Verifies every registry-sourced image referenced by the compose config is
+# present locally. Call this AFTER a registry-mode pull and BEFORE tearing
+# down the running stack: `compose pull --ignore-pull-failures` returns 0
+# even when every pull fails (expired PAT, registry down), so without this
+# check the deploy would `down` the running stack and then fail to `up`
+# (outage) or silently recreate from stale cache. Returns non-zero (and
+# lists the offenders) if any image is missing, so the caller can abort
+# while the running stack is still intact.
+#
+# Services with a local `build:` directive (mixed pull+build stacks, e.g. a
+# recipe that pulls postgres but builds its own app image) are excluded —
+# those images are produced by `compose build`/`up`, not pulled, so their
+# absence here isn't a failed pull. Skipped (with a warning, not a failure)
+# when jq is unavailable, since there's no dependency-free way to tell a
+# build-only image apart from one that failed to pull.
 docker_require_images() {
   local compose_cmd="$1"
   local sudo_prefix
@@ -53,10 +61,19 @@ docker_require_images() {
     return 0
   }
 
+  local built_images=""
+  if command -v jq >/dev/null 2>&1; then
+    built_images=$(${sudo_prefix}${compose_cmd} config --format json 2>/dev/null \
+      | jq -r '.services | to_entries[] | select(.value.build) | .value.image // empty' 2>/dev/null || true)
+  else
+    warn "jq not found — cannot distinguish locally-built images from pull failures; checking all compose images"
+  fi
+
   local img
   local -a missing=()
   while IFS= read -r img; do
     [ -z "$img" ] && continue
+    grep -qxF "$img" <<< "$built_images" && continue
     ${sudo_prefix}docker image inspect "$img" >/dev/null 2>&1 || missing+=("$img")
   done <<< "$images"
 
