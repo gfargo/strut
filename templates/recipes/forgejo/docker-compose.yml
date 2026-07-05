@@ -1,0 +1,22 @@
+services:
+  forgejo:
+    image: codeberg.org/forgejo/forgejo:8
+    container_name: STACK_NAME_PLACEHOLDER-forgejo
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+      - "2222:22"
+    environment:
+      - USER_UID=${USER_UID:-1000}
+      - USER_GID=${USER_GID:-1000}
+      - TZ=${TZ:-UTC}
+      - FORGEJO__server__ROOT_URL=${ROOT_URL:-}
+    volumes:
+      - forgejo_data:/var/lib/gitea
+      - forgejo_config:/etc/gitea
+      - /etc/timezone:/etc/timezone:ro
+      - /etc/localtime:/etc/localtime:ro
+
+volumes:
+  forgejo_data:
+  forgejo_config:
