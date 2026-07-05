@@ -101,34 +101,118 @@ _add_backup() {
   [ "$output" = "unknown" ]
 }
 
-# ── Drift count ────────────────────────────────────────────────────────────────
+# ── Remote dispatch ────────────────────────────────────────────────────────────
 
-@test "_status_drift_count: no metrics file returns dash" {
-  _make_stack api
-  run _status_drift_count api
-  [ "$output" = "-" ]
+_make_remote_env() {
+  local env_name="$1"
+  cat > "$CLI_ROOT/.$env_name.env" <<'EOF'
+VPS_HOST=vps.example.com
+VPS_USER=ubuntu
+VPS_PORT=22
+VPS_SSH_KEY=
+VPS_DEPLOY_DIR=/home/ubuntu/strut
+EOF
 }
 
-@test "_status_drift_count: reads count from drift.prom" {
+@test "_status_health: all containers pass on remote → healthy" {
   _make_stack api
-  mkdir -p "$CLI_ROOT/stacks/api/metrics"
-  cat > "$CLI_ROOT/stacks/api/metrics/drift.prom" <<'EOF'
-# HELP ch_deploy_drift_files_count drift
-# TYPE ch_deploy_drift_files_count gauge
-ch_deploy_drift_files_count{stack="api",env="prod"} 3
-EOF
-  run _status_drift_count api
-  [ "$output" = "3" ]
+  _make_remote_env prod
+  is_running_on_vps() { return 1; }
+  export -f is_running_on_vps
+  run_remote_strut() { echo '{"checks":[{"name":"Containers","status":"pass"},{"name":"Container: web","status":"pass"}]}'; }
+  export -f run_remote_strut
+  run _status_health api prod
+  [ "$output" = "healthy" ]
 }
 
-@test "_status_drift_count: zero count" {
+@test "_status_health: mix of pass/fail containers on remote → degraded" {
   _make_stack api
-  mkdir -p "$CLI_ROOT/stacks/api/metrics"
-  cat > "$CLI_ROOT/stacks/api/metrics/drift.prom" <<'EOF'
-ch_deploy_drift_files_count{stack="api",env="prod"} 0
-EOF
-  run _status_drift_count api
-  [ "$output" = "0" ]
+  _make_remote_env prod
+  is_running_on_vps() { return 1; }
+  export -f is_running_on_vps
+  run_remote_strut() { echo '{"checks":[{"name":"Container: web","status":"pass"},{"name":"Container: worker","status":"fail"}]}'; }
+  export -f run_remote_strut
+  run _status_health api prod
+  [ "$output" = "degraded" ]
+}
+
+@test "_status_health: all containers fail on remote → down" {
+  _make_stack api
+  _make_remote_env prod
+  is_running_on_vps() { return 1; }
+  export -f is_running_on_vps
+  run_remote_strut() { echo '{"checks":[{"name":"Container: web","status":"fail"},{"name":"Container: worker","status":"fail"}]}'; }
+  export -f run_remote_strut
+  run _status_health api prod
+  [ "$output" = "down" ]
+}
+
+@test "_status_health: Containers/Compose File hard fail on remote → down" {
+  _make_stack api
+  _make_remote_env prod
+  is_running_on_vps() { return 1; }
+  export -f is_running_on_vps
+  run_remote_strut() { echo '{"checks":[{"name":"Compose File","status":"fail"}]}'; }
+  export -f run_remote_strut
+  run _status_health api prod
+  [ "$output" = "down" ]
+}
+
+@test "_status_health: run_remote_strut failure → unknown, loop still completes" {
+  _make_stack api
+  _make_stack worker
+  _make_remote_env prod
+  is_running_on_vps() { return 1; }
+  export -f is_running_on_vps
+  run_remote_strut() { return 1; }
+  export -f run_remote_strut
+
+  run _status_health api prod
+  [ "$output" = "unknown" ]
+
+  run cmd_status_all --env prod
+  [[ "$output" == *"api"* ]]
+  [[ "$output" == *"worker"* ]]
+}
+
+@test "_status_health: remote dispatch skipped when already on VPS" {
+  _make_stack api
+  _make_remote_env prod
+  is_running_on_vps() { return 0; }
+  export -f is_running_on_vps
+  run _status_health api prod
+  [ "$output" = "unknown" ]
+}
+
+@test "_status_health: no VPS_HOST leakage across sequential calls in the same shell" {
+  # `run` forks a subshell, which would mask leakage on its own — call the
+  # function directly (redirecting output, not via command substitution) to
+  # exercise the unset guard for real, the way the cmd_status_all loop's
+  # health=$(_status_health ...) still shares the parent shell's env between
+  # separate loop bodies if a future refactor drops the subshell isolation.
+  # The remote stub reports "down" and the local stub reports "healthy" so
+  # leakage (wrongly dispatching remote) and correct behavior are distinguishable.
+  _make_stack remote-stack
+  _make_stack local-stack
+  _make_remote_env prod
+  is_running_on_vps() { return 1; }
+  export -f is_running_on_vps
+  run_remote_strut() { echo '{"checks":[{"name":"Container: web","status":"fail"}]}'; }
+  export -f run_remote_strut
+  docker() { return 0; }
+  export -f docker
+  _fake_compose_running() { echo running; }
+  export -f _fake_compose_running
+  resolve_compose_cmd() { echo "_fake_compose_running"; }
+  export -f resolve_compose_cmd
+
+  _status_health remote-stack prod > "$BATS_TEST_TMPDIR/out1"
+  [ "$(cat "$BATS_TEST_TMPDIR/out1")" = "down" ]
+
+  # local-stack has no matching env file for "no-such-env" — if VPS_HOST
+  # leaked from the previous call, this would wrongly dispatch remote → "down".
+  _status_health local-stack no-such-env > "$BATS_TEST_TMPDIR/out2"
+  [ "$(cat "$BATS_TEST_TMPDIR/out2")" = "healthy" ]
 }
 
 # ── Last deploy / backup age ─────────────────────────────────────────────────
