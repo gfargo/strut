@@ -185,6 +185,14 @@ check_required_vars() {
     return
   fi
 
+  local req_content
+  if ! req_content="$(preprocess_config "$req_file")"; then
+    posture_emit "fail" "secrets" "$stack" \
+      "required_vars has a missing/circular include: $req_file" \
+      "Fix the include directive in $req_file"
+    return
+  fi
+
   local missing=()
   local var
   while IFS= read -r var; do
@@ -196,7 +204,7 @@ check_required_vars() {
     if ! grep -qE "^${var}=.+" "$env_file" 2>/dev/null; then
       missing+=("$var")
     fi
-  done < <(preprocess_config "$req_file")
+  done <<< "$req_content"
 
   if [ "${#missing[@]}" -gt 0 ]; then
     local first="${missing[0]}"
