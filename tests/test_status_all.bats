@@ -180,7 +180,11 @@ EOF
   _make_remote_env prod
   is_running_on_vps() { return 0; }
   export -f is_running_on_vps
-  run _status_health api prod
+  # If should_dispatch_remote mistakenly returned true here, this stub's
+  # output would leak into $output instead of the local "unknown" path below.
+  run_remote_strut() { echo "should-not-be-called"; }
+  export -f run_remote_strut
+  PATH="" run _status_health api prod
   [ "$output" = "unknown" ]
 }
 
