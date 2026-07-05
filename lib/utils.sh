@@ -686,6 +686,66 @@ run_remote_strut() {
 
 # ── Subcommand validation ─────────────────────────────────────────────────────
 
+# ── Cron job helpers ──────────────────────────────────────────────────────────
+
+# resolve_strut_binary
+#
+# Echoes the absolute path to the strut engine entrypoint. Cron jobs must
+# invoke this instead of bare `strut` — cron's default PATH (/usr/bin:/bin)
+# doesn't include wherever `strut` is installed, so a bare `strut` cron line
+# fails with "command not found" before anything runs. STRUT_HOME (exported
+# by the entrypoint) is the correct anchor — NOT CLI_ROOT, which at runtime
+# is the user's project root, not the engine root.
+resolve_strut_binary() {
+  local strut_home="${STRUT_HOME:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+  echo "$strut_home/strut"
+}
+
+# ensure_cron_env_header
+#
+# Prepends PATH=/SHELL= lines to the crontab if not already present, so cron
+# jobs run with the installing shell's PATH (docker, pg_dump, etc.) instead
+# of cron's minimal default (/usr/bin:/bin). Idempotent — a no-op if the
+# header already exists.
+ensure_cron_env_header() {
+  local existing
+  existing="$(crontab -l 2>/dev/null || true)"
+
+  if echo "$existing" | grep -q '^PATH='; then
+    return 0
+  fi
+
+  {
+    echo "PATH=$PATH"
+    echo "SHELL=${SHELL:-/bin/bash}"
+    if [ -n "$existing" ]; then
+      echo "$existing"
+    fi
+  } | crontab -
+}
+
+# build_cron_job <name> <schedule> <command> <log_file>
+#
+# Builds one crontab line: creates the log directory, wraps <command> in a
+# per-job flock (keyed on <name>) so overlapping runs no-op instead of
+# racing, and redirects stdout/stderr to <log_file>. Echoes the finished
+# line — callers still own the comment-line and dedup/replace logic.
+build_cron_job() {
+  local name="$1" schedule="$2" command="$3" log_file="$4"
+
+  mkdir -p "$(dirname "$log_file")"
+
+  local strut_home="${STRUT_HOME:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+  local lock_dir="$strut_home/locks/cron"
+  mkdir -p "$lock_dir"
+
+  local slug
+  slug=$(echo "$name" | tr '[:upper:]' '[:lower:]' | tr -c '[:alnum:]' '-' | tr -s '-' | sed 's/^-//;s/-$//')
+  local lock_file="$lock_dir/${slug}.lock"
+
+  echo "$schedule flock -n $lock_file -c '$command >> $log_file 2>&1'"
+}
+
 # validate_subcommand <value> <valid_cmd1> [valid_cmd2] ...
 #
 # Returns 0 if value matches one of the valid commands.
