@@ -68,9 +68,14 @@ EOF
     # Remove existing cron job
     drift_schedule_remove "$stack" >/dev/null 2>&1
 
+    ensure_cron_env_header
+
     # Install new cron job with auto-fix
     local schedule="0 * * * *" # Hourly
-    local cron_cmd="$schedule cd $cli_root && strut $stack drift monitor --env $env --auto-fix >> $cli_root/stacks/$stack/drift-history/monitor.log 2>&1"
+    local drift_cmd="cd $cli_root && $(resolve_strut_binary) $stack drift monitor --env $env --auto-fix"
+    local log_file="$cli_root/stacks/$stack/drift-history/monitor.log"
+    local cron_cmd
+    cron_cmd=$(build_cron_job "drift-$stack" "$schedule" "$drift_cmd" "$log_file")
 
     (
       crontab -l 2>/dev/null | grep -v "drift monitor.*$stack"
@@ -123,10 +128,15 @@ EOF
     # Remove existing cron job
     drift_schedule_remove "$stack" >/dev/null 2>&1
 
+    ensure_cron_env_header
+
     # Install new cron job without auto-fix
     local env="${DRIFT_AUTOFIX_ENV:-prod}"
     local schedule="0 * * * *" # Hourly
-    local cron_cmd="$schedule cd $cli_root && strut $stack drift monitor --env $env >> $cli_root/stacks/$stack/drift-history/monitor.log 2>&1"
+    local drift_cmd="cd $cli_root && $(resolve_strut_binary) $stack drift monitor --env $env"
+    local log_file="$cli_root/stacks/$stack/drift-history/monitor.log"
+    local cron_cmd
+    cron_cmd=$(build_cron_job "drift-$stack" "$schedule" "$drift_cmd" "$log_file")
 
     (
       crontab -l 2>/dev/null | grep -v "drift monitor.*$stack"
