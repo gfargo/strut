@@ -4,8 +4,9 @@
 # ==================================================
 # `strut status-all [--env <name>] [--json]`
 # Shows a one-screen overview of every stack: health, last deploy, backup
-# age, drift status. Designed to be fast — reads file mtimes and minimal
-# docker output, not full HTTP health probes.
+# age. Designed to be fast — reads file mtimes and minimal docker output
+# (or dispatches over SSH for VPS-deployed stacks), not full HTTP health
+# probes.
 
 set -euo pipefail
 
@@ -70,33 +71,18 @@ _status_backup_age() {
   _status_newest_mtime "$dir" "*"
 }
 
-# _status_drift_count <stack> — cached drift file count, or "-"
-_status_drift_count() {
-  local stack="$1"
-  local drift_file="$CLI_ROOT/stacks/$stack/metrics/drift.prom"
-  if [ -f "$drift_file" ]; then
-    # Extract ch_deploy_drift_files_count <number>
-    local n
-    n=$(grep -E '^ch_deploy_drift_files_count\{' "$drift_file" 2>/dev/null \
-          | awk '{print $NF}' | head -1)
-    echo "${n:-0}"
-  else
-    echo "-"
-  fi
-}
-
 # _status_health <stack> <env_name> — emits one of: healthy | degraded | down | unknown
 #
 # Fast check — runs `docker compose ps` and aggregates container State.
-# Returns "unknown" if compose isn't available or the stack has no
-# docker-compose.yml.
+# Dispatches to the VPS over SSH for stacks whose env file sets VPS_HOST
+# (see _status_health_remote). Returns "unknown" if compose isn't available
+# or the stack has no docker-compose.yml.
 _status_health() {
   local stack="$1"
   local env_name="${2:-}"
   local stack_dir="$CLI_ROOT/stacks/$stack"
 
   [ -f "$stack_dir/docker-compose.yml" ] || { echo "unknown"; return; }
-  command -v docker >/dev/null 2>&1 || { echo "unknown"; return; }
 
   local env_file
   if [ -n "$env_name" ]; then
@@ -104,6 +90,19 @@ _status_health() {
   else
     env_file="$CLI_ROOT/.env"
   fi
+
+  # Each stack's env file is optional and independent — clear connection vars
+  # from the previous loop iteration so a stack with no VPS_HOST doesn't
+  # inherit the prior stack's remote target.
+  unset VPS_HOST VPS_USER VPS_PORT VPS_SSH_KEY VPS_DEPLOY_DIR 2>/dev/null || true
+  [ -f "$env_file" ] && { set -a; source "$env_file"; set +a; } 2>/dev/null || true
+
+  if should_dispatch_remote; then
+    _status_health_remote "$stack" "$env_name"
+    return
+  fi
+
+  command -v docker >/dev/null 2>&1 || { echo "unknown"; return; }
 
   local compose_cmd
   if ! compose_cmd=$(resolve_compose_cmd "$stack" "$env_file" "" 2>/dev/null); then
@@ -130,6 +129,41 @@ _status_health() {
   done <<<"$ps_output"
 
   if [ "$total" -eq 0 ]; then
+    echo "down"
+  elif [ "$running" -eq "$total" ]; then
+    echo "healthy"
+  elif [ "$running" -eq 0 ]; then
+    echo "down"
+  else
+    echo "degraded"
+  fi
+}
+
+# _status_health_remote <stack> <env_name> — health for a VPS-deployed stack
+#
+# Dispatches `health --json` over SSH via run_remote_strut and aggregates the
+# per-container check results. Only the "Containers"/"Compose File"/
+# "Container: <name>" checks are considered — matching the local path's
+# container-only semantics rather than cmd_health's broader host-health scope.
+_status_health_remote() {
+  local stack="$1"
+  local env_name="$2"
+
+  command -v ssh >/dev/null 2>&1 || { echo "unknown"; return; }
+
+  local json
+  json=$(run_remote_strut "$stack" "$env_name" "health --json" 2>/dev/null) || { echo "unknown"; return; }
+  [ -z "$json" ] && { echo "unknown"; return; }
+
+  local hard_fail
+  hard_fail=$(echo "$json" | jq -r '[.checks[]? | select(.name=="Containers" or .name=="Compose File") | select(.status=="fail")] | length' 2>/dev/null) || { echo "unknown"; return; }
+  [ "${hard_fail:-0}" -gt 0 ] && { echo "down"; return; }
+
+  local total running
+  total=$(echo "$json" | jq -r '[.checks[]? | select(.name | startswith("Container:"))] | length' 2>/dev/null) || { echo "unknown"; return; }
+  running=$(echo "$json" | jq -r '[.checks[]? | select(.name | startswith("Container:")) | select(.status=="pass" or .status=="warn")] | length' 2>/dev/null) || { echo "unknown"; return; }
+
+  if [ "${total:-0}" -eq 0 ]; then
     echo "down"
   elif [ "$running" -eq "$total" ]; then
     echo "healthy"
@@ -167,8 +201,7 @@ cmd_status_all() {
         cat <<'EOF'
 Usage: strut status-all [--env <name>] [--json]
 
-Dashboard showing health, last deploy, backup age, and drift status
-across every stack.
+Dashboard showing health, last deploy, and backup age across every stack.
 
 Flags:
   --env <name>     Filter to a specific environment (default: unscoped)
@@ -208,15 +241,14 @@ EOF
   now=$(date +%s)
 
   local total=0 healthy=0 degraded=0 down=0 unknown=0
-  local -a rows_stack rows_health rows_deploy rows_backup rows_drift
+  local -a rows_stack rows_health rows_deploy rows_backup
 
   for name in "${stacks[@]}"; do
     total=$((total + 1))
-    local health deploy_ts backup_ts drift_count
+    local health deploy_ts backup_ts
     health=$(_status_health "$name" "$env_name")
     deploy_ts=$(_status_last_deploy "$name")
     backup_ts=$(_status_backup_age "$name")
-    drift_count=$(_status_drift_count "$name")
 
     case "$health" in
       healthy)  healthy=$((healthy + 1)) ;;
@@ -229,19 +261,10 @@ EOF
     [ -n "$deploy_ts" ] && deploy_age=$(_status_humanize_age $((now - deploy_ts)))
     [ -n "$backup_ts" ] && backup_age=$(_status_humanize_age $((now - backup_ts)))
 
-    local drift_label
-    case "$drift_count" in
-      "-") drift_label="-" ;;
-      0)   drift_label="clean" ;;
-      1)   drift_label="1 file" ;;
-      *)   drift_label="$drift_count files" ;;
-    esac
-
     rows_stack+=("$name")
     rows_health+=("$health")
     rows_deploy+=("$deploy_age")
     rows_backup+=("$backup_age")
-    rows_drift+=("$drift_label")
   done
 
   if [ "$json_mode" = "true" ]; then
@@ -257,7 +280,6 @@ EOF
             out_json_field "health" "${rows_health[$i]}"
             out_json_field "last_deploy" "${rows_deploy[$i]}"
             out_json_field "backup_age" "${rows_backup[$i]}"
-            out_json_field "drift_status" "${rows_drift[$i]}"
           out_json_close_object
         done
       out_json_close_array
@@ -270,15 +292,14 @@ EOF
     [ -n "$env_name" ] && title="$title ($env_name)"
     echo -e "${BLUE}${title}${NC}"
     echo ""
-    out_table_header "Stack" "Health" "Last Deploy" "Backup Age" "Drift"
+    out_table_header "Stack" "Health" "Last Deploy" "Backup Age"
     local i
     for i in "${!rows_stack[@]}"; do
       out_table_row \
         "${rows_stack[$i]}" \
         "$(_status_health_glyph "${rows_health[$i]}")" \
         "${rows_deploy[$i]}" \
-        "${rows_backup[$i]}" \
-        "${rows_drift[$i]}"
+        "${rows_backup[$i]}"
     done
     out_table_render
     echo ""
