@@ -196,8 +196,7 @@ get_backup_health_status() {
   echo "  7-day verification:    ${verification_7d}%"
   echo ""
 
-  # Return health score for scripting
-  return "$health_score"
+  return 0
 }
 
 # get_backup_health_json <stack> <service>
@@ -293,6 +292,8 @@ get_all_backup_health() {
 check_backup_health_alerts() {
   local stack="$1"
   local service="$2"
+
+  local cli_root="${CLI_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
 
   local health_score
   health_score=$(calculate_backup_health_score "$stack" "$service")
