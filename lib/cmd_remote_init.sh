@@ -67,7 +67,7 @@ cmd_remote_init() {
 
   # If env file is available, source it for defaults
   if [ -n "$env_file" ] && [ -f "$env_file" ]; then
-    set -a; source "$env_file"; set +a
+    validate_env_file "$env_file"
   fi
 
   # Resolve connection parameters (CLI flags override env vars)

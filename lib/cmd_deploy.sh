@@ -322,7 +322,6 @@ cmd_deploy() {
 
   # Check if this is a VPS environment and warn user (skip if we're ON the VPS or --force-local)
   if [ "$force_local" != "true" ] && [ -f "$env_file" ]; then
-    set -a; source "$env_file"; set +a
     if [ -n "${VPS_HOST:-}" ] && ! is_running_on_vps; then
       warn "Detected VPS environment (VPS_HOST=$VPS_HOST)"
       warn "The 'deploy' command runs locally. For VPS deployment, use:"
