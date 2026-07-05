@@ -25,18 +25,16 @@ Commit types: `feat`, `fix`, `refactor`, `test`, `chore`, `docs`
 
 ## Release Pattern
 
-After merging PRs:
+Releases are automated by [release-please](https://github.com/googleapis/release-please) (`.github/workflows/release-please.yml`, `release-please-config.json`, `.release-please-manifest.json`). There is no manual `VERSION` bump, tag, or `gh release create` step anymore:
 
-```bash
-git checkout main && git pull origin main
-# Bump VERSION file (semver: major.minor.patch)
-git add VERSION && git commit -m "chore: bump version to X.Y.Z"
-git tag -a vX.Y.Z -m "vX.Y.Z: <summary>"
-git push origin main --tags
-gh release create vX.Y.Z --title "vX.Y.Z: <Title>" --notes-file .release-notes.md
-```
+1. PRs merge to `main` as usual — squash-merged, PR title in conventional-commit format (`fix(scope): ...`, `feat(scope): ...`, `chore: ...`). release-please reads these commits directly off `main`.
+2. On every push to `main`, the `release-please` workflow opens (or updates) a standing **release PR** containing the generated changelog entry and the next `VERSION` bump — patch for `fix`, minor for `feat` (project is pre-1.0, so `feat` bumps minor, not major).
+3. When you're ready to ship, merge that release PR like any other. That merge is the trigger: release-please tags the commit `vX.Y.Z` and publishes the GitHub release.
+4. Publishing the release fires the existing `homebrew.yml` workflow, which updates the `gfargo/homebrew-tap` formula automatically — no separate step needed.
 
-Use temp files (`.pr-body.md`, `.release-notes.md`) for long content — delete after use.
+If a fix needs to skip the queue and ship alone, just merge only its release PR (release-please batches whatever's landed on `main` since the last release into one PR, so it's fine to merge the release PR right after a single urgent fix rather than waiting for a batch).
+
+Use temp files (`.pr-body.md`) for long PR bodies — delete after use.
 
 ## Adding a New Command
 
@@ -136,12 +134,12 @@ git push -u origin fix/short-name
 gh pr create --base main --head fix/short-name --title "..." --body-file .pr-body.md
 gh pr merge --merge --delete-branch
 
-# 6. Batch multiple fixes into one release
-# Bump VERSION, tag, push, release
+# 6. release-please picks up the merged commit automatically and updates
+#    its standing release PR — merge that PR when ready to ship (see
+#    "Release Pattern" above). No manual VERSION bump/tag/release needed.
 ```
 
 For PR bodies longer than a few lines, use `.pr-body.md` (temp file, delete after).
-For release notes, use `.release-notes.md` (temp file, delete after).
 
 ## Marketing Site (.www)
 
