@@ -628,14 +628,14 @@ case "${1:-}" in
     # audit <vps-host> [vps-user] [ssh-key] [ssh-port] [--sudo]
     VPS_HOST="${2:-}"
     VPS_USER="${3:-ubuntu}"
-    SSH_KEY="${4:-}"
-    SSH_PORT="${5:-}"
+    AUDIT_SSH_KEY="${4:-}"
+    AUDIT_SSH_PORT="${5:-}"
     # Check for --sudo flag in any position
     for arg in "$@"; do
       [ "$arg" = "--sudo" ] && export VPS_SUDO=true
     done
     [ -n "$VPS_HOST" ] || { usage; fail "Usage: strut audit <vps-host> [vps-user] [ssh-key] [ssh-port] [--sudo]"; }
-    audit_vps "$VPS_HOST" "$VPS_USER" "$SSH_KEY" "$SSH_PORT"
+    audit_vps "$VPS_HOST" "$VPS_USER" "$AUDIT_SSH_KEY" "$AUDIT_SSH_PORT"
     exit 0
     ;;
   audit:list)
@@ -645,10 +645,10 @@ case "${1:-}" in
   audit:diff)
     VPS_HOST="${2:-}"
     VPS_USER="${3:-ubuntu}"
-    SSH_KEY="${4:-}"
-    SSH_PORT="${5:-}"
+    AUDIT_SSH_KEY="${4:-}"
+    AUDIT_SSH_PORT="${5:-}"
     [ -n "$VPS_HOST" ] || { usage; fail "Usage: strut audit:diff <vps-host> [vps-user] [ssh-key] [ssh-port]"; }
-    audit_diff "$VPS_HOST" "$VPS_USER" "$SSH_KEY" "$SSH_PORT"
+    audit_diff "$VPS_HOST" "$VPS_USER" "$AUDIT_SSH_KEY" "$AUDIT_SSH_PORT"
     exit 0
     ;;
   audit:generate)

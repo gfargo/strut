@@ -210,18 +210,29 @@ diff_images_content() {
 # ── Remote fetchers (thin SSH wrappers) ───────────────────────────────────────
 #
 # diff_fetch_remote <remote_path>
-# Cats a file on the VPS. Uses VPS_HOST/VPS_USER/SSH_KEY/SSH_PORT from the
+# Cats a file on the VPS. Uses VPS_HOST/VPS_USER/VPS_SSH_KEY/VPS_PORT from the
 # current env (typically loaded from the stack's env file). Prints content
 # to stdout; empty output if the file doesn't exist.
+#
+# Return codes:
+#   0  ssh ran fine (file may be empty/missing — that's not an error)
+#   1  no VPS_HOST configured
+#   2  ssh itself failed to connect/authenticate (host unreachable, bad key, etc.)
 diff_fetch_remote() {
   local remote_path="$1"
   local ssh_opts
-  ssh_opts=$(build_ssh_opts -p "${SSH_PORT:-22}" -k "${SSH_KEY:-}" --batch)
+  ssh_opts=$(build_ssh_opts -p "${VPS_PORT:-22}" -k "${VPS_SSH_KEY:-}" --batch)
   local user="${VPS_USER:-ubuntu}"
   local host="${VPS_HOST:-}"
   [ -z "$host" ] && return 1
+  local output rc=0
   # shellcheck disable=SC2086
-  ssh $ssh_opts "$user@$host" "cat $remote_path 2>/dev/null" || true
+  output=$(ssh $ssh_opts "$user@$host" "cat $remote_path 2>/dev/null") || rc=$?
+  # OpenSSH exits 255 for its own connect/auth failures; any other nonzero
+  # means the remote command ran (a missing file just yields empty output
+  # via cat's own 2>/dev/null above).
+  [ "$rc" -eq 255 ] && return 2
+  printf '%s' "$output"
 }
 
 # ── Renderers ─────────────────────────────────────────────────────────────────
@@ -486,9 +497,13 @@ _diff_render_destructive_text() {
 #
 # Skips silently when:
 #   - No VPS_HOST (local-only stack)
-#   - Remote fetch fails (non-blocking)
+#   - Remote file doesn't exist yet (non-blocking)
 #   - The resolved file IS the stack .env (no divergence possible)
 #   - No volume-defining vars differ
+#
+# Warns (but still returns 0 — advisory, must not abort deploys) when SSH
+# itself cannot reach the host, instead of behaving identically to "no
+# divergence found".
 diff_warn_env_divergence() {
   local stack="$1"
   local env_file="$2"
@@ -508,8 +523,12 @@ diff_warn_env_divergence() {
   local deploy_dir
   deploy_dir=$(resolve_deploy_dir)
   local remote_stack_env_path="$deploy_dir/stacks/$stack/.env"
-  local remote_stack_env
-  remote_stack_env=$(diff_fetch_remote "$remote_stack_env_path" 2>/dev/null) || return 0
+  local remote_stack_env rc=0
+  remote_stack_env=$(diff_fetch_remote "$remote_stack_env_path" 2>/dev/null) || rc=$?
+  if [ "$rc" -eq 2 ]; then
+    warn "Cannot verify env divergence for '$stack': SSH to $vps_host failed. Check VPS_HOST/VPS_PORT/VPS_SSH_KEY."
+    return 0
+  fi
   [ -n "$remote_stack_env" ] || return 0
 
   # Read the local resolved env content
