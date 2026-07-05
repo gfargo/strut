@@ -94,6 +94,23 @@ teardown() {
   [[ "$output" == *"deploy_stack"* ]]
 }
 
+@test "cmd_deploy: VPS_HOST warning reflects dispatcher-resolved host, not env file value" {
+  cat > "$TEST_TMP/.override.env" <<'EOF'
+VPS_HOST=primary-host.internal
+GH_PAT=test
+EOF
+  export CMD_ENV_FILE="$TEST_TMP/.override.env"
+  is_running_on_vps() { return 1; }
+  export -f is_running_on_vps
+  export VPS_HOST="standby-host.internal"
+  export STRUT_YES=1
+
+  run cmd_deploy
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"standby-host.internal"* ]]
+  [[ "$output" != *"primary-host.internal"* ]]
+}
+
 @test "cmd_update: dispatches to vps_update_repo" {
   run cmd_update
   [ "$status" -eq 0 ]
