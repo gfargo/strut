@@ -11,6 +11,7 @@
 set -euo pipefail
 
 BACKUP_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/backup"
+[ -f "$BACKUP_LIB_DIR/alerts.sh" ] && source "$BACKUP_LIB_DIR/alerts.sh"
 [ -f "$BACKUP_LIB_DIR/verify.sh" ] && source "$BACKUP_LIB_DIR/verify.sh"
 [ -f "$BACKUP_LIB_DIR/schedule.sh" ] && source "$BACKUP_LIB_DIR/schedule.sh"
 [ -f "$BACKUP_LIB_DIR/retention.sh" ] && source "$BACKUP_LIB_DIR/retention.sh"

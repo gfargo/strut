@@ -39,6 +39,24 @@ fail() { echo -e "${RED}✗${NC}  $(_error_prefix)$1" >&2; exit 1; }
 # Like fail() but without exit — for non-fatal errors
 error() { echo -e "${RED}✗${NC}  $(_error_prefix)$1" >&2; }
 
+# ── JSON helpers ──────────────────────────────────────────────────────────────
+
+# json_escape <string>
+#
+# Escapes a string for safe embedding inside a hand-built JSON string value.
+# Order matters: backslashes must be escaped FIRST, then quotes, then control
+# characters — otherwise the backslashes just inserted for \n/\r/\t would
+# themselves get doubled by a later backslash pass.
+json_escape() {
+  local s="$1"
+  s="${s//\\/\\\\}"
+  s="${s//\"/\\\"}"
+  s="${s//$'\r'/\\r}"
+  s="${s//$'\n'/\\n}"
+  s="${s//$'\t'/\\t}"
+  echo "$s"
+}
+
 # ── Banner helpers ────────────────────────────────────────────────────────────
 
 # print_banner <subtitle>

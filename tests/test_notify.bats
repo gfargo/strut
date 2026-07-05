@@ -9,10 +9,21 @@ setup() {
   source "$CLI_ROOT/lib/notify.sh"
 
   # Stub curl so provider send functions don't hit the network.
-  # Providers redirect stdout to /dev/null, so write to a trace file.
+  # Providers now capture curl's stdout as the HTTP status code (-w
+  # '%{http_code}' -o /dev/null), so the stub must print one. Each argument is
+  # traced on its own line (not space-joined) so a test can grep out the exact
+  # JSON payload argument and pipe it to `jq empty` — a payload with a stray
+  # literal newline embedded in it would corrupt this one-arg-per-line trace,
+  # which is exactly the bug this suite guards against.
   export CURL_TRACE="$TEST_TMP/curl.trace"
+  export CURL_STATUS="${CURL_STATUS:-200}"
   : > "$CURL_TRACE"
-  curl() { echo "curl $*" >> "$CURL_TRACE"; return 0; }
+  curl() {
+    local arg
+    for arg in "$@"; do printf '%s\n' "$arg" >> "$CURL_TRACE"; done
+    echo "$CURL_STATUS"
+    return 0
+  }
   export -f curl
 
   # Reset config-loaded flag and provider envs for each test
@@ -174,6 +185,63 @@ EOF
   [ "$status" -eq 0 ]
   # Each `\` becomes `\\` (JSON-escaped); input has 3 → output has 6 backslashes
   [[ "$output" == *'a\\b\\c'* ]]
+}
+
+@test "_notify_payload_json: multi-line/quoted/backslash values stay valid JSON" {
+  run _notify_payload_json some.event msg=$'line one\nline "two"\nback\\slash'
+  [ "$status" -eq 0 ]
+  echo "$output" | jq empty
+}
+
+# ---------- slack/discord/webhook: valid JSON + HTTP status handling ----------
+
+@test "notify_slack_send: multi-line values produce a single-line, valid JSON payload" {
+  run notify_slack_send "https://hooks.example.com/slack" deploy.fail msg=$'line one\nline two'
+  [ "$status" -eq 0 ]
+  local payload
+  payload=$(grep '^{' "$CURL_TRACE")
+  [ "$(echo "$payload" | wc -l)" -eq 1 ]
+  echo "$payload" | jq empty
+  [[ "$payload" == *'line one\nline two'* ]]
+}
+
+@test "notify_slack_send: returns 0 on 2xx response" {
+  export CURL_STATUS=204
+  run notify_slack_send "https://hooks.example.com/slack" deploy.success msg=hi
+  [ "$status" -eq 0 ]
+}
+
+@test "notify_slack_send: returns 1 and warns on non-2xx response" {
+  export CURL_STATUS=500
+  run notify_slack_send "https://hooks.example.com/slack" deploy.success msg=hi
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"HTTP 500"* ]]
+}
+
+@test "notify_discord_send: returns 1 on non-2xx response" {
+  export CURL_STATUS=404
+  run notify_discord_send "https://discord.example.com/hook" deploy.success msg=hi
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"HTTP 404"* ]]
+}
+
+@test "notify_webhook_send: returns 1 on non-2xx response" {
+  export CURL_STATUS=503
+  run notify_webhook_send "https://ops.example.com/strut" deploy.success msg=hi
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"HTTP 503"* ]]
+}
+
+@test "notify_event: non-2xx provider response is only warned, event dispatch still returns 0" {
+  export DRY_RUN=false
+  export CURL_STATUS=500
+  export SLACK_WEBHOOK=https://hooks.example.com/slack
+  export SLACK_EVENTS="*"
+  NOTIFY_CONFIG_LOADED=true
+
+  run notify_event deploy.success stack=x
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Slack notification failed"* ]]
 }
 
 # ---------- notify_test ----------

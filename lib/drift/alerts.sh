@@ -43,12 +43,12 @@ Timestamp: $timestamp"
 
   # Send email alert if configured
   if [ -n "${ALERT_EMAIL_TO:-}" ] && [ -n "${RESEND_API_KEY:-}" ]; then
-    send_email_alert "$alert_title" "$alert_body"
+    send_email_alert "$alert_title" "$alert_body" || warn "Email alert failed (continuing)"
   fi
 
   # Send Slack alert if configured
   if [ -n "${SLACK_WEBHOOK_URL:-}" ]; then
-    send_slack_alert "$alert_title" "$alert_body"
+    send_slack_alert "$alert_title" "$alert_body" || warn "Slack alert failed (continuing)"
   fi
 
   # If no alert channels configured, just log
@@ -64,15 +64,25 @@ send_email_alert() {
   local body="$2"
 
   if command -v curl &>/dev/null && [ -n "${RESEND_API_KEY:-}" ]; then
-    curl -s -X POST "https://api.resend.com/emails" \
+    local esc_subject esc_body
+    esc_subject="$(json_escape "$subject")"
+    esc_body="$(json_escape "$body")"
+
+    local http_code
+    http_code=$(curl -s -o /dev/null -w '%{http_code}' -X POST "https://api.resend.com/emails" \
       -H "Authorization: Bearer ${RESEND_API_KEY}" \
       -H "Content-Type: application/json" \
       -d "{
         \"from\": \"${ALERT_EMAIL_FROM:-alerts@yourdomain.com}\",
         \"to\": [\"${ALERT_EMAIL_TO}\"],
-        \"subject\": \"$subject\",
-        \"text\": \"$body\"
-      }" >/dev/null 2>&1
+        \"subject\": \"$esc_subject\",
+        \"text\": \"$esc_body\"
+      }")
+
+    case "$http_code" in
+      2??) return 0 ;;
+      *) warn "Email alert failed (HTTP $http_code)"; return 1 ;;
+    esac
   fi
 }
 
@@ -83,20 +93,30 @@ send_slack_alert() {
   local message="$2"
 
   if command -v curl &>/dev/null && [ -n "${SLACK_WEBHOOK_URL:-}" ]; then
-    curl -s -X POST "${SLACK_WEBHOOK_URL}" \
+    local esc_title esc_message
+    esc_title="$(json_escape "$title")"
+    esc_message="$(json_escape "$message")"
+
+    local http_code
+    http_code=$(curl -s -o /dev/null -w '%{http_code}' -X POST "${SLACK_WEBHOOK_URL}" \
       -H "Content-Type: application/json" \
       -d "{
-        \"text\": \"$title\",
+        \"text\": \"$esc_title\",
         \"blocks\": [
           {
             \"type\": \"section\",
             \"text\": {
               \"type\": \"mrkdwn\",
-              \"text\": \"$message\"
+              \"text\": \"$esc_message\"
             }
           }
         ]
-      }" >/dev/null 2>&1
+      }")
+
+    case "$http_code" in
+      2??) return 0 ;;
+      *) warn "Slack alert failed (HTTP $http_code)"; return 1 ;;
+    esac
   fi
 }
 
