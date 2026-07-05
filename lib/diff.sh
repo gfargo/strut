@@ -212,7 +212,9 @@ diff_images_content() {
 # diff_fetch_remote <remote_path>
 # Cats a file on the VPS. Uses VPS_HOST/VPS_USER/SSH_KEY/SSH_PORT from the
 # current env (typically loaded from the stack's env file). Prints content
-# to stdout; empty output if the file doesn't exist.
+# to stdout; empty output if the file doesn't exist. Returns 2 if SSH itself
+# failed to connect/authenticate (as opposed to the remote file being absent),
+# so callers can tell "no data" apart from "couldn't ask".
 diff_fetch_remote() {
   local remote_path="$1"
   local ssh_opts
@@ -220,8 +222,19 @@ diff_fetch_remote() {
   local user="${VPS_USER:-ubuntu}"
   local host="${VPS_HOST:-}"
   [ -z "$host" ] && return 1
+
+  local content="" ssh_exit=0
   # shellcheck disable=SC2086
-  ssh $ssh_opts "$user@$host" "cat $remote_path 2>/dev/null" || true
+  content=$(ssh $ssh_opts "$user@$host" "cat $remote_path 2>/dev/null") || ssh_exit=$?
+
+  # OpenSSH reserves exit 255 for "ssh itself failed" (couldn't connect,
+  # auth rejected, dropped mid-session) — distinct from remote `cat`
+  # exiting 1 because the file legitimately doesn't exist yet.
+  if [ "$ssh_exit" -eq 255 ]; then
+    return 2
+  fi
+
+  printf '%s' "$content"
 }
 
 # ── Renderers ─────────────────────────────────────────────────────────────────
