@@ -305,6 +305,12 @@ _validate_required_vars() {
   local valid=true
   local missing=()
 
+  local vars_content
+  if ! vars_content="$(preprocess_config "$vars_file")"; then
+    _val_error "required_vars" "has a missing/circular include: $vars_file"
+    return
+  fi
+
   # Source env file to get values
   set -a
   source "$env_file" 2>/dev/null || true
@@ -322,7 +328,7 @@ _validate_required_vars() {
       missing+=("$var")
       valid=false
     fi
-  done < <(preprocess_config "$vars_file")
+  done <<< "$vars_content"
 
   if [ ${#missing[@]} -gt 0 ]; then
     for var in "${missing[@]}"; do
