@@ -249,6 +249,38 @@ EOF
   [[ "$output" == *"DRY-RUN"* ]] || [[ "$output" == *"dry"* ]] || true
 }
 
+@test "_deploy_volguard: aborts when SSH connection to VPS fails" {
+  export CLI_ROOT="$TEST_TMP"
+  # rc=2 sentinel: ssh itself failed to connect (not just an empty remote file)
+  diff_fetch_remote() { return 2; }
+  export -f diff_fetch_remote
+
+  run _deploy_volguard "test-stack" "$TEST_TMP/.test.env" "false"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"Cannot verify remote state"* ]]
+}
+
+@test "_deploy_volguard: SSH connection failure only warns under DRY_RUN" {
+  export CLI_ROOT="$TEST_TMP"
+  diff_fetch_remote() { return 2; }
+  export -f diff_fetch_remote
+
+  export DRY_RUN=true
+  run _deploy_volguard "test-stack" "$TEST_TMP/.test.env" "false"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Cannot verify remote state"* ]]
+}
+
+@test "_deploy_volguard: SSH connection failure only warns with --confirm-data-move" {
+  export CLI_ROOT="$TEST_TMP"
+  diff_fetch_remote() { return 2; }
+  export -f diff_fetch_remote
+
+  run _deploy_volguard "test-stack" "$TEST_TMP/.test.env" "true"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Cannot verify remote state"* ]]
+}
+
 @test "_deploy_volguard: no destructive changes → returns 0" {
   export CLI_ROOT="$TEST_TMP"
   # Local and remote envs are identical (no dangerous diff)
@@ -415,6 +447,25 @@ INSTALL_DIR=./plane"
   [ "$status" -eq 0 ]
   [[ "$output" == *"INSTALL_DIR"* ]]
   [[ "$output" == *"divergence"* ]] || [[ "$output" == *"Divergence"* ]]
+}
+
+@test "diff_warn_env_divergence: warns (but still returns 0) when SSH connection fails" {
+  export VPS_HOST="example.com"
+  export VPS_USER="ubuntu"
+  export VPS_DEPLOY_DIR=""
+
+  cat > "$TEST_TMP/.prod.env" <<'EOF'
+VPS_HOST=example.com
+INSTALL_DIR=/opt/plane
+EOF
+
+  # rc=2 sentinel: ssh itself failed to connect
+  diff_fetch_remote() { return 2; }
+  export -f diff_fetch_remote
+
+  run diff_warn_env_divergence "test-stack" "$TEST_TMP/.prod.env" "$TEST_TMP/stacks/test-stack"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Cannot verify env divergence"* ]]
 }
 
 @test "diff_warn_env_divergence: silent when volume vars match" {
