@@ -241,19 +241,22 @@ _doc_check_vps() {
     if timeout 5 ssh $ssh_opts "$vps_user@$vps_host" "echo ok" &>/dev/null; then
       _doc_pass "VPS ($env_name)" "reachable at $vps_host"
 
+      # Deploy dir, as declared in the probed env file (not the calling process's env).
+      local deploy_dir=""
+      deploy_dir=$(grep -E  '^VPS_DEPLOY_DIR=' "$env_file" 2>/dev/null | head -1 | cut -d= -f2 | tr -d '"' | tr -d "'" | xargs 2>/dev/null || true)
+      deploy_dir="${deploy_dir:-/home/$vps_user/strut}"
+
       # Run deep preflight against this host when --deep is set.
       if $_DOC_VPS_DEEP; then
-        _doc_check_vps_deep "$env_name" "$ssh_opts" "$vps_user" "$vps_host"
+        _doc_check_vps_deep "$env_name" "$ssh_opts" "$vps_user" "$vps_host" "$deploy_dir"
       fi
 
       # Fleet git status — requires fleet_git_status from lib/fleet.sh
       if declare -f fleet_git_status >/dev/null 2>&1; then
-        local vps_port="" deploy_dir="" gh_pat=""
+        local vps_port="" gh_pat=""
         vps_port=$(grep -E    '^VPS_PORT='       "$env_file" 2>/dev/null | head -1 | cut -d= -f2 | tr -d '"' | tr -d "'" | xargs 2>/dev/null || true)
-        deploy_dir=$(grep -E  '^VPS_DEPLOY_DIR=' "$env_file" 2>/dev/null | head -1 | cut -d= -f2 | tr -d '"' | tr -d "'" | xargs 2>/dev/null || true)
         gh_pat=$(grep -E      '^GH_PAT='         "$env_file" 2>/dev/null | head -1 | cut -d= -f2 | tr -d '"' | tr -d "'" | xargs 2>/dev/null || true)
         vps_port="${vps_port:-22}"
-        deploy_dir="${deploy_dir:-/home/$vps_user/strut}"
         gh_pat="${gh_pat:-${GH_PAT:-}}"
 
         local branch="${DEFAULT_BRANCH:-main}"
@@ -303,11 +306,14 @@ _doc_check_vps() {
   done
 }
 
-# _doc_check_vps_deep <env_name> <ssh_opts> <vps_user> <vps_host>
+# _doc_check_vps_deep <env_name> <ssh_opts> <vps_user> <vps_host> <deploy_dir>
 #
 # Deep preflight against a VPS: verifies the target is deploy-ready.
 # Answers: "Should I run strut against this box?" Each probe runs remotely
 # over the same SSH options as the base reachability check.
+#
+# <deploy_dir> is the VPS_DEPLOY_DIR value parsed from the probed env file
+# (falling back to /home/<vps_user>/strut), not the calling process's env.
 #
 # Checks:
 #   docker present + version >= 20
@@ -317,7 +323,7 @@ _doc_check_vps() {
 #   ports 80 / 443 not already bound
 #   sudo works without prompting (only if VPS_SUDO=true or non-root user)
 _doc_check_vps_deep() {
-  local env_name="$1" ssh_opts="$2" vps_user="$3" vps_host="$4"
+  local env_name="$1" ssh_opts="$2" vps_user="$3" vps_host="$4" deploy_dir="$5"
   local label="VPS-deep ($env_name)"
 
   # Run all remote probes in a single SSH session for speed.
@@ -437,7 +443,7 @@ REMOTE
     _doc_pass "$label / workingdir" "no running containers (skip)"
   else
     local expected_prefix
-    expected_prefix="$(resolve_deploy_dir)/stacks"
+    expected_prefix="$deploy_dir/stacks"
     local mismatch_found=false
     while IFS= read -r wdir; do
       [ -z "$wdir" ] && continue
