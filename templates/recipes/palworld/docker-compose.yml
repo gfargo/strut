@@ -1,0 +1,24 @@
+services:
+  palworld:
+    image: thijsvanloef/palworld-server-docker:latest
+    container_name: STACK_NAME_PLACEHOLDER-palworld
+    restart: unless-stopped
+    ports:
+      - "8211:8211/udp"
+      - "27015:27015/udp"
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - PORT=8211
+      - PLAYERS=${PLAYERS:-8}
+      - SERVER_PASSWORD=${SERVER_PASSWORD}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD}
+      - SERVER_NAME=${SERVER_NAME}
+      - COMMUNITY=${COMMUNITY:-true}
+      - MULTITHREADING=true
+    volumes:
+      - palworld_data:/palworld
+    stop_grace_period: 30s
+
+volumes:
+  palworld_data:
