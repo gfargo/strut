@@ -274,6 +274,38 @@ volumes:
   [[ "$result" == *'"new":"new"'* ]]
 }
 
+# ── diff_fetch_remote (OSS-435: SSH failure vs. missing file) ────────────────
+
+@test "diff_fetch_remote: reachable host, file exists → exit 0 with content" {
+  export VPS_HOST="example.com"
+  ssh() { echo "FOO=bar"; return 0; }
+  export -f ssh
+
+  run diff_fetch_remote "/some/path/.env"
+  [ "$status" -eq 0 ]
+  [ "$output" = "FOO=bar" ]
+}
+
+@test "diff_fetch_remote: reachable host, remote cat fails (file missing) → exit 0, empty" {
+  export VPS_HOST="example.com"
+  ssh() { return 1; }
+  export -f ssh
+
+  run diff_fetch_remote "/some/path/.env"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+}
+
+@test "diff_fetch_remote: ssh itself fails (255) → exit 2, no content" {
+  export VPS_HOST="example.com"
+  ssh() { return 255; }
+  export -f ssh
+
+  run diff_fetch_remote "/some/path/.env"
+  [ "$status" -eq 2 ]
+  [ -z "$output" ]
+}
+
 # ── diff_fetch_remote (OSS-465: VPS_PORT/VPS_SSH_KEY, not SSH_PORT/SSH_KEY) ────
 
 @test "diff_fetch_remote: builds ssh opts from VPS_PORT/VPS_SSH_KEY" {

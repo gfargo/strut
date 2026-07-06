@@ -87,8 +87,14 @@ cmd_diff() {
 
   # Fetch remote content (may be empty if missing)
   local remote_env_content remote_compose_content
-  remote_env_content=$(diff_fetch_remote "$remote_env")
-  remote_compose_content=$(diff_fetch_remote "$remote_compose")
+  if ! remote_env_content=$(diff_fetch_remote "$remote_env"); then
+    error "Error fetching remote state from $VPS_HOST (env file) — check SSH connectivity"
+    return 2
+  fi
+  if ! remote_compose_content=$(diff_fetch_remote "$remote_compose"); then
+    error "Error fetching remote state from $VPS_HOST (compose file) — check SSH connectivity"
+    return 2
+  fi
 
   local local_env_content local_compose_content
   local_env_content=$(cat "$env_file")
