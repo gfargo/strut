@@ -25,6 +25,7 @@ backup_mysql() {
 
   # Load MySQL connection details from stack env
   local mysql_container="${MYSQL_CONTAINER_NAME:-}"
+  local mysql_service="${BACKUP_MYSQL_SERVICE:-mysql}"
   local mysql_db="${MYSQL_DATABASE:-}"
   # For backup, prefer root user when root password is available (needed for
   # --routines --triggers --events which require SUPER or elevated privileges)
@@ -59,8 +60,8 @@ backup_mysql() {
         return 1
       }
   else
-    # Fallback: use compose exec with the mysql service name
-    ${_sudo}$compose_cmd exec -T onlyoffice-mysql-server \
+    # Fallback: use compose exec with the configured mysql service name
+    ${_sudo}$compose_cmd exec -T "$mysql_service" \
       mysqldump -u "$mysql_user" --password="$mysql_password" \
       --single-transaction --routines --triggers --events \
       "$mysql_db" >"$out" 2>/dev/null \
@@ -97,6 +98,7 @@ restore_mysql() {
   fi
 
   local mysql_container="${MYSQL_CONTAINER_NAME:-}"
+  local mysql_service="${BACKUP_MYSQL_SERVICE:-mysql}"
   local mysql_db="${MYSQL_DATABASE:-}"
   local mysql_user mysql_password
   if [ -n "${MYSQL_ROOT_PASSWORD:-}" ]; then
@@ -130,7 +132,7 @@ restore_mysql() {
         return 1
       }
   else
-    ${_sudo}$compose_cmd exec -T onlyoffice-mysql-server \
+    ${_sudo}$compose_cmd exec -T "$mysql_service" \
       mysql -u "$mysql_user" --password="$mysql_password" "$mysql_db" <"$sql_file" \
       && ok "MySQL restore complete" \
       || {
