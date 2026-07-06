@@ -203,23 +203,45 @@ keys_ssh_add() {
   echo ""
 }
 
-# keys_ssh_rotate <stack> <env_file> <username>
+# keys_ssh_rotate <stack> <env_file> <username> [--dry-run] [--force]
 keys_ssh_rotate() {
   local stack="$1"
   local env_file="$2"
   local username="${3:-}"
+  shift 3 || true
 
-  [ -n "$username" ] || fail "Usage: keys ssh:rotate <username>"
+  [ -n "$username" ] || fail "Usage: keys ssh:rotate <username> [--dry-run] [--force]"
+
+  local dry_run=false
+  local force=false
+
+  while [[ $# -gt 0 ]]; do
+    case $1 in
+      --dry-run)
+        dry_run=true
+        shift
+        ;;
+      --force)
+        force=true
+        shift
+        ;;
+      *) shift ;;
+    esac
+  done
+
+  local extra_args=()
+  $dry_run && extra_args+=(--dry-run)
+  $force && extra_args+=(--force)
 
   log "Rotating SSH key for $username..."
 
   # Revoke old key
-  keys_ssh_revoke "$stack" "$env_file" "$username" --no-confirm
+  keys_ssh_revoke "$stack" "$env_file" "$username" --no-confirm "${extra_args[@]+"${extra_args[@]}"}"
 
   # Generate and add new key
-  keys_ssh_add "$stack" "$env_file" "$username" --generate
+  keys_ssh_add "$stack" "$env_file" "$username" --generate "${extra_args[@]+"${extra_args[@]}"}"
 
-  ok "SSH key rotated for $username"
+  $dry_run || ok "SSH key rotated for $username"
 }
 
 # keys_ssh_revoke <stack> <env_file> <username> [--no-confirm] [--dry-run] [--force]

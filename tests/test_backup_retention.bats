@@ -221,3 +221,79 @@ EOF
     rm -rf "$CLI_ROOT/stacks/$stack"
   done
 }
+
+# ── install_retention_cron: cron line shape ───────────────────────────────────
+# Fakes crontab as a shell function backed by a temp file — never touches the
+# real system crontab. The write side goes through a temp-file-then-rename so
+# a read (-l) landing in the same pipeline as a write (-) never observes a
+# truncated file — the same atomicity the real crontab binary provides.
+
+_fake_crontab_setup() {
+  FAKE_CRONTAB="$TEST_TMP/crontab.txt"
+  : > "$FAKE_CRONTAB"
+  crontab() {
+    case "$1" in
+      -l) cat "$FAKE_CRONTAB" 2>/dev/null ;;
+      -)
+        local tmp
+        tmp="$(mktemp)"
+        cat > "$tmp"
+        mv "$tmp" "$FAKE_CRONTAB"
+        ;;
+    esac
+  }
+}
+
+@test "install_retention_cron: cron line invokes absolute strut binary, never bare 'strut'" {
+  local stack="test-ret-cron-$$"
+  mkdir -p "$CLI_ROOT/stacks/$stack"
+  _fake_crontab_setup
+
+  run install_retention_cron "$stack"
+  [ "$status" -eq 0 ]
+
+  local line
+  line=$(grep -A1 "strut retention: $stack" "$FAKE_CRONTAB" | tail -1)
+  [[ "$line" == *"$CLI_ROOT/strut"* ]]
+  [[ "$line" != *" strut "* ]]
+
+  rm -rf "$CLI_ROOT/stacks/$stack"
+}
+
+@test "install_retention_cron: adds PATH/SHELL header and wraps command in flock" {
+  local stack="test-ret-header-$$"
+  mkdir -p "$CLI_ROOT/stacks/$stack"
+  rm -rf "$CLI_ROOT/stacks/$stack/backups"
+  _fake_crontab_setup
+
+  run install_retention_cron "$stack"
+  [ "$status" -eq 0 ]
+  [ -d "$CLI_ROOT/stacks/$stack/backups" ]
+  grep -q "^PATH=" "$FAKE_CRONTAB"
+  grep -q "^SHELL=" "$FAKE_CRONTAB"
+  grep -q "flock -n" "$FAKE_CRONTAB"
+
+  rm -rf "$CLI_ROOT/stacks/$stack"
+}
+
+@test "install_retention_cron: installed cron line runs end-to-end under a minimal cron PATH" {
+  local stack="test-ret-e2e-$$"
+  mkdir -p "$CLI_ROOT/stacks/$stack"
+  _fake_crontab_setup
+
+  install_retention_cron "$stack" >/dev/null
+
+  local line
+  line=$(grep "^0 4" "$FAKE_CRONTAB")
+  # Strip the 5-field schedule, keep the rest of the command
+  local remainder
+  remainder=$(echo "$line" | cut -d' ' -f6-)
+
+  run env -i PATH=/usr/bin:/bin HOME="${HOME:-/root}" sh -c "$remainder"
+  [[ "$output" != *"command not found"* ]]
+
+  local log_file="$CLI_ROOT/stacks/$stack/backups/retention-cron.log"
+  [ -f "$log_file" ]
+
+  rm -rf "$CLI_ROOT/stacks/$stack"
+}

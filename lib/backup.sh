@@ -11,6 +11,7 @@
 set -euo pipefail
 
 BACKUP_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/backup"
+[ -f "$BACKUP_LIB_DIR/alerts.sh" ] && source "$BACKUP_LIB_DIR/alerts.sh"
 [ -f "$BACKUP_LIB_DIR/verify.sh" ] && source "$BACKUP_LIB_DIR/verify.sh"
 [ -f "$BACKUP_LIB_DIR/schedule.sh" ] && source "$BACKUP_LIB_DIR/schedule.sh"
 [ -f "$BACKUP_LIB_DIR/retention.sh" ] && source "$BACKUP_LIB_DIR/retention.sh"
@@ -38,12 +39,10 @@ _backup_dir() {
   # Try sourcing volume.conf then backup.conf for this stack
   local stack_dir="$cli_root/stacks/$stack"
   if [ -f "$stack_dir/volume.conf" ]; then
-    # shellcheck disable=SC1090
-    source <(preprocess_config "$stack_dir/volume.conf")
+    safe_source_config "$stack_dir/volume.conf" || return 1
   fi
   if [ -f "$stack_dir/backup.conf" ]; then
-    # shellcheck disable=SC1090
-    source <(preprocess_config "$stack_dir/backup.conf")
+    safe_source_config "$stack_dir/backup.conf" || return 1
   fi
 
   # BACKUP_LOCAL_DIR in backup.conf references ${BACKUP_PATH} from volume.conf

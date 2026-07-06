@@ -216,6 +216,22 @@ EOF
   [[ "$output" == *"ubuntu"* ]]
 }
 
+@test "cmd_remote_init: preserves dispatcher-resolved VPS_HOST over env file value" {
+  export DRY_RUN=false
+  export CMD_STACK="my-stack"
+  export VPS_HOST="standby-host.internal"
+
+  cat > "$TEST_TMP/.prod.env" <<'EOF'
+VPS_HOST=primary-host.internal
+EOF
+  export CMD_ENV_FILE="$TEST_TMP/.prod.env"
+
+  run cmd_remote_init --dry-run
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"standby-host.internal"* ]]
+  [[ "$output" != *"primary-host.internal"* ]]
+}
+
 @test "cmd_remote_init: defaults branch to main" {
   export DRY_RUN=false
   export CMD_STACK="my-stack"
