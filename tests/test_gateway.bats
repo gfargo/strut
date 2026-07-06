@@ -186,3 +186,122 @@ teardown() { common_teardown; }
   [ "$status" -eq 0 ]
   [[ "$output" == *"No Caddyfile"* ]]
 }
+
+# ── _gateway_deploy execute path ──────────────────────────────────────────────
+#
+# These stub ssh/scp to log every invocation to $TEST_TMP/ssh.log so ordering
+# and destination paths can be asserted, following the convention in
+# tests/test_cmd_domain.bats. Behavior (validate/reload exit codes) is
+# controlled per-test via env vars read inside the stub.
+
+_gateway_deploy_test_setup() {
+  mkdir -p "$TEST_TMP/stacks/gateway"
+  echo "localhost:80" > "$TEST_TMP/stacks/gateway/Caddyfile.harbor"
+
+  topology_load() { :; }
+  topology_is_host_alias() { return 1; }
+  export -f topology_load topology_is_host_alias
+  export VPS_HOST="10.0.0.1"
+  export VPS_USER="deploy"
+
+  : > "$TEST_TMP/ssh.log"
+
+  scp() { echo "scp $*" >> "$TEST_TMP/ssh.log"; return 0; }
+  export -f scp
+
+  ssh() {
+    local args="$*"
+    echo "ssh $args" >> "$TEST_TMP/ssh.log"
+    if [[ "$args" == *"caddy validate"* ]]; then
+      return "${GW_TEST_VALIDATE_STATUS:-0}"
+    fi
+    if [[ "$args" == *"cp '"*".bak'"* ]]; then
+      return "${GW_TEST_BACKUP_STATUS:-0}"
+    fi
+    if [[ "$args" == *"systemctl reload caddy"* ]]; then
+      # Rollback-then-reload is a compound command distinguished by the mv.
+      if [[ "$args" == *"mv "*".bak"* ]]; then
+        return "${GW_TEST_ROLLBACK_RELOAD_STATUS:-0}"
+      fi
+      return "${GW_TEST_RELOAD_STATUS:-0}"
+    fi
+    return 0
+  }
+  export -f ssh
+}
+
+@test "_gateway_deploy: invalid config never reaches live path" {
+  _gateway_deploy_test_setup
+  export GW_TEST_VALIDATE_STATUS=1
+
+  run _gateway_deploy --host harbor
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"validation failed"* ]]
+
+  # Live path is never touched — only the staging path (/tmp/Caddyfile.new) is referenced
+  ! grep -q "mv '/etc/caddy/Caddyfile.new' '/etc/caddy/Caddyfile'" "$TEST_TMP/ssh.log"
+  ! grep -q "cp '/etc/caddy/Caddyfile' '/etc/caddy/Caddyfile.bak'" "$TEST_TMP/ssh.log"
+  [[ "$output" != *"Caddyfile installed"* ]]
+}
+
+@test "_gateway_deploy: valid config installs and reload succeeds" {
+  _gateway_deploy_test_setup
+
+  run _gateway_deploy --host harbor
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Caddyfile installed"* ]]
+  [[ "$output" == *"Caddy reloaded"* ]]
+  [[ "$output" != *"failed"* ]]
+
+  grep -q "caddy validate --config '/tmp/Caddyfile.new'" "$TEST_TMP/ssh.log"
+  grep -q "cp '/tmp/Caddyfile.new'" "$TEST_TMP/ssh.log"
+}
+
+@test "_gateway_deploy: reload failure rolls back and reports failure" {
+  _gateway_deploy_test_setup
+  export GW_TEST_RELOAD_STATUS=1
+  export GW_TEST_ROLLBACK_RELOAD_STATUS=0
+
+  run _gateway_deploy --host harbor
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"rolled back"* ]]
+  [[ "$output" != *"Caddy reloaded"* ]]
+
+  grep -q "mv '.*\.bak' '.*Caddyfile' && sudo systemctl reload caddy" "$TEST_TMP/ssh.log"
+}
+
+@test "_gateway_deploy: reload and rollback both fail reports manual intervention" {
+  _gateway_deploy_test_setup
+  export GW_TEST_RELOAD_STATUS=1
+  export GW_TEST_ROLLBACK_RELOAD_STATUS=1
+
+  run _gateway_deploy --host harbor
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"manual intervention"* ]]
+  [[ "$output" != *"Caddy reloaded"* ]]
+}
+
+@test "_gateway_deploy: reload failure with no prior backup reports honestly" {
+  _gateway_deploy_test_setup
+  export GW_TEST_BACKUP_STATUS=1
+  export GW_TEST_RELOAD_STATUS=1
+
+  run _gateway_deploy --host harbor
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"no previous config to roll back to"* ]]
+  [[ "$output" != *"rolled back"* ]]
+  [[ "$output" != *"Caddy reloaded"* ]]
+}
+
+@test "_gateway_deploy: upload failure fails loud" {
+  _gateway_deploy_test_setup
+  scp() { echo "scp $*" >> "$TEST_TMP/ssh.log"; return 1; }
+  export -f scp
+  fail() { echo "FAIL: $1" >&2; exit 1; }
+  export -f fail
+
+  run _gateway_deploy --host harbor
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"Upload failed"* ]]
+  [[ "$output" != *"Caddyfile installed"* ]]
+}

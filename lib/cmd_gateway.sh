@@ -166,6 +166,7 @@ _gateway_deploy() {
   [[ -n "$_GW_PORT" && "$_GW_PORT" != "22" ]] && scp_opts="$scp_opts -P $_GW_PORT"
   [[ -n "$_GW_KEY" ]] && scp_opts="$scp_opts -o IdentitiesOnly=yes -i $_GW_KEY"
   local remote_path="${GATEWAY_CADDY_PATH:-/etc/caddy/Caddyfile}"
+  local staging_path="/tmp/Caddyfile.new"
 
   print_banner "Gateway Deploy: $host_alias"
   log "Caddyfile: $caddyfile"
@@ -175,10 +176,10 @@ _gateway_deploy() {
 
   if [ "$dry_run" = "true" ]; then
     echo -e "${YELLOW}[DRY-RUN] Execution plan:${NC}"
+    run_cmd "Upload new Caddyfile to staging" scp $scp_opts "$caddyfile" "$_GW_USER@$_GW_HOST:$staging_path"
+    run_cmd "Validate staged config" ssh $ssh_opts "$_GW_USER@$_GW_HOST" "sudo caddy validate --config $staging_path"
     run_cmd "Backup current Caddyfile" ssh $ssh_opts "$_GW_USER@$_GW_HOST" "sudo cp $remote_path ${remote_path}.bak"
-    run_cmd "Upload new Caddyfile" scp $scp_opts "$caddyfile" "$_GW_USER@$_GW_HOST:/tmp/Caddyfile.new"
-    run_cmd "Install Caddyfile" ssh $ssh_opts "$_GW_USER@$_GW_HOST" "sudo mv /tmp/Caddyfile.new $remote_path"
-    run_cmd "Validate config" ssh $ssh_opts "$_GW_USER@$_GW_HOST" "sudo caddy validate --config $remote_path"
+    run_cmd "Install Caddyfile (atomic rename)" ssh $ssh_opts "$_GW_USER@$_GW_HOST" "sudo cp $staging_path ${remote_path}.new && sudo mv ${remote_path}.new $remote_path"
     run_cmd "Reload Caddy" ssh $ssh_opts "$_GW_USER@$_GW_HOST" "sudo systemctl reload caddy"
     echo ""
     echo -e "${YELLOW}[DRY-RUN] No changes made.${NC}"
@@ -186,32 +187,50 @@ _gateway_deploy() {
   fi
 
   # Execute
-  log "[1/4] Backing up current Caddyfile..."
-  # shellcheck disable=SC2029
-  ssh $ssh_opts "$_GW_USER@$_GW_HOST" "sudo cp '$remote_path' '${remote_path}.bak' 2>/dev/null || true"
+  log "[1/4] Uploading new Caddyfile to staging..."
+  scp $scp_opts "$caddyfile" "$_GW_USER@$_GW_HOST:$staging_path" || fail "Upload failed"
 
-  log "[2/4] Uploading new Caddyfile..."
-  scp $scp_opts "$caddyfile" "$_GW_USER@$_GW_HOST:/tmp/Caddyfile.new" || fail "Upload failed"
+  log "[2/4] Validating staged config..."
   # shellcheck disable=SC2029
-  ssh $ssh_opts "$_GW_USER@$_GW_HOST" "sudo mv /tmp/Caddyfile.new '$remote_path'" || fail "Install failed"
-  ok "Caddyfile installed"
-
-  log "[3/4] Validating config..."
-  # shellcheck disable=SC2029
-  if ssh $ssh_opts "$_GW_USER@$_GW_HOST" "sudo caddy validate --config '$remote_path'" 2>/dev/null; then
+  if ssh $ssh_opts "$_GW_USER@$_GW_HOST" "sudo caddy validate --config '$staging_path'" 2>/dev/null; then
     ok "Config valid"
   else
-    warn "Validation failed — rolling back"
     # shellcheck disable=SC2029
-    ssh $ssh_opts "$_GW_USER@$_GW_HOST" "sudo mv '${remote_path}.bak' '$remote_path'" 2>/dev/null || true
-    fail "Caddyfile validation failed on remote — rolled back"
+    ssh $ssh_opts "$_GW_USER@$_GW_HOST" "rm -f '$staging_path'" 2>/dev/null || true
+    fail "Caddyfile validation failed — not installed"
     return 1
   fi
 
+  log "[3/4] Backing up current Caddyfile and installing..."
+  local have_backup=true
+  # shellcheck disable=SC2029
+  if ! ssh $ssh_opts "$_GW_USER@$_GW_HOST" "sudo cp '$remote_path' '${remote_path}.bak'" 2>/dev/null; then
+    have_backup=false
+  fi
+
+  # shellcheck disable=SC2029
+  ssh $ssh_opts "$_GW_USER@$_GW_HOST" "sudo cp '$staging_path' '${remote_path}.new' && sudo mv '${remote_path}.new' '$remote_path'" || fail "Install failed"
+  ok "Caddyfile installed"
+  # shellcheck disable=SC2029
+  ssh $ssh_opts "$_GW_USER@$_GW_HOST" "rm -f '$staging_path'" 2>/dev/null || true
+
   log "[4/4] Reloading Caddy..."
   # shellcheck disable=SC2029
-  ssh $ssh_opts "$_GW_USER@$_GW_HOST" "sudo systemctl reload caddy" || warn "Reload failed"
-  ok "Caddy reloaded"
+  if ssh $ssh_opts "$_GW_USER@$_GW_HOST" "sudo systemctl reload caddy"; then
+    ok "Caddy reloaded"
+  else
+    if $have_backup; then
+      # shellcheck disable=SC2029
+      if ssh $ssh_opts "$_GW_USER@$_GW_HOST" "sudo mv '${remote_path}.bak' '$remote_path' && sudo systemctl reload caddy"; then
+        fail "Caddy reload failed — rolled back to previous config"
+      else
+        fail "Caddy reload failed AND rollback failed — manual intervention required on $_GW_HOST"
+      fi
+    else
+      fail "Caddy reload failed — no previous config to roll back to"
+    fi
+    return 1
+  fi
 
   echo ""
   ok "Gateway deployed to $host_alias"
