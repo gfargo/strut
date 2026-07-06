@@ -260,14 +260,15 @@ _bg_stop_color() {
 # _bg_teardown_failed_color <compose_cmd>
 #
 # Invoked when health probes for a freshly-started color never succeed.
-# Same as _bg_stop_color today but kept as a distinct helper so failure
-# cleanup can grow (container logs capture, snapshot, etc.) without
-# bloating the success path.
+# Uses `down --remove-orphans` WITHOUT --volumes: named volumes may be shared
+# with the live color (e.g. postgres_data), and destroying them here would
+# cause data loss for the running stack. The failed containers are removed
+# (freeing ports/names) but volumes are preserved.
 _bg_teardown_failed_color() {
   local compose_cmd="$1"
-  warn "Tearing down failed green color"
+  warn "Tearing down failed green color (volumes preserved)"
   # shellcheck disable=SC2086
-  $compose_cmd down --remove-orphans --volumes 2>/dev/null || true
+  $compose_cmd down --remove-orphans 2>/dev/null || true
 }
 
 # ── Main ──────────────────────────────────────────────────────────────────────
