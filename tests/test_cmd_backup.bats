@@ -175,3 +175,20 @@ teardown() {
   [[ "$output" == *"compare_neo4j_databases"* ]]
   [[ "$output" == *"compare_postgres_databases"* ]]
 }
+
+@test "cmd_backup: postgres failure triggers alert_backup_failure and aborts before offsite/notify" {
+  backup_postgres() { echo "backup_postgres failed"; return 1; }
+  export -f backup_postgres
+  alert_backup_failure() { echo "alert_backup_failure $*"; }
+  export -f alert_backup_failure
+  offsite_sync_latest() { echo "offsite_sync_latest $*"; }
+  export -f offsite_sync_latest
+  notify_event() { echo "notify_event $*"; }
+  export -f notify_event
+
+  run cmd_backup postgres
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"alert_backup_failure test-stack postgres"* ]]
+  [[ "$output" != *"offsite_sync_latest"* ]]
+  [[ "$output" != *"notify_event backup.success"* ]]
+}

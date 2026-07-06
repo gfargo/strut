@@ -292,7 +292,7 @@ teardown() {
 
 @test "_doc_check_vps_deep: workingdir match emits pass" {
   # Stub the SSH output to simulate a matching working_dir
-  local deploy_dir; deploy_dir=$(resolve_deploy_dir)
+  local deploy_dir="/opt/strut"
   local fake_out="=== docker ===
 Docker version 24.0.7, build abcdef
 === compose ===
@@ -312,7 +312,7 @@ ${deploy_dir}/stacks/my-app"
   timeout() { shift; shift; echo "$fake_out"; }
   export -f timeout
 
-  run _doc_check_vps_deep "prod" "-o BatchMode=yes" "ubuntu" "host.example.com"
+  run _doc_check_vps_deep "prod" "-o BatchMode=yes" "ubuntu" "host.example.com" "$deploy_dir"
   [ "$status" -eq 0 ]
   [[ "$output" == *"workingdir"* ]]
   [[ "$output" == *"pass"* ]] || [[ "$output" == *"✓"* ]] || [[ "$output" == *"all containers"* ]]
@@ -337,10 +337,7 @@ sudo: PASSWORDLESS
   timeout() { shift; shift; echo "$fake_out"; }
   export -f timeout
 
-  export VPS_DEPLOY_DIR=""
-  export VPS_USER="ubuntu"
-
-  run _doc_check_vps_deep "prod" "-o BatchMode=yes" "ubuntu" "host.example.com"
+  run _doc_check_vps_deep "prod" "-o BatchMode=yes" "ubuntu" "host.example.com" "/home/ubuntu/strut"
   [ "$status" -eq 0 ]
   [[ "$output" == *"workingdir"* ]]
   [[ "$output" == *"/opt/stacks/my-app"* ]]
@@ -365,7 +362,66 @@ workingdir: EMPTY"
   timeout() { shift; shift; echo "$fake_out"; }
   export -f timeout
 
-  run _doc_check_vps_deep "prod" "-o BatchMode=yes" "ubuntu" "host.example.com"
+  run _doc_check_vps_deep "prod" "-o BatchMode=yes" "ubuntu" "host.example.com" "/home/ubuntu/strut"
   [ "$status" -eq 0 ]
   [[ "$output" == *"no running containers"* ]]
+}
+
+@test "_doc_check_vps_deep: ignores VPS_DEPLOY_DIR from process env, uses probed value" {
+  local fake_out="=== docker ===
+Docker version 24.0.7, build abcdef
+=== compose ===
+2.24.0
+=== disk ===
+10000000
+=== mem ===
+2000000
+=== ports ===
+22,
+=== sudo ===
+sudo: PASSWORDLESS
+=== workingdir ===
+/opt/strut/stacks/my-app"
+
+  timeout() { shift; shift; echo "$fake_out"; }
+  export -f timeout
+
+  # Process env deliberately disagrees with the probed env file's deploy dir.
+  export VPS_DEPLOY_DIR="/some/wrong/path"
+  export VPS_USER="ubuntu"
+
+  run _doc_check_vps_deep "prod" "-o BatchMode=yes" "ubuntu" "host.example.com" "/opt/strut"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"workingdir"* ]]
+  [[ "$output" == *"all containers"* ]]
+  [[ "$output" != *"outside expected prefix"* ]]
+}
+
+@test "_doc_check_vps_deep: process env VPS_DEPLOY_DIR that would falsely match still warns correctly" {
+  local fake_out="=== docker ===
+Docker version 24.0.7, build abcdef
+=== compose ===
+2.24.0
+=== disk ===
+10000000
+=== mem ===
+2000000
+=== ports ===
+22,
+=== sudo ===
+sudo: PASSWORDLESS
+=== workingdir ===
+/opt/other/stacks/my-app"
+
+  timeout() { shift; shift; echo "$fake_out"; }
+  export -f timeout
+
+  # Process env matches the container path, but the probed deploy_dir doesn't — must still warn.
+  export VPS_DEPLOY_DIR="/opt/other"
+  export VPS_USER="ubuntu"
+
+  run _doc_check_vps_deep "prod" "-o BatchMode=yes" "ubuntu" "host.example.com" "/home/ubuntu/strut"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"workingdir"* ]]
+  [[ "$output" == *"outside expected prefix"* ]]
 }

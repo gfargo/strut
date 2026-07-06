@@ -23,6 +23,7 @@ stacks/*/data/
 backups/
 audits/
 drift-history/
+locks/
 
 # Key material and discovery snapshots (managed by `keys` command)
 stacks/*/keys/

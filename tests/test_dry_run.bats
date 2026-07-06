@@ -309,3 +309,60 @@ YAML
     fi
   done
 }
+
+# ── Regression: deploy_stack preserves dispatcher-resolved VPS_HOST ──────────
+# strut#220 (OSS-466): a raw `set -a; source $env_file; set +a` right after
+# validate_env_file used to clobber a --host/topology-resolved VPS_HOST with
+# whatever the file said. deploy_stack now relies solely on validate_env_file,
+# which preserves the ambient connection var while still loading everything
+# else the file defines.
+
+@test "deploy_stack: preserves dispatcher-resolved VPS_HOST, still loads other env vars" {
+  _load_utils
+  source "$CLI_ROOT/lib/config.sh"
+  source "$CLI_ROOT/lib/docker.sh"
+  source "$CLI_ROOT/lib/deploy.sh"
+
+  export DRY_RUN="true"
+  export SKIP_VALIDATION="true"
+  export VPS_HOST="standby.example.com"
+
+  mkdir -p "$TEST_TMP/stacks/test-stack"
+  cat > "$TEST_TMP/stacks/test-stack/docker-compose.yml" <<'YAML'
+version: "3"
+services:
+  app:
+    image: test:latest
+YAML
+
+  local env_file="$TEST_TMP/.env.test"
+  cat > "$env_file" <<'EOF'
+VPS_HOST=primary.example.com
+IMAGE_TAG=v2.5.0
+EOF
+
+  export_volume_paths() { :; }
+  docker() {
+    if [ "$1" = "compose" ] && [ "$2" = "version" ]; then
+      echo "Docker Compose version v2.20.0"
+      return 0
+    fi
+    echo "docker $*"
+    return 0
+  }
+  export -f docker
+
+  export CLI_ROOT="$TEST_TMP"
+
+  (
+    set +e
+    deploy_stack "test-stack" "$env_file" "" > "$TEST_TMP/deploy_stack.out" 2>&1
+    echo $? > "$TEST_TMP/deploy_stack.status"
+    echo "$VPS_HOST" > "$TEST_TMP/vps_host_after"
+    echo "$IMAGE_TAG" > "$TEST_TMP/image_tag_after"
+  )
+
+  [ "$(cat "$TEST_TMP/deploy_stack.status")" = "0" ]
+  [ "$(cat "$TEST_TMP/vps_host_after")" = "standby.example.com" ]
+  [ "$(cat "$TEST_TMP/image_tag_after")" = "v2.5.0" ]
+}
