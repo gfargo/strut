@@ -147,6 +147,61 @@ _rand_str() {
   grep -q "data/" "$project_dir/.gitignore"
 }
 
+@test "init: preserves existing populated .gitignore and appends missing strut rules under marker" {
+  local project_dir="$TEST_TMP/init_gitignore_preserve"
+  mkdir -p "$project_dir"
+  printf 'node_modules/\ndist/\n# my own comment\n' > "$project_dir/.gitignore"
+
+  (cd "$project_dir" && cmd_init)
+
+  # Original user content must survive untouched
+  grep -qxF "node_modules/" "$project_dir/.gitignore"
+  grep -qxF "dist/" "$project_dir/.gitignore"
+  grep -qxF "# my own comment" "$project_dir/.gitignore"
+
+  # Missing strut rules appended under the managed marker
+  grep -qxF "# strut — managed rules" "$project_dir/.gitignore"
+  grep -qxF ".env" "$project_dir/.gitignore"
+  grep -qxF ".env.*" "$project_dir/.gitignore"
+  grep -qxF "!.env.template" "$project_dir/.gitignore"
+  grep -qxF "backups/" "$project_dir/.gitignore"
+  grep -qxF "data/" "$project_dir/.gitignore"
+}
+
+@test "init: does not duplicate strut rules already present as bare lines" {
+  local project_dir="$TEST_TMP/init_gitignore_no_dupe"
+  mkdir -p "$project_dir"
+  printf 'node_modules/\n.env\n.env.*\n!.env.template\nbackups/\ndata/\n' > "$project_dir/.gitignore"
+  local before
+  before="$(cat "$project_dir/.gitignore")"
+
+  (cd "$project_dir" && cmd_init)
+
+  # No marker block added since every strut rule was already present
+  run grep -qxF "# strut — managed rules" "$project_dir/.gitignore"
+  [ "$status" -ne 0 ]
+
+  # File content is byte-for-byte unchanged
+  [ "$(cat "$project_dir/.gitignore")" = "$before" ]
+}
+
+@test "init: .gitignore is idempotent — unchanged on repeated invocations once marker exists" {
+  local project_dir="$TEST_TMP/init_gitignore_idempotent"
+  mkdir -p "$project_dir"
+  printf 'node_modules/\n\n# strut — managed rules\n.env\n.env.*\n!.env.template\nbackups/\ndata/\n' > "$project_dir/.gitignore"
+
+  (cd "$project_dir" && cmd_init)
+  local checksum_after_first
+  checksum_after_first="$(md5sum "$project_dir/.gitignore" | awk '{print $1}')"
+
+  rm -f "$project_dir/strut.conf"
+  (cd "$project_dir" && cmd_init)
+  local checksum_after_second
+  checksum_after_second="$(md5sum "$project_dir/.gitignore" | awk '{print $1}')"
+
+  [ "$checksum_after_first" = "$checksum_after_second" ]
+}
+
 @test "init: aborts if strut.conf already exists" {
   local project_dir="$TEST_TMP/init_exists"
   mkdir -p "$project_dir"
