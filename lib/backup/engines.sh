@@ -9,8 +9,8 @@
 # `case` arm in each helper below — no other site should hardcode the
 # postgres/neo4j/mysql/sqlite quadruple.
 #
-# Arbitrary-directory backups (e.g. a stack-specific "gdrive transcripts"
-# tarball) are a stack-specific concern, not a generic DB engine — use the
+# Arbitrary-directory tarball backups (not a DB dump/restore/verify cycle)
+# are a stack-specific concern, not a generic DB engine — use the
 # pre_backup/post_backup hook system for those instead.
 
 set -euo pipefail

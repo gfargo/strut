@@ -278,6 +278,7 @@ EOF
       stop|start) return 0 ;;
       inspect)
         case "$*" in
+          *'Config.Image'*) echo "neo4j:5.19-community" ;;
           *'State.Status'*) echo "exited" ;;
           *'Destination "/data"'*) echo "/fake/data" ;;
           *'Destination "/var/lib/neo4j/import"'*) echo "/fake/import" ;;
