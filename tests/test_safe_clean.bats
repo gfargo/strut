@@ -132,6 +132,28 @@ EOF
   [[ "$output" == *"strut"* ]]
 }
 
+# ── vps_update_repo: FORCE_CLEAN threads through to fleet_sync ──────────────
+
+@test "vps_update_repo: FORCE_CLEAN=true threads --force-clean into fleet_sync's remote guard" {
+  local env_file
+  env_file=$(_make_env_file)
+
+  run _capture_vps_update_cmd "$env_file" "true"
+  [ "$status" -eq 0 ]
+  # fleet_sync's remote heredoc substitutes force_clean locally into the
+  # guard condition — 'true' means the bypass branch (git clean -fd) is taken.
+  [[ "$output" == *"[ 'true' = 'true' ]"* ]]
+}
+
+@test "vps_update_repo: FORCE_CLEAN unset/false leaves fleet_sync's guard in place" {
+  local env_file
+  env_file=$(_make_env_file)
+
+  run _capture_vps_update_cmd "$env_file" "false"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"[ 'false' = 'true' ]"* ]]
+}
+
 # ── parse_common_flags: --force-clean ─────────────────────────────────────────
 
 @test "parse_common_flags: --force-clean sets FLAGS_FORCE_CLEAN=true" {
