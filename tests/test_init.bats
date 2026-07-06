@@ -63,7 +63,7 @@ _rand_str() {
     cmd_init --org "my-cool-org"
   )
 
-  grep -q "^DEFAULT_ORG=my-cool-org" "$project_dir/strut.conf"
+  grep -q '^DEFAULT_ORG="my-cool-org"' "$project_dir/strut.conf"
 }
 
 @test "Property 15: both --registry and --org propagate together" {
@@ -76,7 +76,7 @@ _rand_str() {
   )
 
   grep -q "^REGISTRY_TYPE=ecr" "$project_dir/strut.conf"
-  grep -q "^DEFAULT_ORG=acme-corp" "$project_dir/strut.conf"
+  grep -q '^DEFAULT_ORG="acme-corp"' "$project_dir/strut.conf"
 }
 
 @test "Property 15: random org names propagate correctly — 100 iterations" {
@@ -90,7 +90,7 @@ _rand_str() {
       cmd_init --org "$org_name"
     )
 
-    grep -q "^DEFAULT_ORG=$org_name" "$project_dir/strut.conf"
+    grep -q "^DEFAULT_ORG=\"$org_name\"" "$project_dir/strut.conf"
   done
 }
 
@@ -108,16 +108,14 @@ _rand_str() {
     )
 
     grep -q "^REGISTRY_TYPE=$reg_type" "$project_dir/strut.conf"
-    grep -q "^DEFAULT_ORG=$org_name" "$project_dir/strut.conf"
+    grep -q "^DEFAULT_ORG=\"$org_name\"" "$project_dir/strut.conf"
   done
 }
 
 # ── Hostile-character property tests ─────────────────────────────────────────
-# strut #252: --org is interpolated unescaped into a `sed s/.../.../` replacement
-# (lib/cmd_init.sh) — values containing the sed delimiter (/), `&`, or `\` corrupt
-# the expression (e.g. `--org "ac/me & co"` throws
-# "sed: -e expression #1, char 39: unknown option to `s'"). Each of these must
-# propagate to strut.conf byte-for-byte instead of erroring.
+# strut #239: --org must be validated — only Docker-image-safe characters allowed.
+# Values containing spaces, slashes, semicolons, etc. must be REJECTED (not
+# silently mangled or worse, injected into sourced strut.conf).
 
 _hostile_org_names() {
   printf '%s\n' \
@@ -130,18 +128,32 @@ _hostile_org_names() {
     'back`tick'
 }
 
-@test "Property 15: hostile-character org names propagate to strut.conf unmangled" {
+@test "Property 15: hostile-character org names are rejected with clear error" {
   while IFS= read -r org_name; do
     local project_dir
     project_dir="$(mktemp -d "$TEST_TMP/init_hostile_XXXXXX")"
 
-    (cd "$project_dir" && cmd_init --org "$org_name")
-
-    grep -qF "DEFAULT_ORG=$org_name" "$project_dir/strut.conf" || {
-      echo "FAIL: org name '$org_name' did not propagate unmangled" >&2
+    run bash -c "cd '$project_dir' && source '$CLI_ROOT/lib/output.sh' && source '$CLI_ROOT/lib/utils.sh' && source '$CLI_ROOT/lib/cmd_init.sh' && cmd_init --org '$org_name' 2>&1"
+    [ "$status" -ne 0 ] || {
+      echo "FAIL: org name '$org_name' should have been rejected" >&2
       return 1
     }
   done < <(_hostile_org_names)
+}
+
+@test "Property 15: valid org names still propagate to strut.conf" {
+  local valid_orgs=("my-org" "acme.corp" "under_score" "MixedCase123" "a-b.c_d")
+  for org_name in "${valid_orgs[@]}"; do
+    local project_dir
+    project_dir="$(mktemp -d "$TEST_TMP/init_valid_org_XXXXXX")"
+
+    (cd "$project_dir" && cmd_init --org "$org_name")
+
+    grep -qF "DEFAULT_ORG=\"$org_name\"" "$project_dir/strut.conf" || {
+      echo "FAIL: valid org name '$org_name' did not propagate" >&2
+      return 1
+    }
+  done
 }
 
 # ── Unit tests ────────────────────────────────────────────────────────────────
