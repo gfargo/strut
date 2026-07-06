@@ -479,3 +479,16 @@ EOF
   grep -q "^cmd:stop" "$CALLS_FILE"
   ! grep -q "^cmd:down" "$CALLS_FILE"
 }
+
+
+@test "_bg_teardown_failed_color: uses 'down' without --volumes (data safety)" {
+  compose-recorder() { _record "cmd:$*"; }
+  export -f compose-recorder
+
+  _bg_teardown_failed_color "compose-recorder"
+
+  # Should call 'down --remove-orphans' (containers removed, ports freed)
+  grep -q "^cmd:down --remove-orphans" "$CALLS_FILE"
+  # Must NOT pass --volumes (would destroy shared named volumes)
+  ! grep -q "volumes" "$CALLS_FILE"
+}
