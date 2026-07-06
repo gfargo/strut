@@ -260,12 +260,16 @@ _bg_drain() {
 
 # _bg_stop_color <compose_cmd>
 #
-# Stops the old color's project. Volumes are preserved (no --volumes) so
-# rollback can bring the same color back up warm.
+# Stops the old color's project. Uses `stop`, NOT `down`: `down` removes the
+# containers, which severs the container↔image binding a later rollback
+# depends on — `up -d` would then recreate from whatever the compose file's
+# tag currently resolves to (the bad image), not what was actually running.
+# `stop` leaves the containers (and volumes) in place so a same-config
+# `up -d` just restarts them on their original image.
 _bg_stop_color() {
   local compose_cmd="$1"
   # shellcheck disable=SC2086
-  $compose_cmd down --remove-orphans 2>/dev/null || true
+  $compose_cmd stop 2>/dev/null || true
 }
 
 # _bg_teardown_failed_color <compose_cmd>
@@ -374,7 +378,7 @@ $_hint"
     run_cmd "Swap proxy $old_color → $new_color" echo "swap"
     run_cmd "Drain $old_color (${BLUE_GREEN_DRAIN:-60}s)" echo "drain"
     if [ "$old_color" != "none" ]; then
-      run_cmd "Stop $old_color project" $old_cmd down --remove-orphans
+      run_cmd "Stop $old_color project" $old_cmd stop
     fi
     run_cmd "Mark $new_color as active" echo "write state"
     echo ""
@@ -488,8 +492,9 @@ bg_rollback_stack() {
     echo ""
     echo -e "${YELLOW}[DRY-RUN] Execution plan for rollback:${NC}"
     run_cmd "Bring $previous back up"   $previous_cmd up -d --remove-orphans
+    run_cmd "Wait for $previous health (timeout: ${BLUE_GREEN_HEALTH_TIMEOUT:-30}s)" echo "probe"
     run_cmd "Swap proxy $current → $previous" echo "swap"
-    run_cmd "Stop $current project"     $current_cmd down --remove-orphans
+    run_cmd "Stop $current project"     $current_cmd stop
     run_cmd "Mark $previous active"     echo "write state"
     echo ""
     echo -e "${YELLOW}[DRY-RUN] No changes made.${NC}"
@@ -499,9 +504,20 @@ bg_rollback_stack() {
   set -a; source "$env_file"; set +a
   export_volume_paths "$stack_dir"
 
+  local compose_file="$stack_dir/docker-compose.yml"
+
   log "Starting $previous project..."
   # shellcheck disable=SC2086
   $previous_cmd up -d --remove-orphans
+
+  log "Waiting for $previous health..."
+  if ! _bg_wait_healthy "$stack_dir" "$previous_cmd" "$compose_file" "${BLUE_GREEN_HEALTH_TIMEOUT:-30}"; then
+    warn "$previous failed health checks after rollback — aborting before the proxy swap"
+    warn "  Proxy is left pointed at $current; $current has NOT been stopped"
+    fail "Blue-green rollback aborted: $previous never became healthy"
+    # Belt-and-suspenders: production `fail` exits, tests override to return 1.
+    return 1
+  fi
 
   log "Swapping proxy: $current → $previous"
   _bg_swap_proxy "$stack" "$current_project" "$previous_project" "$env_file"
