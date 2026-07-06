@@ -83,6 +83,7 @@ teardown() { common_teardown; }
 # ── _tui_commands ─────────────────────────────────────────────────────────────
 
 @test "_tui_commands: lists expected commands" {
+  export STRUT_HOME="$CLI_ROOT"
   run _tui_commands
   [ "$status" -eq 0 ]
   [[ "$output" == *"deploy"* ]]
@@ -97,11 +98,53 @@ teardown() { common_teardown; }
   [[ "$output" == *"rollback"* ]]
 }
 
-@test "_tui_commands: does not include audit or migrate" {
+@test "_tui_commands: includes release, update, diff, lock" {
+  export STRUT_HOME="$CLI_ROOT"
+  run _tui_commands
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"release"* ]]
+  [[ "$output" == *"update"* ]]
+  [[ "$output" == *"diff"* ]]
+  [[ "$output" == *"lock"* ]]
+}
+
+@test "_tui_commands: includes commands added post-audit" {
+  export STRUT_HOME="$CLI_ROOT"
+  run _tui_commands
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"migrate"* ]]
+  [[ "$output" == *"restore"* ]]
+  [[ "$output" == *"db:pull"* ]]
+  [[ "$output" == *"secrets"* ]]
+}
+
+@test "_tui_commands: excludes host-scoped commands" {
+  export STRUT_HOME="$CLI_ROOT"
+  run _tui_commands
+  [ "$status" -eq 0 ]
+  # provision/cert:renew/cert:status take a host alias (strut.conf [hosts]),
+  # not a stack — the TUI's stack picker could never offer a valid target.
+  [[ "$output" != *"provision"* ]]
+  [[ "$output" != *"cert:renew"* ]]
+  [[ "$output" != *"cert:status"* ]]
+}
+
+@test "_tui_commands: excludes local/prod/staging/dev" {
+  export STRUT_HOME="$CLI_ROOT"
+  run _tui_commands
+  [ "$status" -eq 0 ]
+  # The command name IS the env selector for these and each expects its own
+  # subcommand — incompatible with the generic stack->command->env flow.
+  [[ "$output" != *"local"* ]]
+  [[ "$output" != *"staging"* ]]
+  [[ "$output" != *"dev"* ]]
+}
+
+@test "_tui_commands: excludes audit" {
+  export STRUT_HOME="$CLI_ROOT"
   run _tui_commands
   [ "$status" -eq 0 ]
   [[ "$output" != *"audit"* ]]
-  [[ "$output" != *"migrate"* ]]
 }
 
 # ── _tui_envs ────────────────────────────────────────────────────────────────
@@ -109,7 +152,7 @@ teardown() { common_teardown; }
 @test "_tui_envs: always includes (none) as first option" {
   export CLI_ROOT="$TEST_TMP"
 
-  run _tui_envs
+  run _tui_envs ""
   [ "$status" -eq 0 ]
   # First line should be (none)
   local first_line
@@ -122,7 +165,7 @@ teardown() { common_teardown; }
   touch "$TEST_TMP/.prod.env"
   touch "$TEST_TMP/.staging.env"
 
-  run _tui_envs
+  run _tui_envs ""
   [ "$status" -eq 0 ]
   [[ "$output" == *"prod"* ]]
   [[ "$output" == *"staging"* ]]
@@ -132,7 +175,7 @@ teardown() { common_teardown; }
   export CLI_ROOT="$TEST_TMP"
   touch "$TEST_TMP/.my-app-prod.env"
 
-  run _tui_envs
+  run _tui_envs ""
   [ "$status" -eq 0 ]
   [[ "$output" == *"my-app-prod"* ]]
 }
@@ -140,9 +183,42 @@ teardown() { common_teardown; }
 @test "_tui_envs: returns only (none) when no env files exist" {
   export CLI_ROOT="$TEST_TMP"
 
-  run _tui_envs
+  run _tui_envs ""
   [ "$status" -eq 0 ]
   [ "$output" = "(none)" ]
+}
+
+@test "_tui_envs: discovers stack-level-only env file" {
+  export CLI_ROOT="$TEST_TMP"
+  mkdir -p "$TEST_TMP/stacks/foo"
+  touch "$TEST_TMP/stacks/foo/.staging.env"
+
+  run _tui_envs "foo"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"staging"* ]]
+}
+
+@test "_tui_envs: does not leak one stack's env into another" {
+  export CLI_ROOT="$TEST_TMP"
+  mkdir -p "$TEST_TMP/stacks/foo" "$TEST_TMP/stacks/bar"
+  touch "$TEST_TMP/stacks/foo/.staging.env"
+
+  run _tui_envs "bar"
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"staging"* ]]
+}
+
+@test "_tui_envs: unions stack-level and project-level names without duplicates" {
+  export CLI_ROOT="$TEST_TMP"
+  mkdir -p "$TEST_TMP/stacks/foo"
+  touch "$TEST_TMP/stacks/foo/.prod.env"
+  touch "$TEST_TMP/.prod.env"
+
+  run _tui_envs "foo"
+  [ "$status" -eq 0 ]
+  local prod_count
+  prod_count=$(echo "$output" | grep -c '^prod$')
+  [ "$prod_count" -eq 1 ]
 }
 
 # ── tui_main ──────────────────────────────────────────────────────────────────
