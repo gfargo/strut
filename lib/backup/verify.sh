@@ -29,6 +29,22 @@ verify_postgres_backup() {
     return 1
   fi
 
+  # backup_postgres uses plain-text pg_dump, so a complete dump always ends
+  # with this trailer. A dump truncated cleanly at a statement boundary (e.g.
+  # right after CREATE TABLE, before any data) restores without a psql error
+  # yet is missing data — catch that before wasting time on a restore.
+  if [[ "$backup_file" == *.gz ]]; then
+    zgrep -q -- '-- PostgreSQL database dump complete' "$backup_file" || {
+      error "Verification failed: dump is truncated (missing completion marker)"
+      return 1
+    }
+  else
+    grep -q -- '-- PostgreSQL database dump complete' "$backup_file" || {
+      error "Verification failed: dump is truncated (missing completion marker)"
+      return 1
+    }
+  fi
+
   local temp_db="verify_temp_$(date +%s)"
   local start_time
   start_time=$(date +%s)
@@ -93,15 +109,87 @@ verify_postgres_backup() {
   return 0
 }
 
+# _neo4j_verify_load_dump <stack> <backup_file>
+# Loads a Neo4j dump into a fresh scratch volume via `neo4j-admin database
+# load`, without touching the live container — safe to run at any time.
+# On success, prints "<image> <scratch_volume>" to stdout; the caller owns
+# the scratch volume and must `docker volume rm` it when done.
+# On failure, cleans up after itself and returns 1 with nothing on stdout.
+_neo4j_verify_load_dump() {
+  local stack="$1"
+  local backup_file="$2"
+
+  local _sudo
+  _sudo="$(vps_sudo_prefix 2>/dev/null || echo "")"
+
+  # Resolved the same way backup_neo4j finds the live container, so this
+  # works regardless of the compose service name.
+  local container_name
+  container_name=$(${_sudo}docker ps --filter "name=neo4j" --format "{{.Names}}" | grep "$stack" | head -1 || true)
+  [ -n "$container_name" ] || {
+    error "Neo4j container not found for stack: $stack"
+    return 1
+  }
+
+  # Never hardcode the image tag — read it from the running container so
+  # verification always matches whatever version is actually deployed.
+  local image
+  image=$(${_sudo}docker inspect "$container_name" --format '{{.Config.Image}}' || true)
+  [ -n "$image" ] || {
+    error "Failed to resolve Neo4j image for container: $container_name"
+    return 1
+  }
+
+  # neo4j-admin's --from-path expects a directory containing "<db>.dump",
+  # not the dump file path itself.
+  local tmp_import
+  tmp_import=$(mktemp -d)
+  cp "$backup_file" "$tmp_import/neo4j.dump" || {
+    error "Failed to stage backup file for verification"
+    rm -rf "$tmp_import"
+    return 1
+  }
+
+  local scratch_vol="strut-verify-$$-${RANDOM}"
+  ${_sudo}docker volume create "$scratch_vol" >/dev/null 2>&1 || {
+    error "Failed to create scratch volume for verification"
+    rm -rf "$tmp_import"
+    return 1
+  }
+
+  log "Loading dump into scratch volume for structural verification..." >&2
+  if ! ${_sudo}docker run --rm \
+    -v "$scratch_vol:/data" \
+    -v "$tmp_import:/var/lib/neo4j/import" \
+    --entrypoint neo4j-admin \
+    "$image" \
+    database load neo4j --from-path=/var/lib/neo4j/import --overwrite-destination=true 2>&1 \
+    | tee /dev/stderr | grep -q "Load completed successfully"; then
+    error "Verification failed: neo4j-admin could not load the dump (corrupt or truncated backup)"
+    rm -rf "$tmp_import"
+    ${_sudo}docker volume rm "$scratch_vol" >/dev/null 2>&1
+    return 1
+  fi
+
+  rm -rf "$tmp_import"
+  echo "$image $scratch_vol"
+  return 0
+}
+
 # verify_neo4j_backup <stack> <backup_file> <compose_cmd>
-# Verifies a Neo4j backup by loading the dump and checking node/relationship counts
+# Verifies a Neo4j backup by loading the dump into a scratch volume via
+# neo4j-admin and confirming the load succeeded — a real structural check
+# with zero downtime to the live service.
 verify_neo4j_backup() {
   local stack="$1"
   local backup_file="$2"
-  local compose_cmd="$3"
 
   [ -f "$backup_file" ] || {
     error "Backup file not found: $backup_file"
+    return 1
+  }
+  [ -s "$backup_file" ] || {
+    error "Verification failed: backup file is empty: $backup_file"
     return 1
   }
 
@@ -110,126 +198,126 @@ verify_neo4j_backup() {
 
   log "Verifying Neo4j backup: $(basename "$backup_file")" >&2
 
-  # Copy backup file to container
-  local temp_dump="/var/lib/neo4j/import/verify_temp.dump"
-  if ! $compose_cmd cp "$backup_file" "neo4j:$temp_dump" 2>/dev/null; then
-    error "Failed to copy backup to Neo4j container"
-    return 1
-  fi
+  local load_result
+  load_result=$(_neo4j_verify_load_dump "$stack" "$backup_file") || return 1
 
-  # Check if dump file is valid by inspecting its structure
-  # Neo4j dumps are binary files, so we check file size and basic structure
+  local image scratch_vol
+  read -r image scratch_vol <<<"$load_result"
+
+  local _sudo
+  _sudo="$(vps_sudo_prefix 2>/dev/null || echo "")"
+  ${_sudo}docker volume rm "$scratch_vol" >/dev/null 2>&1
+
   local file_size
-  file_size=$($compose_cmd exec -T neo4j stat -c%s "$temp_dump" 2>/dev/null)
-
-  if [ -z "$file_size" ] || [ "$file_size" -lt 100 ]; then
-    error "Verification failed: Backup file appears to be empty or corrupted"
-    $compose_cmd exec -T neo4j rm -f "$temp_dump" 2>/dev/null
-    return 1
-  fi
-
-  # For a more thorough verification, we would need to:
-  # 1. Stop Neo4j
-  # 2. Load the dump to a temporary database
-  # 3. Query node/relationship counts
-  # 4. Restart Neo4j
-  # However, this causes downtime, so we do a lighter verification here
-
-  # Check if the dump file has the correct format (neo4j-admin dump format)
-  local file_type
-  file_type=$($compose_cmd exec -T neo4j file "$temp_dump" 2>/dev/null || echo "unknown")
-
-  # Cleanup
-  $compose_cmd exec -T neo4j rm -f "$temp_dump" 2>/dev/null
+  file_size=$(stat -c%s "$backup_file" 2>/dev/null || stat -f%z "$backup_file" 2>/dev/null || echo "0")
 
   local end_time
   end_time=$(date +%s)
   local duration=$((end_time - start_time))
 
-  ok "Neo4j backup verified successfully (basic check)" >&2
+  ok "Neo4j backup verified successfully (structural check)" >&2
   log "  File size: $file_size bytes" >&2
   log "  Duration: ${duration}s" >&2
-  warn "  Note: Full verification requires Neo4j downtime (use --full-verify for deep check)" >&2
 
   # Return verification details as JSON (for metadata) - stdout only
-  echo "{\"file_size_bytes\":$file_size,\"basic_check\":true,\"full_verification\":false,\"duration_seconds\":$duration}"
+  echo "{\"file_size_bytes\":$file_size,\"structural_check\":true,\"full_verification\":false,\"duration_seconds\":$duration}"
   return 0
 }
 
 # verify_neo4j_backup_full <stack> <backup_file> <compose_cmd>
-# Full Neo4j verification with downtime (stops Neo4j, loads dump, verifies, restarts)
+# Full Neo4j verification: loads the dump into a scratch volume (as above),
+# then boots an ephemeral, isolated Neo4j server against it and queries real
+# node/relationship counts. The live service is never touched, so — unlike
+# the previous implementation — this has no downtime and needs no
+# confirmation prompt.
 verify_neo4j_backup_full() {
   local stack="$1"
   local backup_file="$2"
-  local compose_cmd="$3"
 
   [ -f "$backup_file" ] || {
     error "Backup file not found: $backup_file"
     return 1
   }
-
-  warn "Full Neo4j verification requires stopping the database (~30s downtime)"
-  confirm "Continue with full verification?" || {
-    ok "Verification cancelled"
+  [ -s "$backup_file" ] || {
+    error "Verification failed: backup file is empty: $backup_file"
     return 1
   }
 
   local start_time
   start_time=$(date +%s)
-  local temp_db="verify_temp"
 
   log "Verifying Neo4j backup (full): $(basename "$backup_file")" >&2
 
-  # Copy backup to container
-  local temp_dump="/var/lib/neo4j/import/verify_temp.dump"
-  $compose_cmd cp "$backup_file" "neo4j:$temp_dump" 2>/dev/null || {
-    error "Failed to copy backup to container"
-    return 1
-  }
+  local load_result
+  load_result=$(_neo4j_verify_load_dump "$stack" "$backup_file") || return 1
 
-  # Stop Neo4j
-  log "Stopping Neo4j for verification..." >&2
-  $compose_cmd stop neo4j
+  local image scratch_vol
+  read -r image scratch_vol <<<"$load_result"
 
-  # Load dump to temporary database
-  log "Loading dump to temporary database..." >&2
-  if ! $compose_cmd run --rm --entrypoint neo4j-admin neo4j \
-    database load "$temp_db" --from-path="$temp_dump" 2>/dev/null; then
-    error "Failed to load backup dump"
-    $compose_cmd start neo4j
+  local _sudo
+  _sudo="$(vps_sudo_prefix 2>/dev/null || echo "")"
+
+  local temp_password="verify-$$-${RANDOM}"
+  local ephemeral_name="strut-verify-neo4j-$$-${RANDOM}"
+
+  log "Starting ephemeral Neo4j to validate content..." >&2
+  if ! ${_sudo}docker run -d --rm \
+    --name "$ephemeral_name" \
+    -v "$scratch_vol:/data" \
+    -e "NEO4J_AUTH=neo4j/$temp_password" \
+    "$image" >/dev/null 2>&1; then
+    error "Failed to start ephemeral Neo4j for verification"
+    ${_sudo}docker volume rm "$scratch_vol" >/dev/null 2>&1
     return 1
   fi
 
-  # Start Neo4j
-  log "Starting Neo4j..." >&2
-  $compose_cmd start neo4j
+  local ready=false
+  local waited=0
+  while [ $waited -lt 60 ]; do
+    if ${_sudo}docker exec "$ephemeral_name" \
+      cypher-shell -u neo4j -p "$temp_password" "RETURN 1" >/dev/null 2>&1; then
+      ready=true
+      break
+    fi
+    sleep 2
+    waited=$((waited + 2))
+  done
 
-  # Wait for Neo4j to be ready
-  log "Waiting for Neo4j to be ready..." >&2
-  sleep 10
+  if [ "$ready" != "true" ]; then
+    error "Verification failed: ephemeral Neo4j did not become ready"
+    ${_sudo}docker stop "$ephemeral_name" >/dev/null 2>&1
+    ${_sudo}docker volume rm "$scratch_vol" >/dev/null 2>&1
+    return 1
+  fi
 
-  # Query node and relationship counts from the temporary database
-  # Note: This requires cypher-shell and proper authentication
-  local node_count=0
-  local rel_count=0
+  # A failed count query is a failed verification, not "0 nodes" — no
+  # `|| echo 0` fallback that would mask a broken query as success.
+  local node_count rel_count
+  if ! node_count=$(${_sudo}docker exec "$ephemeral_name" \
+    cypher-shell -u neo4j -p "$temp_password" --format plain \
+    "MATCH (n) RETURN count(n)" 2>/dev/null | tail -1 | tr -d ' "'); then
+    error "Verification failed: node count query failed against restored backup"
+    ${_sudo}docker stop "$ephemeral_name" >/dev/null 2>&1
+    ${_sudo}docker volume rm "$scratch_vol" >/dev/null 2>&1
+    return 1
+  fi
 
-  # Try to get counts (may fail if cypher-shell not available or auth issues)
-  node_count=$($compose_cmd exec -T neo4j \
-    cypher-shell -u neo4j -p "${NEO4J_PASSWORD:-password}" -d "$temp_db" \
-    "MATCH (n) RETURN count(n) as count" 2>/dev/null | tail -1 | tr -d ' "' || echo "0")
+  if ! rel_count=$(${_sudo}docker exec "$ephemeral_name" \
+    cypher-shell -u neo4j -p "$temp_password" --format plain \
+    "MATCH ()-[r]->() RETURN count(r)" 2>/dev/null | tail -1 | tr -d ' "'); then
+    error "Verification failed: relationship count query failed against restored backup"
+    ${_sudo}docker stop "$ephemeral_name" >/dev/null 2>&1
+    ${_sudo}docker volume rm "$scratch_vol" >/dev/null 2>&1
+    return 1
+  fi
 
-  rel_count=$($compose_cmd exec -T neo4j \
-    cypher-shell -u neo4j -p "${NEO4J_PASSWORD:-password}" -d "$temp_db" \
-    "MATCH ()-[r]->() RETURN count(r) as count" 2>/dev/null | tail -1 | tr -d ' "' || echo "0")
+  ${_sudo}docker stop "$ephemeral_name" >/dev/null 2>&1
+  ${_sudo}docker volume rm "$scratch_vol" >/dev/null 2>&1
 
-  # Drop temporary database
-  log "Cleaning up temporary database..." >&2
-  $compose_cmd exec -T neo4j \
-    cypher-shell -u neo4j -p "${NEO4J_PASSWORD:-password}" \
-    "DROP DATABASE $temp_db IF EXISTS" 2>/dev/null
-
-  # Cleanup dump file
-  $compose_cmd exec -T neo4j rm -f "$temp_dump" 2>/dev/null
+  if ! [[ "$node_count" =~ ^[0-9]+$ ]] || ! [[ "$rel_count" =~ ^[0-9]+$ ]]; then
+    error "Verification failed: could not parse node/relationship counts from restored backup"
+    return 1
+  fi
 
   local end_time
   end_time=$(date +%s)
@@ -254,6 +342,16 @@ verify_mysql_backup() {
 
   [ -f "$backup_file" ] || {
     error "Backup file not found: $backup_file"
+    return 1
+  }
+  [ -s "$backup_file" ] || {
+    error "Verification failed: backup file is empty: $backup_file"
+    return 1
+  }
+  # mysqldump appends this trailer on a complete dump; a dump truncated at a
+  # statement boundary restores without error yet is missing data.
+  grep -q -- '-- Dump completed on' "$backup_file" || {
+    error "Verification failed: dump is truncated (missing completion marker)"
     return 1
   }
 
