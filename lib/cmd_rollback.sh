@@ -175,6 +175,7 @@ cmd_rollback() {
 
   if [ -z "$snapshot_file" ] || [ ! -f "$snapshot_file" ]; then
     fail "No rollback snapshots found for stack: $stack, env: $env_name (deploy at least once first)"
+    return 1
   fi
 
   # Dry-run: show what would be restored
