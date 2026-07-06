@@ -106,16 +106,12 @@ _bg_project_name() {
 # colors live in isolated compose projects that can run side by side.
 _bg_compose_for_color() {
   local stack="$1" env_file="$2" color="$3" services_profile="${4:-}"
-  local cli_root="${CLI_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
-  local compose_file="$cli_root/stacks/$stack/docker-compose.yml"
   local env_name
   env_name="$(extract_env_name "$env_file")"
   local project
   project="$(_bg_project_name "$stack" "$env_name" "$color")"
 
-  local cmd="$(_docker_sudo)docker compose --env-file $env_file --project-name $project -f $compose_file"
-  [ -n "$services_profile" ] && cmd="$cmd --profile $services_profile"
-  echo "$cmd"
+  resolve_compose_cmd "$stack" "$env_file" "$services_profile" "$project"
 }
 
 # ── Orchestration steps ───────────────────────────────────────────────────────
@@ -222,29 +218,18 @@ _bg_swap_proxy() {
   # This is a no-op for routing unless the compose template is built for
   # blue-green (pluggable upstream). The warn makes that contract visible.
   local proxy="${REVERSE_PROXY:-nginx}"
-  local cli_root="${CLI_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
-  local compose_file="$cli_root/stacks/$stack/docker-compose.yml"
   local new_cmd
-  new_cmd="$(_docker_sudo)docker compose --env-file $env_file --project-name $new_project -f $compose_file"
+  new_cmd="$(resolve_compose_cmd "$stack" "$env_file" "" "$new_project")"
 
   warn "No BLUE_GREEN_PROXY_HOOK set — falling back to $proxy reload in $new_project"
   warn "  For true atomic swap, set BLUE_GREEN_PROXY_HOOK in strut.conf"
-  case "$proxy" in
-    nginx)
-      # shellcheck disable=SC2086
-      $new_cmd exec -T "$proxy" nginx -s reload 2>/dev/null && ok "nginx reloaded on $new_project" \
-        || warn "nginx reload failed (proxy may not be running yet)"
-      ;;
-    caddy)
-      # shellcheck disable=SC2086
-      $new_cmd exec -T "$proxy" caddy reload --config /etc/caddy/Caddyfile 2>/dev/null \
-        && ok "Caddy reloaded on $new_project" \
-        || warn "Caddy reload failed (proxy may not be running yet)"
-      ;;
-    *)
-      warn "Unknown proxy '$proxy' — skipping reload"
-      ;;
-  esac
+  local reload_cmd
+  if reload_cmd=$(build_proxy_reload_cmd "$new_cmd" "$proxy"); then
+    $reload_cmd 2>/dev/null && ok "$proxy reloaded on $new_project" \
+      || warn "$proxy reload failed (proxy may not be running yet)"
+  else
+    warn "Unknown proxy '$proxy' — skipping reload"
+  fi
 }
 
 # _bg_drain <seconds>
@@ -296,29 +281,7 @@ bg_deploy_stack() {
   local stack_dir="$cli_root/stacks/$stack"
   local compose_file="$stack_dir/docker-compose.yml"
 
-  [ -d "$stack_dir" ]    || fail "Stack not found: $stack (looked in $stack_dir)"
-  [ -f "$compose_file" ] || fail "Compose file not found: $compose_file"
-  if [ ! -f "$env_file" ]; then
-    local _hint _msg
-    _hint=$(_env_not_found_hint "$env_file")
-    _msg="Env file not found: $env_file"
-    [ -n "$_hint" ] && _msg="$_msg
-$_hint"
-    fail "$_msg"
-  fi
-
-  # Source env + validate required vars — same contract as deploy_stack.
-  validate_env_file "$env_file"
-  export_volume_paths "$stack_dir"
-
-  local required_vars_file="$stack_dir/required_vars"
-  if [ -f "$required_vars_file" ]; then
-    while IFS= read -r var || [ -n "$var" ]; do
-      [ -z "$var" ] && continue
-      val="$(eval echo "\${${var}:-}")"
-      [ -n "$val" ] || fail "Missing required env var: $var (check $env_file)"
-    done < "$required_vars_file"
-  fi
+  deploy_prepare "$stack" "$stack_dir" "$compose_file" "$env_file"
 
   local env_name
   env_name="$(extract_env_name "$env_file")"
@@ -355,17 +318,8 @@ $_hint"
   # Pre-deploy validation (reuse standard path's contract)
   if [ "${SKIP_VALIDATION:-false}" != "true" ] && [ "${PRE_DEPLOY_VALIDATE:-true}" = "true" ]; then
     log "[2/9] Pre-deploy validation..."
-    source "${STRUT_HOME:-$cli_root}/lib/cmd_validate.sh"
-    export CMD_STACK="$stack" CMD_STACK_DIR="$stack_dir" CMD_ENV_FILE="$env_file" CMD_ENV_NAME="$env_name"
-    cmd_validate 2>/dev/null || fail "Pre-deploy validation failed — fix and retry: strut $stack validate --env $env_name"
-
-    if [ "${PRE_DEPLOY_HOOKS:-true}" = "true" ]; then
-      fire_hook pre_deploy "$stack_dir" || fail "pre_deploy hook failed — aborting deploy"
-    fi
-    ok "Pre-deploy validation passed"
-  elif [ "${SKIP_VALIDATION:-false}" = "true" ]; then
-    warn "Pre-deploy validation skipped (--skip-validation)"
   fi
+  deploy_run_pre_deploy_validation "$stack" "$stack_dir" "$env_file" "$env_name"
 
   # Dry-run plan — stop before any side effects.
   if [ "${DRY_RUN:-false}" = "true" ]; then

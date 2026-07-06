@@ -170,10 +170,13 @@ cmd_rollback() {
   fi
 
   # Find the latest snapshot for this env
-  local snapshot_file
-  snapshot_file=$(rollback_get_latest_snapshot "$stack" "$env_name")
+  # Named distinctly from generic "snapshot_file" — bash locals are visible
+  # to callees, and a caller-provided function of the same name reading
+  # $snapshot_file would shadow-collide with this one before it's assigned.
+  local rb_snapshot_file
+  rb_snapshot_file=$(rollback_get_latest_snapshot "$stack" "$env_name")
 
-  if [ -z "$snapshot_file" ] || [ ! -f "$snapshot_file" ]; then
+  if [ -z "$rb_snapshot_file" ] || [ ! -f "$rb_snapshot_file" ]; then
     fail "No rollback snapshots found for stack: $stack, env: $env_name (deploy at least once first)"
     return 1
   fi
@@ -185,14 +188,14 @@ cmd_rollback() {
 
     if command -v jq &>/dev/null; then
       local timestamp service_count
-      timestamp=$(jq -r '.timestamp' "$snapshot_file")
-      service_count=$(jq -r '.service_count' "$snapshot_file")
-      echo "  Snapshot: $(basename "$snapshot_file" .json)"
+      timestamp=$(jq -r '.timestamp' "$rb_snapshot_file")
+      service_count=$(jq -r '.service_count' "$rb_snapshot_file")
+      echo "  Snapshot: $(basename "$rb_snapshot_file" .json)"
       echo "  Timestamp: $timestamp"
       echo "  Services: $service_count"
       echo ""
 
-      jq -r '.services | to_entries[] | "  [DRY-RUN] Pull \(.key) → \(.value.image)"' "$snapshot_file"
+      jq -r '.services | to_entries[] | "  [DRY-RUN] Pull \(.key) → \(.value.image)"' "$rb_snapshot_file"
     fi
 
     run_cmd "Stop current containers" echo "compose down --remove-orphans"
@@ -208,7 +211,7 @@ cmd_rollback() {
   local compose_cmd
   compose_cmd=$(resolve_compose_cmd "$stack" "$env_file" "$services")
 
-  rollback_restore_snapshot "$stack" "$compose_cmd" "$snapshot_file"
+  rollback_restore_snapshot "$stack" "$compose_cmd" "$rb_snapshot_file"
 
   # Post-restore health gate — without this, a rollback that restores a
   # broken image (or fails to restart cleanly) still prints "Rollback
