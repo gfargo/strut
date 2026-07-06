@@ -25,6 +25,7 @@ _usage_secrets() {
   echo "  push       Upload local .env to VPS (SCP, mode 600)"
   echo "  pull       Download .env from VPS to local"
   echo "  diff       Show differences between local and remote .env"
+  echo "  set        Set a single KEY=value in the local .env (atomic, masked)"
   echo "  validate   Check required_vars are present before push"
   echo "  status     Show the secrets pipeline state for this stack"
   echo "  rotate     Re-hydrate/re-generate, validate, push, and optionally restart"
@@ -73,6 +74,8 @@ _usage_secrets() {
   echo "  strut my-app secrets unlock --env prod       # .prod.env.age -> .prod.env"
   echo "  strut my-app secrets status --env prod"
   echo "  strut my-app secrets diff --env prod"
+  echo "  strut my-app secrets set API_KEY --value abc123"
+  echo "  echo abc123 | strut my-app secrets set API_KEY"
   echo ""
 }
 
@@ -107,6 +110,97 @@ _secrets_resolve_remote_path() {
   local deploy_dir="$1"
   local env_name="$2"
   echo "${deploy_dir}/.${env_name}.env"
+}
+
+# _secrets_write_var <env_file> <key> <value>
+# Atomically sets KEY=value in env_file: rewrites the matching line if present,
+# appends otherwise. Writes via mktemp (same dir) + chmod 600 + mv, same
+# pattern as _secrets_hydrate. Never echoes $value.
+_secrets_write_var() {
+  local env_file="$1"
+  local key="$2"
+  local value="$3"
+
+  [[ "$key" =~ ^[A-Z_][A-Z0-9_]*$ ]] || { fail "Invalid key format: $key (must be uppercase with underscores, e.g., MY_SECRET_KEY)"; return 1; }
+
+  local tmp_out
+  tmp_out=$(mktemp "$(dirname "$env_file")/.XXXXXX") || { fail "Could not create temp file"; return 1; }
+  trap 'rm -f "$tmp_out"' RETURN
+
+  local found=false line
+  if [ -f "$env_file" ]; then
+    while IFS= read -r line || [ -n "$line" ]; do
+      if [[ "$line" == "${key}="* ]]; then
+        printf '%s=%s\n' "$key" "$value" >> "$tmp_out"
+        found=true
+      else
+        printf '%s\n' "$line" >> "$tmp_out"
+      fi
+    done < "$env_file"
+  fi
+
+  [ "$found" = "true" ] || printf '%s=%s\n' "$key" "$value" >> "$tmp_out"
+
+  chmod 600 "$tmp_out"
+  mv "$tmp_out" "$env_file"
+  trap - RETURN
+}
+
+# _secrets_render_env_diff <local_file> <remote_file>
+# Prints a masked, keys-only comparison of two env files: ~ changed value,
+# + only in local, - only on remote. Never prints a secret value.
+_secrets_render_env_diff() {
+  local local_file="$1"
+  local remote_file="$2"
+
+  local local_keys remote_keys
+  local_keys=$(grep -E '^[A-Za-z_][A-Za-z0-9_]*=' "$local_file" 2>/dev/null | cut -d= -f1 | sort)
+  remote_keys=$(grep -E '^[A-Za-z_][A-Za-z0-9_]*=' "$remote_file" 2>/dev/null | cut -d= -f1 | sort)
+
+  local only_local only_remote changed_count=0
+  only_local=$(comm -23 <(echo "$local_keys") <(echo "$remote_keys"))
+  only_remote=$(comm -13 <(echo "$local_keys") <(echo "$remote_keys"))
+
+  # Check for value differences (show key, not value)
+  local common_keys
+  common_keys=$(comm -12 <(echo "$local_keys") <(echo "$remote_keys"))
+  while IFS= read -r key; do
+    [ -z "$key" ] && continue
+    local lval rval
+    lval=$(grep "^${key}=" "$local_file" | head -1 | cut -d= -f2-)
+    rval=$(grep "^${key}=" "$remote_file" | head -1 | cut -d= -f2-)
+    if [ "$lval" != "$rval" ]; then
+      changed_count=$((changed_count + 1))
+      if [ $changed_count -eq 1 ]; then
+        echo -e "${YELLOW}Changed (value differs):${NC}"
+      fi
+      echo "  ~ $key"
+    fi
+  done <<< "$common_keys"
+
+  if [ -n "$only_local" ]; then
+    [ $changed_count -gt 0 ] && echo ""
+    echo -e "${GREEN}Only in local:${NC}"
+    while IFS= read -r key; do
+      [ -n "$key" ] && echo "  + $key"
+    done <<< "$only_local"
+  fi
+
+  if [ -n "$only_remote" ]; then
+    echo ""
+    echo -e "${RED}Only on remote:${NC}"
+    while IFS= read -r key; do
+      [ -n "$key" ] && echo "  - $key"
+    done <<< "$only_remote"
+  fi
+
+  if [ $changed_count -eq 0 ] && [ -z "$only_local" ] && [ -z "$only_remote" ]; then
+    ok "Local and remote are in sync ($(echo "$local_keys" | wc -l | tr -d ' ') vars)"
+  else
+    echo ""
+    local total_diffs=$(( changed_count + $(echo "$only_local" | grep -c . || true) + $(echo "$only_remote" | grep -c . || true) ))
+    log "$total_diffs difference(s) found"
+  fi
 }
 
 # _secrets_validate_required_vars <local_env_file> <stack_dir>
@@ -472,54 +566,7 @@ _secrets_diff() {
   echo "─────────────────────────────────────────────"
   echo ""
 
-  local local_keys remote_keys
-  local_keys=$(grep -E '^[A-Za-z_][A-Za-z0-9_]*=' "$local_env" | cut -d= -f1 | sort)
-  remote_keys=$(grep -E '^[A-Za-z_][A-Za-z0-9_]*=' "$tmp_remote" | cut -d= -f1 | sort)
-
-  local only_local only_remote changed_count=0
-  only_local=$(comm -23 <(echo "$local_keys") <(echo "$remote_keys"))
-  only_remote=$(comm -13 <(echo "$local_keys") <(echo "$remote_keys"))
-
-  # Check for value differences (show key, not value)
-  local common_keys
-  common_keys=$(comm -12 <(echo "$local_keys") <(echo "$remote_keys"))
-  while IFS= read -r key; do
-    [ -z "$key" ] && continue
-    local lval rval
-    lval=$(grep "^${key}=" "$local_env" | head -1 | cut -d= -f2-)
-    rval=$(grep "^${key}=" "$tmp_remote" | head -1 | cut -d= -f2-)
-    if [ "$lval" != "$rval" ]; then
-      changed_count=$((changed_count + 1))
-      if [ $changed_count -eq 1 ]; then
-        echo -e "${YELLOW}Changed (value differs):${NC}"
-      fi
-      echo "  ~ $key"
-    fi
-  done <<< "$common_keys"
-
-  if [ -n "$only_local" ]; then
-    [ $changed_count -gt 0 ] && echo ""
-    echo -e "${GREEN}Only in local:${NC}"
-    while IFS= read -r key; do
-      [ -n "$key" ] && echo "  + $key"
-    done <<< "$only_local"
-  fi
-
-  if [ -n "$only_remote" ]; then
-    echo ""
-    echo -e "${RED}Only on remote:${NC}"
-    while IFS= read -r key; do
-      [ -n "$key" ] && echo "  - $key"
-    done <<< "$only_remote"
-  fi
-
-  if [ $changed_count -eq 0 ] && [ -z "$only_local" ] && [ -z "$only_remote" ]; then
-    ok "Local and remote are in sync ($(echo "$local_keys" | wc -l | tr -d ' ') vars)"
-  else
-    echo ""
-    local total_diffs=$(( changed_count + $(echo "$only_local" | grep -c . || true) + $(echo "$only_remote" | grep -c . || true) ))
-    log "$total_diffs difference(s) found"
-  fi
+  _secrets_render_env_diff "$local_env" "$tmp_remote"
 
   rm -f "$tmp_remote"
 }
@@ -1384,6 +1431,45 @@ _secrets_export() {
   esac
 }
 
+# _secrets_set (reads CMD_*)
+# Usage: strut <stack> secrets set <KEY> [--value <v>]
+# Sets a single variable in the local env file — atomic write, chmod 600,
+# never echoes the value. Reads the value from --value, or a single line of
+# stdin when --value is omitted. This is the canonical setter; `keys env:set`
+# is a thin wrapper over the same primitive.
+_secrets_set() {
+  local stack_dir="$CMD_STACK_DIR"
+  local env_name="${CMD_ENV_NAME:-prod}"
+  local key="" value="" value_set=false
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --value)   value="${2:-}"; value_set=true; shift 2 ;;
+      --value=*) value="${1#--value=}"; value_set=true; shift ;;
+      *)         [ -z "$key" ] && key="$1"; shift ;;
+    esac
+  done
+
+  [ -n "$key" ] || { fail "Usage: strut <stack> secrets set <KEY> [--value <v>]"; return 1; }
+
+  if [ "$value_set" != "true" ]; then
+    IFS= read -r value || { fail "No value provided via --value or stdin"; return 1; }
+  fi
+
+  local local_env
+  if ! local_env=$(_secrets_resolve_local_env "$stack_dir" "$env_name"); then
+    fail "No local env file found for '$env_name'. Expected: $stack_dir/.${env_name}.env or $CLI_ROOT/.${env_name}.env"
+    return 1
+  fi
+
+  local action="added"
+  grep -q "^${key}=" "$local_env" 2>/dev/null && action="updated"
+
+  _secrets_write_var "$local_env" "$key" "$value" || return 1
+
+  ok "Set $key ($action)"
+}
+
 # ── Lock / Unlock ─────────────────────────────────────────────────────────────
 
 # _secrets_detect_backend — print "age" or "gpg"; return 1 if neither available
@@ -1636,6 +1722,7 @@ cmd_secrets() {
     push)     _secrets_push "$@" ;;
     pull)     _secrets_pull "$@" ;;
     diff)     _secrets_diff "$@" ;;
+    set)      _secrets_set "$@" ;;
     validate) _secrets_validate "$@" ;;
     status)   _secrets_status "$@" ;;
     lock)     _secrets_lock "$@" ;;

@@ -11,6 +11,10 @@ set -euo pipefail
 LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$LIB_DIR/utils.sh"
 
+# _secrets_write_var / _secrets_render_env_diff — shared atomic-write and
+# masked-diff primitives used by the env:* handlers below.
+source "$LIB_DIR/cmd_secrets.sh"
+
 # Source key management modules
 source "$LIB_DIR/keys/discovery.sh"
 source "$LIB_DIR/keys/ssh.sh"
@@ -340,12 +344,12 @@ keys_command() {
     api:test)       keys_api_test "$stack" "$@" ;;
 
     # Environment variable management
-    env:rotate)     keys_env_rotate "$stack" "$@" ;;
-    env:set)        keys_env_set "$stack" "$@" ;;
-    env:sync)       keys_env_sync "$stack" "$@" ;;
-    env:validate)   keys_env_validate "$stack" "$@" ;;
-    env:backup)     keys_env_backup "$stack" "$@" ;;
-    env:diff)       keys_env_diff "$stack" "$@" ;;
+    env:rotate)     keys_env_rotate "$stack" "$env_file" "$@" ;;
+    env:set)        keys_env_set "$stack" "$env_file" "$@" ;;
+    env:sync)       keys_env_sync "$stack" "$env_file" "$@" ;;
+    env:validate)   keys_env_validate "$stack" "$env_file" "$@" ;;
+    env:backup)     keys_env_backup "$stack" "$env_file" "$@" ;;
+    env:diff)       keys_env_diff "$stack" "$env_file" "$@" ;;
 
     # Database credential management
     db:rotate)      keys_db_rotate "$stack" "$@" ;;
