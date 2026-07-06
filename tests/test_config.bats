@@ -326,3 +326,147 @@ EOF
     [ "$PROJECT_ROOT" = "$proj_dir" ]
   )
 }
+
+# ── load_backup_conf ──────────────────────────────────────────────────────────
+# OSS-406 / strut#249: single source of truth for backup.conf, replacing the
+# sourced / subshell-sourced / grep-parsed loading mechanisms previously
+# duplicated across lib/backup*.sh.
+
+@test "load_backup_conf: applies defaults when backup.conf is absent" {
+  _load_config
+
+  local stack="test-lbc-defaults-$$"
+  local stack_dir="$TEST_TMP/stacks/$stack"
+  mkdir -p "$stack_dir"
+
+  ( load_backup_conf "$stack" "$stack_dir"
+    [ "$BACKUP_LOCAL_DIR" = "$stack_dir/backups" ]
+    [ "$BACKUP_POSTGRES" = "true" ]
+    [ "$BACKUP_NEO4J" = "false" ]
+    [ "$BACKUP_MYSQL" = "false" ]
+    [ "$BACKUP_SQLITE" = "false" ]
+    [ "$BACKUP_POSTGRES_SERVICE" = "postgres" ]
+    [ "$BACKUP_NEO4J_SERVICE" = "neo4j" ]
+    [ "$BACKUP_MYSQL_SERVICE" = "mysql" ]
+    [ "$BACKUP_RETAIN_DAYS" = "30" ]
+    [ "$BACKUP_RETAIN_COUNT" = "10" ]
+  )
+}
+
+@test "load_backup_conf: values in backup.conf override defaults" {
+  _load_config
+
+  local stack="test-lbc-override-$$"
+  local stack_dir="$TEST_TMP/stacks/$stack"
+  mkdir -p "$stack_dir"
+  cat > "$stack_dir/backup.conf" <<'EOF'
+BACKUP_NEO4J_SERVICE="graphdb"
+BACKUP_MYSQL_SERVICE="mariadb"
+BACKUP_POSTGRES_SERVICE="db"
+BACKUP_RETAIN_DAYS=7
+BACKUP_NEO4J=true
+EOF
+
+  ( load_backup_conf "$stack" "$stack_dir"
+    [ "$BACKUP_NEO4J_SERVICE" = "graphdb" ]
+    [ "$BACKUP_MYSQL_SERVICE" = "mariadb" ]
+    [ "$BACKUP_POSTGRES_SERVICE" = "db" ]
+    [ "$BACKUP_RETAIN_DAYS" = "7" ]
+    [ "$BACKUP_NEO4J" = "true" ]
+    # Untouched vars still get their defaults
+    [ "$BACKUP_RETAIN_COUNT" = "10" ]
+  )
+}
+
+@test "load_backup_conf: BACKUP_LOCAL_DIR interpolates \${BACKUP_PATH} from volume.conf" {
+  _load_config
+
+  local stack="test-lbc-interp-$$"
+  local stack_dir="$TEST_TMP/stacks/$stack"
+  mkdir -p "$stack_dir"
+  cat > "$stack_dir/volume.conf" <<'EOF'
+BACKUP_PATH="/mnt/data/backups"
+EOF
+  cat > "$stack_dir/backup.conf" <<'EOF'
+BACKUP_LOCAL_DIR="${BACKUP_PATH}/daily"
+EOF
+
+  ( load_backup_conf "$stack" "$stack_dir"
+    [ "$BACKUP_LOCAL_DIR" = "/mnt/data/backups/daily" ]
+  )
+}
+
+@test "load_backup_conf: defaults stack_dir to \$CLI_ROOT/stacks/<stack> when omitted" {
+  _load_config
+
+  local stack="test-lbc-nodir-$$"
+  mkdir -p "$CLI_ROOT/stacks/$stack"
+
+  ( load_backup_conf "$stack"
+    [ "$BACKUP_LOCAL_DIR" = "$CLI_ROOT/stacks/$stack/backups" ]
+  )
+
+  rm -rf "$CLI_ROOT/stacks/$stack"
+}
+
+@test "load_backup_conf: aborts on missing include in backup.conf" {
+  _load_config
+
+  local stack="test-lbc-badinclude-$$"
+  local stack_dir="$TEST_TMP/stacks/$stack"
+  mkdir -p "$stack_dir"
+  cat > "$stack_dir/backup.conf" <<'EOF'
+include = nonexistent.conf
+EOF
+
+  run load_backup_conf "$stack" "$stack_dir"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"not found"* ]]
+}
+
+# ── load_remote_backup_conf ───────────────────────────────────────────────────
+
+@test "load_remote_backup_conf: echoes configured BACKUP_LOCAL_DIR and service vars" {
+  _load_config
+
+  ssh() {
+    echo "BACKUP_LOCAL_DIR=/remote/backups/daily"
+    echo "BACKUP_POSTGRES_SERVICE=db"
+    echo "BACKUP_NEO4J_SERVICE=graphdb"
+    echo "BACKUP_MYSQL_SERVICE=mariadb"
+    echo "BACKUP_SQLITE_PATH=/data/app.db"
+  }
+
+  ( load_remote_backup_conf "teststack" "-o Test=1" "vpsuser" "vpshost" "/opt/deploy"
+    [ "$BACKUP_LOCAL_DIR" = "/remote/backups/daily" ]
+    [ "$BACKUP_POSTGRES_SERVICE" = "db" ]
+    [ "$BACKUP_NEO4J_SERVICE" = "graphdb" ]
+    [ "$BACKUP_MYSQL_SERVICE" = "mariadb" ]
+    [ "$BACKUP_SQLITE_PATH" = "/data/app.db" ]
+  )
+}
+
+@test "load_remote_backup_conf: falls back to defaults when ssh returns nothing" {
+  _load_config
+
+  ssh() { :; }
+
+  ( load_remote_backup_conf "teststack" "-o Test=1" "vpsuser" "vpshost" "/opt/deploy"
+    [ "$BACKUP_LOCAL_DIR" = "/opt/deploy/stacks/teststack/backups" ]
+    [ "$BACKUP_POSTGRES_SERVICE" = "postgres" ]
+    [ "$BACKUP_NEO4J_SERVICE" = "neo4j" ]
+    [ "$BACKUP_MYSQL_SERVICE" = "mysql" ]
+    [ "$BACKUP_SQLITE_PATH" = "" ]
+  )
+}
+
+@test "load_remote_backup_conf: falls back to defaults when ssh fails entirely" {
+  _load_config
+
+  ssh() { return 1; }
+
+  ( load_remote_backup_conf "teststack" "-o Test=1" "vpsuser" "vpshost" "/opt/deploy"
+    [ "$BACKUP_LOCAL_DIR" = "/opt/deploy/stacks/teststack/backups" ]
+    [ "$BACKUP_POSTGRES_SERVICE" = "postgres" ]
+  )
+}
