@@ -509,3 +509,60 @@ LOG_LEVEL=debug"
   # LOG_LEVEL differs but it's not a volume var — should be silent
   [[ "$output" != *"divergence"* ]] && [[ "$output" != *"Divergence"* ]]
 }
+
+
+# ── deploy_prepare: required_vars injection prevention ────────────────────────
+
+@test "deploy_prepare: rejects hostile var name in required_vars (no eval injection)" {
+  local stack_dir="$TEST_TMP/stacks/hostile"
+  mkdir -p "$stack_dir"
+  echo 'services: {}' > "$stack_dir/docker-compose.yml"
+  echo 'GOOD_VAR=ok' > "$TEST_TMP/.test.env"
+
+  # Write a hostile required_vars line that would execute under eval
+  printf 'X:-}; echo PWNED; echo ${Y\n' > "$stack_dir/required_vars"
+
+  export GOOD_VAR="value"
+  validate_env_file() { true; }
+  export_volume_paths() { true; }
+  export -f validate_env_file export_volume_paths
+
+  # deploy_prepare should fail with "Invalid variable name" not execute the payload
+  run deploy_prepare "hostile" "$stack_dir" "$stack_dir/docker-compose.yml" "$TEST_TMP/.test.env"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"Invalid variable name"* ]]
+}
+
+@test "deploy_prepare: accepts valid var names in required_vars" {
+  local stack_dir="$TEST_TMP/stacks/valid"
+  mkdir -p "$stack_dir"
+  echo 'services: {}' > "$stack_dir/docker-compose.yml"
+  echo 'MY_VAR=hello' > "$TEST_TMP/.test.env"
+  echo 'MY_VAR' > "$stack_dir/required_vars"
+
+  export MY_VAR="hello"
+  # Stub validate_env_file and export_volume_paths (called by deploy_prepare)
+  validate_env_file() { true; }
+  export_volume_paths() { true; }
+  export -f validate_env_file export_volume_paths
+
+  run deploy_prepare "valid" "$stack_dir" "$stack_dir/docker-compose.yml" "$TEST_TMP/.test.env"
+  [ "$status" -eq 0 ]
+}
+
+@test "deploy_prepare: fails on missing required var (safe indirect expansion)" {
+  local stack_dir="$TEST_TMP/stacks/missing"
+  mkdir -p "$stack_dir"
+  echo 'services: {}' > "$stack_dir/docker-compose.yml"
+  echo 'X=y' > "$TEST_TMP/.test.env"
+  echo 'UNSET_VAR' > "$stack_dir/required_vars"
+
+  unset UNSET_VAR 2>/dev/null || true
+  validate_env_file() { true; }
+  export_volume_paths() { true; }
+  export -f validate_env_file export_volume_paths
+
+  run deploy_prepare "missing" "$stack_dir" "$stack_dir/docker-compose.yml" "$TEST_TMP/.test.env"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"Missing required env var: UNSET_VAR"* ]]
+}
