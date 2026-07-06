@@ -40,11 +40,17 @@ install_backup_schedule() {
   }
 
   local cli_root="${CLI_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
-  local backup_cmd="cd $cli_root && strut $stack backup $service --env $env_name"
+  local strut_bin
+  strut_bin=$(resolve_strut_binary)
+  local backup_cmd="cd $cli_root && $strut_bin $stack backup $service --env $env_name"
+  local log_file="$cli_root/stacks/$stack/backups/cron.log"
+
+  ensure_cron_env_header
 
   # Create cron job entry
   local cron_comment="# strut backup: $stack/$service"
-  local cron_entry="$cron_expr $backup_cmd >> $cli_root/stacks/$stack/backups/cron.log 2>&1"
+  local cron_entry
+  cron_entry=$(build_cron_job "backup-$stack-$service" "$cron_expr" "$backup_cmd" "$log_file")
 
   # Check if cron job already exists
   if crontab -l 2>/dev/null | grep -q "strut backup: $stack/$service"; then

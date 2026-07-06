@@ -57,6 +57,17 @@ EOF
   export_volume_paths "$TEST_TMP/stack"
 }
 
+@test "export_volume_paths: aborts on missing include in volume.conf" {
+  _load_volumes
+  mkdir -p "$TEST_TMP/stack"
+  cat > "$TEST_TMP/stack/volume.conf" <<'EOF'
+include = nonexistent.conf
+EOF
+  run export_volume_paths "$TEST_TMP/stack"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"not found"* ]]
+}
+
 @test "export_volume_paths: works with real knowledge-graph stack" {
   _load_volumes
   local kg_dir="$CLI_ROOT/stacks/knowledge-graph"
@@ -161,6 +172,17 @@ EOF
   mkdir -p "$TEST_TMP/stack"
   run verify_volume_config "$TEST_TMP/stack"
   [ "$status" -eq 1 ]
+}
+
+@test "verify_volume_config: aborts on missing include in volume.conf" {
+  _load_volumes
+  mkdir -p "$TEST_TMP/stack"
+  cat > "$TEST_TMP/stack/volume.conf" <<'EOF'
+include = nonexistent.conf
+EOF
+  run verify_volume_config "$TEST_TMP/stack"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"not found"* ]]
 }
 
 

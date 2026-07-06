@@ -185,9 +185,7 @@ _notify_payload_json() {
   for kv in "$@"; do
     key="${kv%%=*}"
     val="${kv#*=}"
-    # Escape double quotes and backslashes in value
-    val="${val//\\/\\\\}"
-    val="${val//\"/\\\"}"
+    val="$(json_escape "$val")"
     payload+=",\"$key\":\"$val\""
   done
   payload+="}"
