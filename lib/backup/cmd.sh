@@ -243,20 +243,38 @@ backup_command() {
           esac
           run_cmd "$label" echo "$dump_desc → $(backup_engine_glob "$engine")"
         done
+        run_cmd "Offsite sync (if configured)" echo "offsite_sync_latest"
         echo ""
         echo -e "${YELLOW}[DRY-RUN] No changes made.${NC}"
         return 0
       fi
+      # Run each engine independently — a failure in one must not abort the rest.
+      local _all_ok=true
+      local _failed_engines=()
       local engine
       for engine in "${BACKUP_ENGINES[@]}"; do
         if backup_engine_enabled "$engine"; then
           local dump_fn
           dump_fn=$(backup_dump_fn "$engine")
-          "$dump_fn" "$stack" "$compose_cmd"
+          if "$dump_fn" "$stack" "$compose_cmd"; then
+            log "✓ $engine backup succeeded"
+          else
+            warn "$engine backup failed (continuing with remaining engines)"
+            _failed_engines+=("$engine")
+            _all_ok=false
+          fi
         fi
       done
+      # Offsite sync — run even if some engines failed (sync what succeeded).
+      offsite_sync_all "$stack" || true
       BACKUP_TARGET="all" fire_hook_or_warn post_backup "$stack_dir"
-      notify_event backup.success stack="$stack" env="$env_name" type=all
+      if [ "$_all_ok" = "true" ]; then
+        notify_event backup.success stack="$stack" env="$env_name" type=all
+      else
+        notify_event backup.failure stack="$stack" env="$env_name" type=all \
+          failed="${_failed_engines[*]}"
+        fail "Backup failed for: ${_failed_engines[*]}"
+      fi
       ;;
     *)
       fail "Unknown backup command: $target
