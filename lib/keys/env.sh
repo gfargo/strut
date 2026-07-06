@@ -70,6 +70,14 @@ keys_env_rotate() {
   cp "$env_file" "$backup_file"
   ok "Backed up to: $backup_file"
 
+  # Refuse to rotate any var whose sed below would silently no-op
+  # (quoted/commented/absent) — that leaves a partially-rotated file that
+  # looks successful but is missing a secret nowhere else on disk.
+  local var
+  for var in NEO4J_PASSWORD POSTGRES_PASSWORD API_SECRET_KEY; do
+    grep -q "^${var}=" "$env_file" || fail "Refusing to rotate: $var not found as a line-anchored assignment in $env_file"
+  done
+
   # Generate new secrets
   log "Generating new secrets..."
 
@@ -89,6 +97,21 @@ keys_env_rotate() {
   sed -i.tmp "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=$new_postgres_password|" "$env_file"
   sed -i.tmp "s|^API_SECRET_KEY=.*|API_SECRET_KEY=$new_api_secret|" "$env_file"
   rm -f "$env_file.tmp"
+
+  # Verify every write landed — a partial 2-of-3 rotation is as dangerous as
+  # a full no-op, so any mismatch restores the whole file from backup.
+  if ! grep -qxF "NEO4J_PASSWORD=$new_neo4j_password" "$env_file"; then
+    cp "$backup_file" "$env_file"
+    fail "Aborting: env rotation failed verification for NEO4J_PASSWORD — restored from backup: $backup_file"
+  fi
+  if ! grep -qxF "POSTGRES_PASSWORD=$new_postgres_password" "$env_file"; then
+    cp "$backup_file" "$env_file"
+    fail "Aborting: env rotation failed verification for POSTGRES_PASSWORD — restored from backup: $backup_file"
+  fi
+  if ! grep -qxF "API_SECRET_KEY=$new_api_secret" "$env_file"; then
+    cp "$backup_file" "$env_file"
+    fail "Aborting: env rotation failed verification for API_SECRET_KEY — restored from backup: $backup_file"
+  fi
 
   ok "Environment file updated"
 
