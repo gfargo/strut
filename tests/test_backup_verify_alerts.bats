@@ -8,6 +8,7 @@
 setup() {
   source "$(dirname "$BATS_TEST_FILENAME")/test_helper/common.bash"
   load_utils
+  source "$CLI_ROOT/lib/backup/engines.sh"
   source "$CLI_ROOT/lib/backup/verify.sh"
 
   alert_verification_failure() { echo "alert_verification_failure $*"; }
