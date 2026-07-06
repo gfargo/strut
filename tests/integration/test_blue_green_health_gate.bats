@@ -179,3 +179,85 @@ EOF
   [ "$status" -eq 0 ]
   [ "$output" = "200" ]
 }
+
+# ── 3. A healthy second deploy actually flips blue → green, drains blue ───────
+# Closes the real coverage gap OSS-399 called out: the two tests above only
+# prove the REJECT path against a real daemon (crash-looping green). Nothing
+# proved the successful promote+drain pipeline actually works end-to-end.
+# This picks up right where test 2 left off (blue still live, state=blue).
+
+@test "bg health gate: healthy second deploy flips blue to green, drains blue, fires proxy hook" {
+  # Revert the fixture back to the healthy image (undo test 2's crash-loop).
+  cat > "$BG_STACK_DIR/docker-compose.yml" <<'EOF'
+services:
+  web:
+    image: nginx:alpine
+    ports:
+      - "80"
+    restart: unless-stopped
+EOF
+
+  # No-op proxy hook so the swap step exercises the pluggable-hook path
+  # (same contract already unit-tested by _bg_swap_proxy in
+  # tests/test_deploy_blue_green.bats:320) instead of the built-in nginx
+  # reload fallback, which this minimal fixture has no proxy service for.
+  local hook_dir hook
+  hook_dir="$(mktemp -d)"
+  hook="$hook_dir/proxy-hook.sh"
+  cat > "$hook" <<'EOF'
+bluegreen_proxy_swap() {
+  echo "proxy hook swap: stack=$1 old=$2 new=$3"
+}
+EOF
+  export BLUE_GREEN_PROXY_HOOK="$hook"
+
+  # Short drain so the test doesn't pay the default 60s.
+  export BLUE_GREEN_DRAIN_OVERRIDE=1
+
+  run "$CLI_ROOT/strut" "$BG_STACK" deploy --env "$BG_ENV" --blue-green --skip-validation --no-lock
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"proxy hook swap"* ]]
+  [[ "$output" == *"stack=$BG_STACK"* ]]
+  [[ "$output" == *"old=$BG_BLUE_PROJECT"* ]]
+  [[ "$output" == *"new=$BG_GREEN_PROJECT"* ]]
+
+  rm -rf "$hook_dir"
+
+  # State flipped from blue to green.
+  [ "$(_bg_read_state "$BG_STACK")" = "green" ]
+
+  # Green is live and serving.
+  run docker ps \
+    --filter "label=com.docker.compose.project=${BG_GREEN_PROJECT}" \
+    --filter "status=running" \
+    --format '{{.Names}}'
+  [ "$status" -eq 0 ]
+  [ -n "$output" ]
+
+  local green_port
+  green_port="$(_web_port "$BG_GREEN_PROJECT")"
+  [ -n "$green_port" ]
+  local code=""
+  for _ in 1 2 3 4 5; do
+    code="$(curl -sf -o /dev/null -w '%{http_code}' "http://127.0.0.1:${green_port}/" || true)"
+    [ "$code" = "200" ] && break
+    sleep 2
+  done
+  [ "$code" = "200" ]
+
+  # Blue is drained: stopped (not running)...
+  run docker ps \
+    --filter "label=com.docker.compose.project=${BG_BLUE_PROJECT}" \
+    --filter "status=running" \
+    --format '{{.Names}}'
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+
+  # ...but NOT destroyed — _bg_stop_color uses `stop`, never `down`, so a
+  # rollback can bring the same containers back on their original image.
+  run docker ps -a \
+    --filter "label=com.docker.compose.project=${BG_BLUE_PROJECT}" \
+    --format '{{.Names}}'
+  [ "$status" -eq 0 ]
+  [ -n "$output" ]
+}
