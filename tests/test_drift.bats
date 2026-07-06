@@ -223,12 +223,13 @@ _drift_fixture_init() {
 @test "drift_fix: restores drifted file from git HEAD and re-detect reports clean" {
   local stack="test-drift-fix-restore-$$"
   local fixture_root="$TEST_TMP/fixture-restore"
-  _drift_fixture_init "$fixture_root" "$stack" "version: '3.8'"
+  local committed_content='{"services":{"web":{"image":"nginx:alpine"}}}'
+  _drift_fixture_init "$fixture_root" "$stack" "$committed_content"
 
   local orig_cli_root="$CLI_ROOT"
   export CLI_ROOT="$fixture_root"
 
-  echo "drifted content" > "$fixture_root/stacks/$stack/docker-compose.yml"
+  echo '{"services":{"web":{"image":"nginx:latest"}}}' > "$fixture_root/stacks/$stack/docker-compose.yml"
 
   run drift_detect "$stack" "prod"
   [ "$status" -eq 1 ]
@@ -247,7 +248,7 @@ _drift_fixture_init() {
 
   [ "$fix_status" -eq 0 ]
   [[ "$fix_output" == *"fixed successfully"* ]]
-  [ "$restored_content" = "version: '3.8'" ]
+  [ "$restored_content" = "$committed_content" ]
   [ "$redetect_status" -eq 0 ]
 }
 
@@ -258,12 +259,12 @@ _drift_fixture_init() {
 
   local stack="test-drift-fix-resolve-$$"
   local fixture_root="$TEST_TMP/fixture-resolve"
-  _drift_fixture_init "$fixture_root" "$stack" "version: '3.8'"
+  _drift_fixture_init "$fixture_root" "$stack" '{"services":{"web":{"image":"nginx:alpine"}}}'
 
   local orig_cli_root="$CLI_ROOT"
   export CLI_ROOT="$fixture_root"
 
-  echo "drifted content" > "$fixture_root/stacks/$stack/docker-compose.yml"
+  echo '{"services":{"web":{"image":"nginx:latest"}}}' > "$fixture_root/stacks/$stack/docker-compose.yml"
 
   run drift_detect "$stack" "prod"
   [ "$status" -eq 1 ]
@@ -286,12 +287,12 @@ _drift_fixture_init() {
 @test "drift_fix: dry-run makes no changes and writes no resolution" {
   local stack="test-drift-fix-dryrun-$$"
   local fixture_root="$TEST_TMP/fixture-dryrun"
-  _drift_fixture_init "$fixture_root" "$stack" "version: '3.8'"
+  _drift_fixture_init "$fixture_root" "$stack" '{"services":{"web":{"image":"nginx:alpine"}}}'
 
   local orig_cli_root="$CLI_ROOT"
   export CLI_ROOT="$fixture_root"
 
-  echo "drifted content" > "$fixture_root/stacks/$stack/docker-compose.yml"
+  echo '{"services":{"web":{"image":"nginx:latest"}}}' > "$fixture_root/stacks/$stack/docker-compose.yml"
 
   run drift_detect "$stack" "prod"
   [ "$status" -eq 1 ]
@@ -314,7 +315,7 @@ _drift_fixture_init() {
 
   [ "$fix_status" -eq 0 ]
   [[ "$fix_output" == *"Dry-run"* ]]
-  [ "$content_after" = "drifted content" ]
+  [ "$content_after" = '{"services":{"web":{"image":"nginx:latest"}}}' ]
   [ "$resolution_status" = "null" ]
 }
 
