@@ -93,6 +93,85 @@ teardown() {
   compgen -G "$CLI_ROOT/.prod.env.backup-*" >/dev/null
 }
 
+@test "keys_db_rotate_postgres: fails without touching DB when POSTGRES_PASSWORD isn't line-anchored" {
+  local stack="test-keys-rotate-dbnoanchor-$$"
+  mkdir -p "$CLI_ROOT/stacks/$stack"
+  ensure_keys_dir "$stack" >/dev/null 2>&1
+
+  printf 'POSTGRES_USER=app\nPOSTGRES_DB=app_db\nexport POSTGRES_PASSWORD=oldpass\n' > "$CLI_ROOT/.prod.env"
+
+  resolve_compose_cmd() { echo "resolve_compose_cmd must not be called" >&2; return 1; }
+
+  run keys_db_rotate_postgres "$stack" --force
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"Refusing to rotate"* ]]
+
+  grep -q "^export POSTGRES_PASSWORD=oldpass$" "$CLI_ROOT/.prod.env"
+  ! compgen -G "$CLI_ROOT/.prod.env.backup-*" >/dev/null
+}
+
+@test "keys_db_rotate_postgres: backup exists before ALTER USER runs" {
+  local stack="test-keys-rotate-dbbackup-$$"
+  mkdir -p "$CLI_ROOT/stacks/$stack"
+  ensure_keys_dir "$stack" >/dev/null 2>&1
+
+  printf 'POSTGRES_USER=app\nPOSTGRES_DB=app_db\nPOSTGRES_PASSWORD=oldpass\n' > "$CLI_ROOT/.prod.env"
+
+  fakecompose() {
+    if [ "$1" = "ps" ]; then
+      echo "postgres Up"
+    else
+      compgen -G "$CLI_ROOT/.prod.env.backup-*" >/dev/null || { echo "NO BACKUP YET" >&2; return 1; }
+      cat >/dev/null
+    fi
+  }
+  resolve_compose_cmd() { echo "fakecompose"; }
+  confirm() { return 0; }
+
+  run keys_db_rotate_postgres "$stack"
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"NO BACKUP YET"* ]]
+
+  compgen -G "$CLI_ROOT/.prod.env.backup-*" >/dev/null
+}
+
+# ── keys_env_rotate: precondition / verification ─────────────────────────────
+
+@test "keys_env_rotate: fails and makes no changes when a target var isn't line-anchored" {
+  local stack="test-keys-rotate-envnoanchor-$$"
+  mkdir -p "$CLI_ROOT/stacks/$stack"
+  ensure_keys_dir "$stack" >/dev/null 2>&1
+
+  printf 'NEO4J_PASSWORD=oldneo\nPOSTGRES_PASSWORD=oldpg\n# API_SECRET_KEY=oldapi\n' > "$CLI_ROOT/.prod.env"
+
+  run keys_env_rotate "$stack" --force
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"Refusing to rotate"* ]]
+
+  grep -q "^NEO4J_PASSWORD=oldneo$" "$CLI_ROOT/.prod.env"
+  grep -q "^POSTGRES_PASSWORD=oldpg$" "$CLI_ROOT/.prod.env"
+  grep -q "^# API_SECRET_KEY=oldapi$" "$CLI_ROOT/.prod.env"
+  compgen -G "$CLI_ROOT/.prod.env.backup-*" >/dev/null
+}
+
+@test "keys_env_rotate: --force happy path rotates and verifies all three vars" {
+  local stack="test-keys-rotate-envforce-$$"
+  mkdir -p "$CLI_ROOT/stacks/$stack"
+  ensure_keys_dir "$stack" >/dev/null 2>&1
+
+  printf 'NEO4J_PASSWORD=oldneo\nPOSTGRES_PASSWORD=oldpg\nAPI_SECRET_KEY=oldapi\n' > "$CLI_ROOT/.prod.env"
+
+  run keys_env_rotate "$stack" --force
+  [ "$status" -eq 0 ]
+
+  grep -q "^NEO4J_PASSWORD=oldneo$" "$CLI_ROOT/.prod.env" && return 1
+  grep -q "^POSTGRES_PASSWORD=oldpg$" "$CLI_ROOT/.prod.env" && return 1
+  grep -q "^API_SECRET_KEY=oldapi$" "$CLI_ROOT/.prod.env" && return 1
+  grep -q "^NEO4J_PASSWORD=" "$CLI_ROOT/.prod.env"
+  grep -q "^POSTGRES_PASSWORD=" "$CLI_ROOT/.prod.env"
+  grep -q "^API_SECRET_KEY=" "$CLI_ROOT/.prod.env"
+}
+
 # ── keys_ssh_rotate: --dry-run / --force forwarding ──────────────────────────
 
 @test "keys_ssh_rotate: forwards --dry-run to revoke and add" {
@@ -110,19 +189,72 @@ teardown() {
   grep -q "^ADD:.*--dry-run" "$TEST_TMP/calls"
 }
 
-@test "keys_ssh_rotate: forwards --force to revoke and add" {
+@test "keys_ssh_rotate: forwards --force to revoke and add, adding before revoking" {
   local stack="test-keys-rotate-sshforce-$$"
+  mkdir -p "$CLI_ROOT/stacks/$stack"
+  ensure_keys_dir "$stack" >/dev/null 2>&1
   local env_file="$TEST_TMP/fake.env"
-  touch "$env_file"
+  echo "VPS_HOST=fakehost" > "$env_file"
 
+  keys_ssh_add() {
+    echo "ADD:$*" >> "$TEST_TMP/calls"
+    local keys_dir
+    keys_dir=$(get_keys_dir "$1")
+    echo '{"ssh_keys":[{"username":"alice","fingerprint":"fp-new","key_file":"'"$TEST_TMP"'/fake-alice.pub"}],"last_updated":"x"}' > "$keys_dir/ssh-keys.json"
+  }
   keys_ssh_revoke() { echo "REVOKE:$*" >> "$TEST_TMP/calls"; }
-  keys_ssh_add() { echo "ADD:$*" >> "$TEST_TMP/calls"; }
+  validate_vps_connection() { return 0; }
 
   run keys_ssh_rotate "$stack" "$env_file" alice --force
   [ "$status" -eq 0 ]
 
   grep -q "^REVOKE:.*--force" "$TEST_TMP/calls"
   grep -q "^ADD:.*--force" "$TEST_TMP/calls"
+
+  local add_line revoke_line
+  add_line=$(grep -n "^ADD:" "$TEST_TMP/calls" | head -1 | cut -d: -f1)
+  revoke_line=$(grep -n "^REVOKE:" "$TEST_TMP/calls" | head -1 | cut -d: -f1)
+  [ "$add_line" -lt "$revoke_line" ]
+}
+
+@test "keys_ssh_rotate: does not revoke when add fails" {
+  local stack="test-keys-rotate-sshaddfail-$$"
+  mkdir -p "$CLI_ROOT/stacks/$stack"
+  ensure_keys_dir "$stack" >/dev/null 2>&1
+  local env_file="$TEST_TMP/fake.env"
+  echo "VPS_HOST=fakehost" > "$env_file"
+
+  keys_ssh_add() { echo "ADD:$*" >> "$TEST_TMP/calls"; return 1; }
+  keys_ssh_revoke() { echo "REVOKE:$*" >> "$TEST_TMP/calls"; }
+
+  run keys_ssh_rotate "$stack" "$env_file" alice --force
+  [ "$status" -ne 0 ]
+
+  grep -q "^ADD:" "$TEST_TMP/calls"
+  ! grep -q "^REVOKE:" "$TEST_TMP/calls"
+}
+
+@test "keys_ssh_rotate: does not revoke when new-key verification fails" {
+  local stack="test-keys-rotate-sshverifyfail-$$"
+  mkdir -p "$CLI_ROOT/stacks/$stack"
+  ensure_keys_dir "$stack" >/dev/null 2>&1
+  local env_file="$TEST_TMP/fake.env"
+  echo "VPS_HOST=fakehost" > "$env_file"
+
+  keys_ssh_add() {
+    echo "ADD:$*" >> "$TEST_TMP/calls"
+    local keys_dir
+    keys_dir=$(get_keys_dir "$1")
+    echo '{"ssh_keys":[{"username":"alice","fingerprint":"fp-new","key_file":"'"$TEST_TMP"'/fake-alice.pub"}],"last_updated":"x"}' > "$keys_dir/ssh-keys.json"
+  }
+  keys_ssh_revoke() { echo "REVOKE:$*" >> "$TEST_TMP/calls"; }
+  validate_vps_connection() { return 1; }
+
+  run keys_ssh_rotate "$stack" "$env_file" alice --force
+  [ "$status" -ne 0 ]
+
+  grep -q "^ADD:" "$TEST_TMP/calls"
+  ! grep -q "^REVOKE:" "$TEST_TMP/calls"
 }
 
 # ── keys_api_rotate / keys_api_generate: --force overwrite ───────────────────

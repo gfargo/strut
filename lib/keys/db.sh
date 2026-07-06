@@ -113,6 +113,11 @@ keys_db_rotate_postgres() {
     }
   fi
 
+  # Refuse to touch the DB if the sed below would silently no-op (var
+  # quoted/commented/absent) — the DB would get a new password that exists
+  # nowhere on disk.
+  grep -q "^POSTGRES_PASSWORD=" "$env_file" || fail "Refusing to rotate: POSTGRES_PASSWORD not found as a line-anchored assignment in $env_file — check for quotes/comments/wrong file"
+
   # Get compose command
   local compose_cmd
   compose_cmd=$(resolve_compose_cmd "$stack" "$env_file" "")
@@ -121,6 +126,10 @@ keys_db_rotate_postgres() {
   if ! $compose_cmd ps postgres 2>/dev/null | grep -q "Up"; then
     fail "PostgreSQL container is not running. Start services first: strut $stack deploy --env prod"
   fi
+
+  # Backup before mutating anything (DB or disk)
+  local backup_file="$env_file.backup-$(date +%Y%m%d-%H%M%S)"
+  cp "$env_file" "$backup_file"
 
   log "Updating PostgreSQL password..."
 
@@ -132,11 +141,19 @@ EOF
   ok "PostgreSQL password updated in database"
 
   # Update .env file
-  local backup_file="$env_file.backup-$(date +%Y%m%d-%H%M%S)"
-  cp "$env_file" "$backup_file"
-
   sed -i.tmp "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=$new_password|" "$env_file"
   rm -f "$env_file.tmp"
+
+  # Verify the write actually landed — if not, revert the DB so disk and DB
+  # never diverge, rather than leaving a new password nowhere on disk.
+  if ! grep -qxF "POSTGRES_PASSWORD=$new_password" "$env_file"; then
+    warn "Write to $env_file failed verification — reverting database password"
+    $compose_cmd exec -T postgres psql -U "$postgres_user" -d "$postgres_db" <<EOF || true
+ALTER USER $postgres_user WITH PASSWORD '$old_password';
+EOF
+    cp "$backup_file" "$env_file"
+    fail "Aborting: password write to $env_file failed verification — database password reverted, see backup: $backup_file"
+  fi
 
   ok "Environment file updated"
 

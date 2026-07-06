@@ -235,13 +235,45 @@ keys_ssh_rotate() {
 
   log "Rotating SSH key for $username..."
 
-  # Revoke old key
+  if $dry_run; then
+    # Preview only — neither call mutates anything in --dry-run mode, so
+    # order doesn't matter here.
+    keys_ssh_add "$stack" "$env_file" "$username" --generate "${extra_args[@]+"${extra_args[@]}"}"
+    keys_ssh_revoke "$stack" "$env_file" "$username" --no-confirm "${extra_args[@]+"${extra_args[@]}"}"
+    return 0
+  fi
+
+  # Add-then-verify-then-revoke: the old key must keep working until the new
+  # one is proven to grant access, so a failed add/verify never leaves a
+  # lockout window.
+  keys_ssh_add "$stack" "$env_file" "$username" --generate "${extra_args[@]+"${extra_args[@]}"}" ||
+    fail "Aborting rotation: failed to add new SSH key for $username — old key was left untouched"
+
+  local keys_dir
+  keys_dir=$(get_keys_dir "$stack")
+  local metadata_file="$keys_dir/ssh-keys.json"
+
+  local key_file
+  key_file=$(jq -r --arg username "$username" '.ssh_keys[] | select(.username == $username) | .key_file' "$metadata_file")
+  [ -n "$key_file" ] && [ "$key_file" != "null" ] || fail "Aborting rotation: could not find newly-added key metadata for $username"
+
+  local new_private_key="${key_file%.pub}"
+
+  validate_env_file "$env_file" VPS_HOST
+  local vps_host="${VPS_HOST:-}"
+  local vps_user="${VPS_USER:-ubuntu}"
+  local vps_port="${VPS_PORT:-22}"
+
+  log "Verifying new key grants access..."
+  if ! validate_vps_connection "$vps_host" "$vps_user" "$new_private_key" "$vps_port"; then
+    fail "New SSH key for $username does not grant access to $vps_host — old key was left untouched"
+  fi
+  ok "New key verified"
+
+  # Only now revoke the old key
   keys_ssh_revoke "$stack" "$env_file" "$username" --no-confirm "${extra_args[@]+"${extra_args[@]}"}"
 
-  # Generate and add new key
-  keys_ssh_add "$stack" "$env_file" "$username" --generate "${extra_args[@]+"${extra_args[@]}"}"
-
-  $dry_run || ok "SSH key rotated for $username"
+  ok "SSH key rotated for $username"
 }
 
 # keys_ssh_revoke <stack> <env_file> <username> [--no-confirm] [--dry-run] [--force]
