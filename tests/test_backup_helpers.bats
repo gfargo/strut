@@ -167,6 +167,17 @@ EOF
   [ "$status" -eq 1 ]
 }
 
+@test "get_backup_list: honors BACKUP_LOCAL_DIR for a custom, non-stacks/ path" {
+  local custom_dir="$TEST_TMP/custom-backups-$$"
+  mkdir -p "$custom_dir"
+  touch "$custom_dir/postgres-20240101-120000.sql"
+
+  export BACKUP_LOCAL_DIR="$custom_dir"
+  run get_backup_list "any-stack" "postgres"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"postgres-20240101-120000.sql"* ]]
+}
+
 # ── calculate_backup_age ──────────────────────────────────────────────────────
 
 @test "calculate_backup_age: returns 0 for file created today" {

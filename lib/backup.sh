@@ -1015,8 +1015,8 @@ backup_list_cmd() {
   local stack="$1"
   local json_flag="${2:-}"
 
-  local cli_root="${CLI_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
-  local backup_dir="$cli_root/stacks/$stack/backups"
+  local backup_dir
+  backup_dir=$(_backup_dir "$stack") || return 1
   local metadata_dir="$backup_dir/metadata"
 
   [ -d "$backup_dir" ] || { error "Backup directory not found: $backup_dir"; return 1; }
@@ -1091,7 +1091,7 @@ backup_health_cmd() {
   if [ "$service" = "all" ]; then
     if [ "$json_flag" = "--json" ]; then
       generate_health_dashboard_data "$stack"
-      cat "$CLI_ROOT/stacks/$stack/backups/health-dashboard.json"
+      cat "$(_backup_dir "$stack")/health-dashboard.json"
     else
       get_all_backup_health "$stack"
     fi

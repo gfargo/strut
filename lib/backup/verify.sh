@@ -488,8 +488,8 @@ create_backup_metadata() {
     return 1
   }
 
-  local cli_root="${CLI_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
-  local metadata_dir="$cli_root/stacks/$stack/backups/metadata"
+  local metadata_dir
+  metadata_dir="$(_backup_dir "$stack")/metadata" || return 1
   mkdir -p "$metadata_dir"
 
   local backup_filename
@@ -542,8 +542,8 @@ update_backup_metadata_verification() {
   local verification_result="$3"
   local status="${4:-passed}"
 
-  local cli_root="${CLI_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
-  local metadata_file="$cli_root/stacks/$stack/backups/metadata/${backup_id}.json"
+  local metadata_file
+  metadata_file="$(_backup_dir "$stack")/metadata/${backup_id}.json" || return 1
 
   [ -f "$metadata_file" ] || {
     error "Metadata file not found: $metadata_file"
@@ -624,8 +624,8 @@ verify_backup() {
 
   # Update or create metadata
   local backup_id="${backup_filename%.*}"
-  local cli_root="${CLI_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
-  local metadata_file="$cli_root/stacks/$stack/backups/metadata/${backup_id}.json"
+  local metadata_file
+  metadata_file="$(_backup_dir "$stack")/metadata/${backup_id}.json" || return 1
 
   if [ $verify_status -eq 0 ]; then
     if [ -f "$metadata_file" ]; then
@@ -652,8 +652,8 @@ verify_all_backups() {
   local stack="$1"
   local compose_cmd="$2"
 
-  local cli_root="${CLI_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
-  local backup_dir="$cli_root/stacks/$stack/backups"
+  local backup_dir
+  backup_dir=$(_backup_dir "$stack") || return 1
 
   [ -d "$backup_dir" ] || {
     error "Backup directory not found: $backup_dir"

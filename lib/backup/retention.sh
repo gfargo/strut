@@ -36,8 +36,8 @@ get_backup_list() {
   local stack="$1"
   local service="$2"
 
-  local cli_root="${CLI_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
-  local backup_dir="$cli_root/stacks/$stack/backups"
+  local backup_dir
+  backup_dir=$(_backup_dir "$stack") || return 1
 
   [ -d "$backup_dir" ] || {
     error "Backup directory not found: $backup_dir"
@@ -52,11 +52,12 @@ get_backup_list() {
   ls -t "$backup_dir/${service}-"*."$extension" 2>/dev/null
 }
 
-# delete_backup <backup_file> <reason>
+# delete_backup <stack> <backup_file> <reason>
 # Deletes a backup file and logs the action
 delete_backup() {
-  local backup_file="$1"
-  local reason="$2"
+  local stack="$1"
+  local backup_file="$2"
+  local reason="$3"
 
   [ -f "$backup_file" ] || {
     error "Backup file not found: $backup_file"
@@ -67,10 +68,9 @@ delete_backup() {
   backup_filename=$(basename "$backup_file")
 
   # Log deletion
-  local cli_root="${CLI_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
-  local stack
-  stack=$(echo "$backup_file" | sed 's|.*/stacks/\([^/]*\)/.*|\1|')
-  local retention_log="$cli_root/stacks/$stack/backups/retention.log"
+  local backup_dir
+  backup_dir=$(_backup_dir "$stack") || return 1
+  local retention_log="$backup_dir/retention.log"
 
   local timestamp
   timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
@@ -79,7 +79,7 @@ delete_backup() {
 
   # Delete metadata if exists
   local backup_id="${backup_filename%.*}"
-  local metadata_file="$cli_root/stacks/$stack/backups/metadata/${backup_id}.json"
+  local metadata_file="$backup_dir/metadata/${backup_id}.json"
   [ -f "$metadata_file" ] && rm -f "$metadata_file"
 
   # Delete backup file
@@ -138,7 +138,7 @@ enforce_retention_policy() {
     age_days=$(calculate_backup_age "$backup_file")
 
     if [ "$age_days" -gt "$retain_days" ]; then
-      delete_backup "$backup_file" "Age: ${age_days} days (policy: ${retain_days} days)"
+      delete_backup "$stack" "$backup_file" "Age: ${age_days} days (policy: ${retain_days} days)"
       deleted_count=$((deleted_count + 1))
     fi
   done <<<"$backups"
@@ -159,8 +159,8 @@ enforce_retention_all() {
 
   log "Enforcing retention policy for all services in $stack"
 
-  local cli_root="${CLI_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
-  local backup_dir="$cli_root/stacks/$stack/backups"
+  local backup_dir
+  backup_dir=$(_backup_dir "$stack") || return 1
 
   [ -d "$backup_dir" ] || {
     error "Backup directory not found: $backup_dir"
@@ -184,7 +184,8 @@ check_storage_capacity() {
   local stack="$1"
 
   local cli_root="${CLI_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
-  local backup_dir="$cli_root/stacks/$stack/backups"
+  local backup_dir
+  backup_dir=$(_backup_dir "$stack") || return 1
 
   [ -d "$backup_dir" ] || {
     error "Backup directory not found: $backup_dir"
@@ -217,8 +218,8 @@ check_storage_capacity() {
 get_backup_storage_stats() {
   local stack="$1"
 
-  local cli_root="${CLI_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
-  local backup_dir="$cli_root/stacks/$stack/backups"
+  local backup_dir
+  backup_dir=$(_backup_dir "$stack") || return 1
 
   [ -d "$backup_dir" ] || {
     error "Backup directory not found: $backup_dir"
@@ -292,7 +293,9 @@ install_retention_cron() {
   local strut_bin
   strut_bin=$(resolve_strut_binary)
   local retention_cmd="cd $cli_root && $strut_bin $stack backup retention enforce --env prod"
-  local log_file="$cli_root/stacks/$stack/backups/retention-cron.log"
+  local backup_dir
+  backup_dir=$(_backup_dir "$stack") || return 1
+  local log_file="$backup_dir/retention-cron.log"
 
   ensure_cron_env_header
 
