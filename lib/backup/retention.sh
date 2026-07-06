@@ -44,15 +44,9 @@ get_backup_list() {
     return 1
   }
 
-  # Determine file extension based on service. gdrive-transcripts is not a
-  # DB engine (no dump/restore/verify fns, no service var) and is handled
-  # here as an explicit special case rather than forced into BACKUP_ENGINES.
+  # Determine file extension based on service, via the engine registry.
   local extension=""
-  if [ "$service" = "gdrive-transcripts" ]; then
-    extension="tar.gz"
-  else
-    extension=$(backup_engine_ext "$service" 2>/dev/null) || { error "Unknown service: $service"; return 1; }
-  fi
+  extension=$(backup_engine_ext "$service" 2>/dev/null) || { error "Unknown service: $service"; return 1; }
 
   # List backups sorted by modification time (newest first)
   ls -t "$backup_dir/${service}-"*."$extension" 2>/dev/null
@@ -180,12 +174,6 @@ enforce_retention_all() {
       enforce_retention_policy "$stack" "$engine"
     fi
   done
-
-  # gdrive-transcripts is not a DB engine — kept as an explicit special case,
-  # not forced into BACKUP_ENGINES (no dump/restore/verify fns, no service var).
-  if ls "$backup_dir"/gdrive-transcripts-*.tar.gz >/dev/null 2>&1; then
-    enforce_retention_policy "$stack" "gdrive-transcripts"
-  fi
 
   ok "Retention policy enforcement complete"
 }

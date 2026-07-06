@@ -9,9 +9,9 @@
 # `case` arm in each helper below — no other site should hardcode the
 # postgres/neo4j/mysql/sqlite quadruple.
 #
-# Note: gdrive-transcripts is intentionally NOT in this registry — it's a
-# tarball of a directory, not a DB engine (no dump/restore/verify fns, no
-# service var), and is handled as an explicit special case by callers.
+# Arbitrary-directory tarball backups (not a DB dump/restore/verify cycle)
+# are a stack-specific concern, not a generic DB engine — use the
+# pre_backup/post_backup hook system for those instead.
 
 set -euo pipefail
 

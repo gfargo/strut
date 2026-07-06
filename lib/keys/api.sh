@@ -123,11 +123,14 @@ keys_api_generate() {
   echo ""
   echo "API Key: $api_key"
   echo ""
+  local stack_dir="$CLI_ROOT/stacks/$stack"
+  load_services_conf "$stack_dir" 2>/dev/null || true
+  local api_key_env_var="${API_KEY_ENV_VAR:-API_KEYS}"
   echo "Add to your .env file:"
   if [ "$tier" = "privileged" ]; then
-    echo "  SEMANTIC_API_KEYS_PRIVILEGED=$api_key"
+    echo "  ${api_key_env_var}_PRIVILEGED=$api_key"
   else
-    echo "  SEMANTIC_API_KEYS=$api_key"
+    echo "  ${api_key_env_var}=$api_key"
   fi
   echo ""
 }
@@ -319,7 +322,7 @@ keys_api_test() {
   echo "2. Test with curl:"
   echo ""
   echo "   curl -H \"Authorization: Bearer YOUR_API_KEY\" \\"
-  echo "     http://localhost:8000/api/v1/health"
+  echo "     http://localhost:<port>/api/v1/health"
   echo ""
   echo "3. Check for 200 OK response"
   echo ""

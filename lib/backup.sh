@@ -118,6 +118,10 @@ backup_neo4j() {
 
   log "Using container: $container_name"
 
+  local neo4j_image
+  neo4j_image=$(${_sudo}docker inspect "$container_name" --format '{{.Config.Image}}' 2>/dev/null)
+  [ -n "$neo4j_image" ] || { error "Could not determine Neo4j image — is the container present?"; return 1; }
+
   # Stop Neo4j
   log "Stopping Neo4j..."
   ${_sudo}docker stop "$container_name" >/dev/null 2>&1 || { error "Failed to stop Neo4j"; return 1; }
@@ -147,7 +151,7 @@ backup_neo4j() {
     -v "$data_source:/data" \
     -v "$import_source:/var/lib/neo4j/import" \
     --entrypoint neo4j-admin \
-    neo4j:5.15-community \
+    "$neo4j_image" \
     database dump neo4j --to-path=/var/lib/neo4j/import --overwrite-destination=true 2>&1 | tee /dev/stderr | grep -q "Dump completed successfully"; then
     error "Failed to create Neo4j dump"
     ${_sudo}docker start "$container_name" >/dev/null 2>&1
@@ -199,36 +203,10 @@ backup_postgres() {
   _sudo="$(vps_sudo_prefix 2>/dev/null || echo "")"
 
   ${_sudo}$compose_cmd exec -T "$pg_service" \
-    pg_dump -U "${POSTGRES_USER:-postgres}" "${POSTGRES_DB:-app_db}" > "$out" \
+    pg_dump -U "${POSTGRES_USER:-postgres}" "${POSTGRES_DB:-${POSTGRES_USER:-postgres}}" > "$out" \
   && ok "PostgreSQL backup saved: $out" \
   && create_backup_metadata "$stack" "$out" "postgres" "" \
   || { error "PostgreSQL backup failed"; return 1; }
-}
-
-# backup_gdrive_transcripts <stack> <compose_cmd>
-# Creates a tarball of gdrive transcripts directory.
-backup_gdrive_transcripts() {
-  local stack="$1"
-  local compose_cmd="$2"
-  local backup_dir
-  backup_dir=$(_backup_dir "$stack")
-  local timestamp
-  timestamp=$(date +%Y%m%d-%H%M%S)
-  local out="$backup_dir/gdrive-transcripts-$timestamp.tar.gz"
-
-  mkdir -p "$backup_dir"
-  log "Backing up GDrive transcripts → $out"
-
-  # Check if ch-ingest-gdrive service exists and is running
-  if ! $compose_cmd ps --services 2>/dev/null | grep -q "ch-ingest-gdrive"; then
-    warn "ch-ingest-gdrive service not found in stack (may not be deployed with gdrive profile)"
-    return 0
-  fi
-
-  # Create tarball from container's gdrive_transcripts directory
-  $compose_cmd exec -T ch-ingest-gdrive tar czf - -C /app gdrive_transcripts 2>/dev/null > "$out" \
-  && ok "GDrive transcripts backup saved: $out" \
-  || { warn "GDrive transcripts backup failed (directory may be empty or service not running)"; return 0; }
 }
 
 # restore_neo4j <stack> <compose_cmd> <dump_file> [target_env]
@@ -285,6 +263,11 @@ restore_neo4j() {
   fi
 
   log "Using container: $container_name"
+
+  local neo4j_image
+  neo4j_image=$(docker inspect "$container_name" --format '{{.Config.Image}}' 2>/dev/null)
+  [ -n "$neo4j_image" ] || { error "Could not determine Neo4j image — is the container present?"; return 1; }
+
   log "Stopping Neo4j for restore..."
   docker stop "$container_name" >/dev/null 2>&1
 
@@ -320,7 +303,7 @@ restore_neo4j() {
     -v "$data_volume:/data" \
     -v "$import_volume:/var/lib/neo4j/import" \
     --entrypoint sh \
-    neo4j:5.15-community \
+    "$neo4j_image" \
     -c "mv /var/lib/neo4j/import/restore.dump /var/lib/neo4j/import/neo4j.dump && neo4j-admin database load neo4j --from-path=/var/lib/neo4j/import --overwrite-destination=true"; then
     error "Failed to restore Neo4j"
     log "Restarting Neo4j container..."
@@ -494,40 +477,17 @@ restore_postgres() {
   log "Dropping and recreating database..."
   $compose_cmd exec -T "$pg_service" \
     psql -v ON_ERROR_STOP=1 -U "${POSTGRES_USER:-postgres}" -d postgres \
-    -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname='${POSTGRES_DB:-app_db}' AND pid <> pg_backend_pid();" \
-    -c "DROP DATABASE IF EXISTS \"${POSTGRES_DB:-app_db}\";" \
-    -c "CREATE DATABASE \"${POSTGRES_DB:-app_db}\";" \
+    -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname='${POSTGRES_DB:-${POSTGRES_USER:-postgres}}' AND pid <> pg_backend_pid();" \
+    -c "DROP DATABASE IF EXISTS \"${POSTGRES_DB:-${POSTGRES_USER:-postgres}}\";" \
+    -c "CREATE DATABASE \"${POSTGRES_DB:-${POSTGRES_USER:-postgres}}\";" \
   || { error "Failed to recreate database"; return 1; }
 
   # ON_ERROR_STOP=1 makes psql exit non-zero on the first failed statement,
   # so a partial restore is reported as a failure instead of "complete".
   $compose_cmd exec -T "$pg_service" \
-    psql -v ON_ERROR_STOP=1 -U "${POSTGRES_USER:-postgres}" "${POSTGRES_DB:-app_db}" < "$sql_file" \
+    psql -v ON_ERROR_STOP=1 -U "${POSTGRES_USER:-postgres}" "${POSTGRES_DB:-${POSTGRES_USER:-postgres}}" < "$sql_file" \
   && ok "PostgreSQL restore complete" \
   || { error "PostgreSQL restore failed — database was dropped/recreated but the dump did not fully apply"; return 1; }
-}
-
-# restore_gdrive_transcripts <stack> <compose_cmd> <tar_file>
-restore_gdrive_transcripts() {
-  local stack="$1"
-  local compose_cmd="$2"
-  local tar_file="$3"
-
-  [ -f "$tar_file" ] || fail "Tar file not found: $tar_file"
-
-  # Check if ch-ingest-gdrive service exists
-  if ! $compose_cmd ps --services 2>/dev/null | grep -q "ch-ingest-gdrive"; then
-    warn "ch-ingest-gdrive service not found in stack (may not be deployed with gdrive profile)"
-    return 0
-  fi
-
-  warn "This will restore GDrive transcripts from: $tar_file"
-  confirm "Continue?" || { ok "Restore cancelled"; return 0; }
-
-  log "Restoring GDrive transcripts..."
-  $compose_cmd exec -T ch-ingest-gdrive tar xzf - -C /app < "$tar_file" \
-  && ok "GDrive transcripts restore complete" \
-  || { error "GDrive transcripts restore failed"; return 1; }
 }
 
 # ── db_pull per-DB helpers ─────────────────────────────────────────────────────
@@ -780,7 +740,7 @@ _db_push_postgres() {
     ssh $ssh_opts "$vps_user@$vps_host" \
       "cd $(resolve_deploy_dir) && \
        ${_sudo}docker compose --project-name $project_name exec -T $pg_service \
-         pg_dump -U \${POSTGRES_USER:-postgres} \${POSTGRES_DB:-app_db} > $remote_dir/pre-push-safety-$(date +%Y%m%d-%H%M%S).sql" \
+         pg_dump -U \${POSTGRES_USER:-postgres} \${POSTGRES_DB:-\${POSTGRES_USER:-postgres}} > $remote_dir/pre-push-safety-$(date +%Y%m%d-%H%M%S).sql" \
     && ok "Safety backup created" \
     || warn "Failed to create safety backup (continuing anyway)"
 
@@ -792,11 +752,11 @@ _db_push_postgres() {
       "cd $(resolve_deploy_dir) && \
        ${_sudo}docker compose --project-name $project_name exec -T $pg_service \
          psql -v ON_ERROR_STOP=1 -U \${POSTGRES_USER:-postgres} -d postgres \
-           -c \"SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname='\${POSTGRES_DB:-app_db}' AND pid <> pg_backend_pid();\" \
-           -c \"DROP DATABASE IF EXISTS \\\"\${POSTGRES_DB:-app_db}\\\";\" \
-           -c \"CREATE DATABASE \\\"\${POSTGRES_DB:-app_db}\\\";\" && \
+           -c \"SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname='\${POSTGRES_DB:-\${POSTGRES_USER:-postgres}}' AND pid <> pg_backend_pid();\" \
+           -c \"DROP DATABASE IF EXISTS \\\"\${POSTGRES_DB:-\${POSTGRES_USER:-postgres}}\\\";\" \
+           -c \"CREATE DATABASE \\\"\${POSTGRES_DB:-\${POSTGRES_USER:-postgres}}\\\";\" && \
        ${_sudo}docker compose --project-name $project_name exec -T $pg_service \
-         psql -v ON_ERROR_STOP=1 -U \${POSTGRES_USER:-postgres} -d \${POSTGRES_DB:-app_db} < $remote_dir/$filename"; then
+         psql -v ON_ERROR_STOP=1 -U \${POSTGRES_USER:-postgres} -d \${POSTGRES_DB:-\${POSTGRES_USER:-postgres}} < $remote_dir/$filename"; then
       ok "PostgreSQL restore complete on VPS"
     else
       error "PostgreSQL restore failed on VPS"

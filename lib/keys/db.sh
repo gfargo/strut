@@ -80,7 +80,7 @@ keys_db_rotate_postgres() {
   set +a
 
   local postgres_user="${POSTGRES_USER:-postgres}"
-  local postgres_db="${POSTGRES_DB:-app_db}"
+  local postgres_db="${POSTGRES_DB:-${POSTGRES_USER:-postgres}}"
   local old_password="${POSTGRES_PASSWORD:-}"
 
   [ -n "$old_password" ] || fail "POSTGRES_PASSWORD not set in $env_file"
@@ -204,7 +204,7 @@ keys_db_create_readonly() {
   set +a
 
   local postgres_user="${POSTGRES_USER:-postgres}"
-  local postgres_db="${POSTGRES_DB:-app_db}"
+  local postgres_db="${POSTGRES_DB:-${POSTGRES_USER:-postgres}}"
 
   # Generate password
   local password

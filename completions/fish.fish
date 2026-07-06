@@ -72,7 +72,7 @@ complete -c strut -n '__strut_at_pos 1' -a "$top_cmds" -d 'command'
 
 # Flag-value completions — position-independent
 complete -c strut -l env -x -a '(__strut_envs)' -d 'environment'
-complete -c strut -l services -x -a 'messaging ui full gdrive' -d 'service profile'
+complete -c strut -l services -x -a 'messaging ui full' -d 'service profile'
 complete -c strut -l registry -x -a 'ghcr dockerhub ecr none' -d 'registry type'
 complete -c strut -l json -d 'JSON output'
 complete -c strut -l dry-run -d 'preview without executing'
@@ -105,7 +105,7 @@ complete -c strut -n 'contains -- (__strut_tok 2) (__strut_stacks); and __strut_
 
 # Per-stack subcommand completions (position 3)
 complete -c strut -n 'contains -- (__strut_tok 2) (__strut_stacks); and __strut_tok 3 = backup; and __strut_at_pos 3' \
-    -a 'postgres neo4j mysql sqlite gdrive-transcripts all verify list health schedule retention'
+    -a 'postgres neo4j mysql sqlite all verify list health schedule retention'
 complete -c strut -n 'contains -- (__strut_tok 2) (__strut_stacks); and __strut_tok 3 = drift; and __strut_at_pos 3' \
     -a 'detect report fix monitor history auto-fix'
 complete -c strut -n 'contains -- (__strut_tok 2) (__strut_stacks); and contains -- (__strut_tok 3) db:pull db:push; and __strut_at_pos 3' \

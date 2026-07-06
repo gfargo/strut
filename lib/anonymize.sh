@@ -180,7 +180,7 @@ anon_apply_postgres() {
 
   log "Applying anonymization rules to PostgreSQL..."
   echo "$sql" | $compose_cmd exec -T "$pg_service" \
-    psql -v ON_ERROR_STOP=1 -U "${POSTGRES_USER:-postgres}" "${POSTGRES_DB:-app_db}" 2>/dev/null \
+    psql -v ON_ERROR_STOP=1 -U "${POSTGRES_USER:-postgres}" "${POSTGRES_DB:-${POSTGRES_USER:-postgres}}" 2>/dev/null \
     && ok "PostgreSQL anonymization complete" \
     || { error "PostgreSQL anonymization failed"; return 1; }
 }
@@ -193,6 +193,8 @@ anon_apply_mysql() {
 
   local mysql_user="${MYSQL_USER:-root}"
   local mysql_password="${MYSQL_ROOT_PASSWORD:-${MYSQL_PASSWORD:-}}"
+  local mysql_db="${MYSQL_DATABASE:-}"
+  [ -n "$mysql_db" ] || fail "MYSQL_DATABASE not set in environment"
   local sql
   sql=$(anon_build_sql "$config_file" "mysql")
 
@@ -200,7 +202,7 @@ anon_apply_mysql() {
   # Pass the password via MYSQL_PWD (env var on the exec'd process) instead
   # of --password=, which would put it in the container's process list.
   echo "$sql" | $compose_cmd exec -T -e MYSQL_PWD="$mysql_password" mysql \
-    mysql -u "$mysql_user" "${MYSQL_DATABASE:-app_db}" 2>/dev/null \
+    mysql -u "$mysql_user" "$mysql_db" 2>/dev/null \
     && ok "MySQL anonymization complete" \
     || { error "MySQL anonymization failed"; return 1; }
 }

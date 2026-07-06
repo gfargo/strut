@@ -87,7 +87,6 @@ setup() {
   run bash "$CLI" completions bash
   [[ "$output" == *"messaging"* ]]
   [[ "$output" == *"full"* ]]
-  [[ "$output" == *"gdrive"* ]]
 }
 
 @test "bash completion: handles --env flag with dynamic env names" {

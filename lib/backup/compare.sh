@@ -229,11 +229,11 @@ compare_postgres_databases() {
 
   local pg_user1 pg_db1
   pg_user1=$(grep "^POSTGRES_USER=" "$env1_file" | cut -d= -f2- | tr -d '"' | tr -d "'" || echo "postgres")
-  pg_db1=$(grep "^POSTGRES_DB=" "$env1_file" | cut -d= -f2- | tr -d '"' | tr -d "'" || echo "app_db")
+  pg_db1=$(grep "^POSTGRES_DB=" "$env1_file" | cut -d= -f2- | tr -d '"' | tr -d "'" || echo "$pg_user1")
 
   local pg_user2 pg_db2
   pg_user2=$(grep "^POSTGRES_USER=" "$env2_file" | cut -d= -f2- | tr -d '"' | tr -d "'" || echo "postgres")
-  pg_db2=$(grep "^POSTGRES_DB=" "$env2_file" | cut -d= -f2- | tr -d '"' | tr -d "'" || echo "app_db")
+  pg_db2=$(grep "^POSTGRES_DB=" "$env2_file" | cut -d= -f2- | tr -d '"' | tr -d "'" || echo "$pg_user2")
 
   # Query table counts
   log "Querying $env1 database..."

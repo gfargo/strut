@@ -87,7 +87,7 @@ build_expected_values_cte() {
 #   compose_cmd — Full docker compose command prefix
 #   stack_dir   — Path to the stack directory (must contain sql/init/*.sql)
 #
-# Requires env: POSTGRES_USER (default: postgres), POSTGRES_DB (default: app_db)
+# Requires env: POSTGRES_USER (default: postgres), POSTGRES_DB (default: same as POSTGRES_USER)
 # Returns: 0 on success; calls fail() on missing dir or files
 # Side effects: Executes SQL DDL/DML against the Postgres container
 postgres_apply_init_sql() {
@@ -95,6 +95,7 @@ postgres_apply_init_sql() {
   local compose_cmd="$2"
   local stack_dir="$3"
   local sql_dir="$stack_dir/sql/init"
+  local pg_service="${BACKUP_POSTGRES_SERVICE:-postgres}"
 
   [ -d "$sql_dir" ] || fail "SQL init directory not found: $sql_dir"
 
@@ -108,10 +109,10 @@ postgres_apply_init_sql() {
   log "Applying Postgres schema files for stack '$stack' from: $sql_dir"
   for sql_file in "${sql_files[@]}"; do
     log "Applying $(basename "$sql_file")"
-    $compose_cmd exec -T postgres \
+    $compose_cmd exec -T "$pg_service" \
       psql -v ON_ERROR_STOP=1 \
       -U "${POSTGRES_USER:-postgres}" \
-      -d "${POSTGRES_DB:-app_db}" \
+      -d "${POSTGRES_DB:-${POSTGRES_USER:-postgres}}" \
       < "$sql_file"
   done
 
@@ -182,7 +183,7 @@ maybe_apply_db_schema() {
 #   compose_cmd — Full docker compose command prefix
 #
 # Requires env: CLI_ROOT, POSTGRES_USER (default: postgres),
-#   POSTGRES_DB (default: app_db)
+#   POSTGRES_DB (default: same as POSTGRES_USER)
 # Returns: 0 on success; calls fail() if expected objects are missing
 # Side effects: Queries the Postgres container; prints verification report to stdout
 postgres_verify_schema() {
@@ -190,8 +191,9 @@ postgres_verify_schema() {
   local compose_cmd="$2"
   local stack_dir="$CLI_ROOT/stacks/$stack"
   local sql_dir="$stack_dir/sql/init"
+  local pg_service="${BACKUP_POSTGRES_SERVICE:-postgres}"
   local db_user="${POSTGRES_USER:-postgres}"
-  local db_name="${POSTGRES_DB:-app_db}"
+  local db_name="${POSTGRES_DB:-${POSTGRES_USER:-postgres}}"
   local expected_tables=()
   local expected_views=()
 
@@ -221,7 +223,7 @@ postgres_verify_schema() {
     table_cte=$(build_expected_values_cte "table" "${expected_tables[@]}")
     local missing_tables
     missing_tables=$(
-      $compose_cmd exec -T postgres \
+      $compose_cmd exec -T "$pg_service" \
         psql -v ON_ERROR_STOP=1 -t -A \
         -U "$db_user" \
         -d "$db_name" \
@@ -247,7 +249,7 @@ ORDER BY e.name;"
     view_cte=$(build_expected_values_cte "view" "${expected_views[@]}")
     local missing_views
     missing_views=$(
-      $compose_cmd exec -T postgres \
+      $compose_cmd exec -T "$pg_service" \
         psql -v ON_ERROR_STOP=1 -t -A \
         -U "$db_user" \
         -d "$db_name" \
@@ -276,7 +278,7 @@ ORDER BY e.name;"
   for table_name in "${expected_tables[@]}"; do
     local row_count
     row_count=$(
-      $compose_cmd exec -T postgres \
+      $compose_cmd exec -T "$pg_service" \
         psql -v ON_ERROR_STOP=1 -t -A \
         -U "$db_user" \
         -d "$db_name" \
@@ -293,7 +295,7 @@ ORDER BY e.name;"
     for view_name in "${expected_views[@]}"; do
       local view_count
       view_count=$(
-        $compose_cmd exec -T postgres \
+        $compose_cmd exec -T "$pg_service" \
           psql -v ON_ERROR_STOP=1 -t -A \
           -U "$db_user" \
           -d "$db_name" \
@@ -306,7 +308,7 @@ ORDER BY e.name;"
   echo ""
   echo "Public schema inventory"
   echo "-----------------------"
-  $compose_cmd exec -T postgres \
+  $compose_cmd exec -T "$pg_service" \
     psql -v ON_ERROR_STOP=1 \
     -U "$db_user" \
     -d "$db_name" \

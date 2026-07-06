@@ -70,7 +70,7 @@ _strut_completions() {
 
   local top_cmds="init list scaffold upgrade doctor status-all posture group monitoring audit audit:list audit:generate migrate migrate:status notify skills help completions --version -v --help -h"
   local per_stack_cmds="update release deploy rebuild stop diff lock health logs logs:download logs:rotate migrate backup restore db:pull db:push db:schema shell exec remote:init status volumes prune local prod staging dev debug keys validate rollback domain --help"
-  local profiles="messaging ui full gdrive"
+  local profiles="messaging ui full"
 
   # Flag-value completions — operate on prev regardless of position
   case "$prev" in
@@ -144,7 +144,7 @@ _strut_completions() {
   local cmd="${COMP_WORDS[2]}"
   case "$cmd" in
     backup)
-      [ "$cword" -eq 3 ] && mapfile -t COMPREPLY < <(compgen -W "postgres neo4j mysql sqlite gdrive-transcripts all verify list health schedule retention" -- "$cur") && return 0
+      [ "$cword" -eq 3 ] && mapfile -t COMPREPLY < <(compgen -W "postgres neo4j mysql sqlite all verify list health schedule retention" -- "$cur") && return 0
       ;;
     drift)
       [ "$cword" -eq 3 ] && mapfile -t COMPREPLY < <(compgen -W "detect report fix monitor history auto-fix" -- "$cur") && return 0

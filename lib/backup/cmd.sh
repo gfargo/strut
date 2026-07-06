@@ -43,7 +43,7 @@ backup_command() {
   # Non-zero exit aborts. Skipped in DRY_RUN so dry-run stays side-effect-free.
   local is_backup_target=false
   case "$target" in
-    postgres|neo4j|mysql|sqlite|gdrive-transcripts|all) is_backup_target=true ;;
+    postgres|neo4j|mysql|sqlite|all) is_backup_target=true ;;
   esac
 
   # Load backup.conf up front so every per-engine backup/restore function sees
@@ -227,19 +227,6 @@ backup_command() {
       BACKUP_TARGET="sqlite" fire_hook_or_warn post_backup "$stack_dir"
       notify_event backup.success stack="$stack" env="$env_name" type=sqlite
       ;;
-    gdrive-transcripts)
-      if [ "$DRY_RUN" = "true" ]; then
-        echo ""
-        echo -e "${YELLOW}[DRY-RUN] Execution plan for backup:${NC}"
-        run_cmd "Create tarball of gdrive transcripts" echo "tar czf → gdrive-transcripts-$(date +%Y%m%d-%H%M%S).tar.gz"
-        echo ""
-        echo -e "${YELLOW}[DRY-RUN] No changes made.${NC}"
-        return 0
-      fi
-      backup_gdrive_transcripts "$stack" "$compose_cmd"
-      BACKUP_TARGET="gdrive-transcripts" fire_hook_or_warn post_backup "$stack_dir"
-      notify_event backup.success stack="$stack" env="$env_name" type=gdrive-transcripts
-      ;;
     all)
       if [ "$DRY_RUN" = "true" ]; then
         echo ""
@@ -256,7 +243,6 @@ backup_command() {
           esac
           run_cmd "$label" echo "$dump_desc → $(backup_engine_glob "$engine")"
         done
-        run_cmd "Backup GDrive transcripts" echo "tar czf → gdrive-transcripts-*.tar.gz"
         echo ""
         echo -e "${YELLOW}[DRY-RUN] No changes made.${NC}"
         return 0
@@ -269,7 +255,6 @@ backup_command() {
           "$dump_fn" "$stack" "$compose_cmd"
         fi
       done
-      backup_gdrive_transcripts "$stack" "$compose_cmd"
       BACKUP_TARGET="all" fire_hook_or_warn post_backup "$stack_dir"
       notify_event backup.success stack="$stack" env="$env_name" type=all
       ;;
@@ -281,7 +266,6 @@ Available commands:
   neo4j                                 Create Neo4j backup
   mysql                                 Create MySQL backup
   sqlite                                Create SQLite backup
-  gdrive-transcripts                    Create GDrive transcripts backup
   all                                   Create all backups (per backup.conf)
   verify <file> [--full]                Verify a specific backup
   verify-all                            Verify all backups
