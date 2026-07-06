@@ -123,6 +123,16 @@ cmd_rollback() {
   local env_name="$CMD_ENV_NAME"
   local services="$CMD_SERVICES"
 
+  # Prefer remote execution for stacks that map to a VPS host — snapshots
+  # live wherever `vps_release`/deploy ran, so restoring, listing, or
+  # diffing them locally would act on the operator's own Docker daemon (or
+  # find nothing at all). Covers the restore path, `--list`, and `diff`.
+  [ -f "$env_file" ] && validate_env_file "$env_file"
+  if should_dispatch_remote; then
+    run_remote_strut "$stack" "$env_name" "rollback $*"
+    return $?
+  fi
+
   # Subcommand dispatch — `rollback diff …` runs independently of the
   # restore path (no env file or compose required).
   if [ "${1:-}" = "diff" ]; then
@@ -159,12 +169,12 @@ cmd_rollback() {
     return $?
   fi
 
-  # Find the latest snapshot
+  # Find the latest snapshot for this env
   local snapshot_file
-  snapshot_file=$(rollback_get_latest_snapshot "$stack")
+  snapshot_file=$(rollback_get_latest_snapshot "$stack" "$env_name")
 
   if [ -z "$snapshot_file" ] || [ ! -f "$snapshot_file" ]; then
-    fail "No rollback snapshots found for stack: $stack (deploy at least once first)"
+    fail "No rollback snapshots found for stack: $stack, env: $env_name (deploy at least once first)"
   fi
 
   # Dry-run: show what would be restored

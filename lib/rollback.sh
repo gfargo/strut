@@ -90,15 +90,39 @@ EOF
 
 # ── Restore snapshot ──────────────────────────────────────────────────────────
 
-# rollback_get_latest_snapshot <stack>
+# rollback_get_latest_snapshot <stack> [env_name]
 # Echoes the path to the most recent snapshot file, or empty if none.
+# With <env_name>, only considers snapshots whose recorded "env" field matches
+# — a snapshot's stack directory can hold snapshots from multiple envs, and
+# rolling back "prod" should never restore a "staging" snapshot just because
+# it happens to be newer.
 rollback_get_latest_snapshot() {
   local stack="$1"
+  local env_name="${2:-}"
   local rollback_dir
   rollback_dir=$(_rollback_dir "$stack")
 
   [ -d "$rollback_dir" ] || { echo ""; return 0; }
-  ls -t "$rollback_dir"/*.json 2>/dev/null | head -1 || echo ""
+
+  if [ -z "$env_name" ]; then
+    ls -t "$rollback_dir"/*.json 2>/dev/null | head -1 || echo ""
+    return 0
+  fi
+
+  if ! command -v jq &>/dev/null; then
+    fail "jq is required for rollback (install with: brew install jq)"
+  fi
+
+  local f
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    if [ "$(jq -r '.env // empty' "$f" 2>/dev/null)" = "$env_name" ]; then
+      echo "$f"
+      return 0
+    fi
+  done < <(rollback_list_snapshot_files "$stack")
+
+  echo ""
 }
 
 # rollback_restore_snapshot <stack> <compose_cmd> <snapshot_file>
