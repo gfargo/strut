@@ -26,18 +26,21 @@ notify_slack_send() {
   for kv in "$@"; do
     key="${kv%%=*}"
     val="${kv#*=}"
-    detail+="• ${key}: \`${val}\`\\n"
+    detail+="• ${key}: \`${val}\`"$'\n'
   done
 
-  # Escape for JSON embedding
-  summary="${summary//\\/\\\\}"
-  summary="${summary//\"/\\\"}"
-  detail="${detail//\\/\\\\}"
-  detail="${detail//\"/\\\"}"
+  local text
+  text="$(json_escape "${summary}"$'\n'"${detail}")"
 
-  local payload="{\"text\":\"${summary}\\n${detail}\"}"
+  local payload="{\"text\":\"${text}\"}"
 
-  curl -sS -X POST -H 'Content-Type: application/json' \
+  local http_code
+  http_code=$(curl -sS -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' \
     --max-time 5 \
-    -d "$payload" "$url" >/dev/null
+    -d "$payload" "$url")
+
+  case "$http_code" in
+    2??) return 0 ;;
+    *) warn "Slack webhook returned HTTP $http_code"; return 1 ;;
+  esac
 }

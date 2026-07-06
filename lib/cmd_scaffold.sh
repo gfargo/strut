@@ -108,11 +108,15 @@ cmd_scaffold() {
       fi
     fi
 
+    # Recipes bind-mount data dirs via env-var indirection (e.g.
+    # `${MEDIA_PATH:-./media}`), not literal `- ./path` lines, so resolve and
+    # gitignore those defaults. Anything left unresolved gets a warning below.
+    _scaffold_gitignore_bind_mounts "$target"
+
     _scaffold_substitute "$target" "$new_name"
 
-    # Warn about bind-mounts that resolve inside the checkout.
-    if grep -qE '^\s*-\s*\./' "$target/docker-compose.yml" 2>/dev/null; then
-      warn "This recipe bind-mounts data inside the stack dir. Ensure those paths are in $target/.gitignore or store data outside the checkout, or 'git clean' on deploy will delete them."
+    if [ -n "$_SCAFFOLD_UNRESOLVED_VARS" ]; then
+      warn "This recipe bind-mounts data inside the stack dir via a variable with no discoverable default ($_SCAFFOLD_UNRESOLVED_VARS). Ensure that path is listed in $target/.gitignore or store data outside the checkout, or 'git clean' on deploy will delete it."
     fi
 
     ok "Stack scaffolded from recipe '$recipe_flag': $target"
@@ -253,6 +257,55 @@ BACKUP_EOF
   warn "DATA SAFETY: 'strut deploy' runs 'git clean -fd' on the VPS."
   warn "Any untracked, non-ignored path under the stack dir will be DELETED."
   warn "Store persistent data outside the checkout, or add it to $target/.gitignore."
+}
+
+# _scaffold_gitignore_bind_mounts <target>
+# Recipe docker-compose.yml files bind-mount data dirs via env-var indirection,
+# e.g. `- ${MEDIA_PATH:-./media}:/media:ro` or a bare `- ${UPLOAD_LOCATION}`
+# whose default lives only in .env.template. Resolve each to a host path and,
+# when it's relative (inside the checkout), append it to .gitignore so
+# `strut deploy`'s `git clean -fd` can't delete it. Sets
+# $_SCAFFOLD_UNRESOLVED_VARS to a space-separated list of vars whose default
+# couldn't be found anywhere, so the caller can warn instead of silently
+# skipping them.
+_scaffold_gitignore_bind_mounts() {
+  local target="$1"
+  local compose="$target/docker-compose.yml"
+  _SCAFFOLD_UNRESOLVED_VARS=""
+  [ -f "$compose" ] || return 0
+  [ -f "$target/.gitignore" ] || touch "$target/.gitignore"
+
+  local token var default rule
+  while IFS= read -r token; do
+    [ -z "$token" ] && continue
+    if [[ "$token" =~ ^\$\{([A-Za-z_][A-Za-z0-9_]*):-(.*)\}$ ]]; then
+      var="${BASH_REMATCH[1]}"
+      default="${BASH_REMATCH[2]}"
+    elif [[ "$token" =~ ^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$ ]]; then
+      var="${BASH_REMATCH[1]}"
+      default=""
+    else
+      continue
+    fi
+
+    if [ -z "$default" ] && [ -f "$target/.env.template" ]; then
+      default="$(grep -E "^${var}=" "$target/.env.template" | head -1 | cut -d= -f2-)"
+    fi
+
+    case "$default" in
+      ./*)
+        rule="${default#./}"
+        rule="${rule%/}/"
+        grep -qxF "$rule" "$target/.gitignore" 2>/dev/null || echo "$rule" >> "$target/.gitignore"
+        ;;
+      "")
+        _SCAFFOLD_UNRESOLVED_VARS="${_SCAFFOLD_UNRESOLVED_VARS:+$_SCAFFOLD_UNRESOLVED_VARS }$var"
+        ;;
+      *)
+        : # absolute/host path already outside the checkout — nothing to ignore
+        ;;
+    esac
+  done < <(grep -oE '^\s*-\s*\$\{[A-Za-z_][A-Za-z0-9_]*(:-[^}]*)?\}' "$compose" | sed -E 's/^[[:space:]]*-[[:space:]]*//')
 }
 
 # _scaffold_substitute <target> <stack-name>

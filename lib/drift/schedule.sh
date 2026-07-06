@@ -23,21 +23,27 @@ drift_schedule_install() {
   local schedule="${3:-0 * * * *}" # Default: hourly at minute 0
 
   local cli_root="${CLI_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
-  local cli_path="$cli_root/strut"
+  local strut_bin
+  strut_bin=$(resolve_strut_binary)
 
-  [ -f "$cli_path" ] || {
-    error "CLI not found: $cli_path"
+  [ -f "$strut_bin" ] || {
+    error "CLI not found: $strut_bin"
     return 1
   }
-
-  # Create cron job command
-  local cron_cmd="$schedule cd $cli_root && strut $stack drift monitor --env $env >> $cli_root/stacks/$stack/drift-history/monitor.log 2>&1"
 
   # Check if cron job already exists
   if crontab -l 2>/dev/null | grep -q "drift monitor.*$stack"; then
     warn "Drift monitoring cron job already exists for $stack"
     return 0
   fi
+
+  ensure_cron_env_header
+
+  # Create cron job command
+  local drift_cmd="cd $cli_root && $strut_bin $stack drift monitor --env $env"
+  local log_file="$cli_root/stacks/$stack/drift-history/monitor.log"
+  local cron_cmd
+  cron_cmd=$(build_cron_job "drift-$stack" "$schedule" "$drift_cmd" "$log_file")
 
   # Add cron job
   (
@@ -57,8 +63,10 @@ drift_schedule_install() {
 drift_schedule_remove() {
   local stack="$1"
 
-  # Remove cron job
-  crontab -l 2>/dev/null | grep -v "drift monitor.*$stack" | crontab -
+  # Remove cron job. grep -v exits 1 when the filtered result is empty (e.g.
+  # no job existed yet, or it was the only crontab line) — not a real failure
+  # for a "remove if present" operation, so don't let it trip set -e.
+  crontab -l 2>/dev/null | grep -v "drift monitor.*$stack" | crontab - || true
 
   ok "Drift monitoring cron job removed for $stack"
   return 0

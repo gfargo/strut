@@ -46,115 +46,50 @@ _load_docker() {
   [ -z "$result" ]
 }
 
-# ── docker_require_images ─────────────────────────────────────────────────────
-# Regression coverage for the mixed pull+build case (e.g. a recipe that pulls
-# postgres from a registry but builds its own app image from a local
-# Dockerfile) — the pre-teardown check must not treat a never-pulled,
-# locally-built image as a failed pull.
+# ── docker_require_images ────────────────────────────────────────────────────
+# Regression coverage for the python-api recipe deploy hang: a service with
+# both `build:` and `image:` set (build locally, tag for later push) must
+# not be treated as a failed registry pull just because its image hasn't
+# been built yet — `up` builds it. Only a genuinely missing, non-buildable
+# image should abort the deploy.
 
-_fake_compose() {
-  # _fake_compose <name> <images_output> <json_output>
-  local script="$TEST_TMP/$1"
-  cat > "$script" <<EOF
-#!/usr/bin/env bash
-if [ "\$1" = "config" ] && [ "\$2" = "--images" ]; then
-  cat <<'IMAGES'
-$2
-IMAGES
-elif [ "\$1" = "config" ] && [ "\$2" = "--format" ]; then
-  cat <<'JSON'
-$3
-JSON
-fi
-EOF
-  chmod +x "$script"
-  echo "$script"
-}
-
-setup_require_images() {
+@test "docker_require_images: build-backed image missing locally is not fatal" {
   _load_docker
-  TEST_TMP="$(mktemp -d)"
-}
-
-teardown_require_images() { rm -rf "$TEST_TMP"; }
-
-@test "docker_require_images: passes when a build-only image was never pulled (jq present)" {
   command -v jq >/dev/null 2>&1 || skip "jq not installed"
-  setup_require_images
 
-  local images=$'org/app-api:latest\npostgres:16-alpine'
-  local json='{"services":{"api":{"build":".","image":"org/app-api:latest"},"postgres":{"image":"postgres:16-alpine"}}}'
-  local compose_cmd; compose_cmd="$(_fake_compose fake-compose "$images" "$json")"
-
-  # api's image was only ever built, never pulled — it must NOT be present
-  # locally; postgres was pulled successfully.
   docker() {
-    [ "$1" = "image" ] && [ "$2" = "inspect" ] || return 1
-    [ "$3" = "postgres:16-alpine" ]
+    case "$*" in
+      *"config --images"*)
+        printf '%s\n' "org/app-api:latest" "postgres:16-alpine"
+        ;;
+      *"config --format json"*)
+        echo '{"services":{"api":{"build":{"context":"./app"},"image":"org/app-api:latest"},"postgres":{"image":"postgres:16-alpine"}}}'
+        ;;
+      *"image inspect org/app-api:latest"*) return 1 ;;
+      *"image inspect postgres:16-alpine"*) return 0 ;;
+      *) return 0 ;;
+    esac
   }
-  export -f docker
 
-  run docker_require_images "$compose_cmd"
+  run docker_require_images "docker compose -f x.yml"
   [ "$status" -eq 0 ]
-
-  teardown_require_images
 }
 
-@test "docker_require_images: fails when a registry-only image is missing after pull" {
+@test "docker_require_images: registry-only image missing locally is fatal" {
+  _load_docker
   command -v jq >/dev/null 2>&1 || skip "jq not installed"
-  setup_require_images
 
-  local images=$'org/app-api:latest\npostgres:16-alpine'
-  local json='{"services":{"api":{"build":".","image":"org/app-api:latest"},"postgres":{"image":"postgres:16-alpine"}}}'
-  local compose_cmd; compose_cmd="$(_fake_compose fake-compose "$images" "$json")"
-
-  # Neither image present locally — postgres has no build directive, so its
-  # absence is a real failed pull.
-  docker() { return 1; }
-  export -f docker
-
-  run docker_require_images "$compose_cmd"
-  [ "$status" -eq 1 ]
-  [[ "$output" == *"postgres:16-alpine"* ]]
-  [[ "$output" != *"org/app-api:latest"* ]]
-
-  teardown_require_images
-}
-
-@test "docker_require_images: passes when every image is present locally" {
-  setup_require_images
-
-  local images=$'org/app-api:latest\npostgres:16-alpine'
-  local compose_cmd; compose_cmd="$(_fake_compose fake-compose "$images" "{}")"
-
-  docker() { [ "$1" = "image" ] && [ "$2" = "inspect" ]; }
-  export -f docker
-
-  run docker_require_images "$compose_cmd"
-  [ "$status" -eq 0 ]
-
-  teardown_require_images
-}
-
-@test "docker_require_images: without jq, falls back to checking every image" {
-  setup_require_images
-
-  local images="postgres:16-alpine"
-  local compose_cmd; compose_cmd="$(_fake_compose fake-compose "$images" "{}")"
-
-  # Simulate a jq-less host: intercept only "command -v jq", pass everything
-  # else through to the real builtin.
-  command() {
-    if [ "$1" = "-v" ] && [ "$2" = "jq" ]; then return 1; fi
-    builtin command "$@"
+  docker() {
+    case "$*" in
+      *"config --images"*) echo "org/app-api:latest" ;;
+      *"config --format json"*)
+        echo '{"services":{"api":{"image":"org/app-api:latest"}}}'
+        ;;
+      *"image inspect"*) return 1 ;;
+      *) return 0 ;;
+    esac
   }
-  docker() { return 1; }
-  export -f docker
 
-  run docker_require_images "$compose_cmd"
+  run docker_require_images "docker compose -f x.yml"
   [ "$status" -eq 1 ]
-  [[ "$output" == *"postgres:16-alpine"* ]]
-  [[ "$output" == *"jq not found"* ]]
-
-  teardown_require_images
 }

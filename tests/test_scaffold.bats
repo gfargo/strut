@@ -259,3 +259,70 @@ teardown() {
     fi
   done
 }
+
+# ── Data-safety: recipe .gitignore covers env-indirected bind mounts ─────────
+# strut #213: recipe data dirs are bind-mounted via `${VAR:-./default}` (or a
+# bare `${VAR}` with the default only in .env.template), not literal `- ./path`
+# lines. `.gitignore` must contain the resolved, concrete data-dir entry so
+# `strut deploy`'s `git clean -fd` on the VPS can't delete user data.
+
+@test "scaffold --recipe jellyfin: .gitignore contains resolved media/ entry" {
+  source "$CLI_ROOT/lib/recipes.sh"
+  cmd_scaffold "jf-stack" --recipe jellyfin
+  grep -qxF "media/" "$TEST_TMP/stacks/jf-stack/.gitignore"
+}
+
+@test "scaffold --recipe audiobookshelf: .gitignore contains resolved audiobooks/ and podcasts/ entries" {
+  source "$CLI_ROOT/lib/recipes.sh"
+  cmd_scaffold "abs-stack" --recipe audiobookshelf
+  grep -qxF "audiobooks/" "$TEST_TMP/stacks/abs-stack/.gitignore"
+  grep -qxF "podcasts/" "$TEST_TMP/stacks/abs-stack/.gitignore"
+}
+
+@test "scaffold --recipe paperless-ngx: .gitignore contains resolved consume/ entry" {
+  source "$CLI_ROOT/lib/recipes.sh"
+  cmd_scaffold "paperless-stack" --recipe paperless-ngx
+  grep -qxF "consume/" "$TEST_TMP/stacks/paperless-stack/.gitignore"
+}
+
+@test "scaffold --recipe immich: .gitignore contains resolved immich-library/ entry (bare \${VAR}, default from .env.template)" {
+  source "$CLI_ROOT/lib/recipes.sh"
+  cmd_scaffold "immich-stack" --recipe immich
+  grep -qxF "immich-library/" "$TEST_TMP/stacks/immich-stack/.gitignore"
+}
+
+@test "scaffold --recipe: git clean -nd finds nothing after simulated first Docker run" {
+  source "$CLI_ROOT/lib/recipes.sh"
+  cmd_scaffold "immich-clean" --recipe immich
+
+  local target="$TEST_TMP/stacks/immich-clean"
+  (
+    cd "$target"
+    git init -q
+    git -c user.email=test@example.com -c user.name=test add -A
+    git -c user.email=test@example.com -c user.name=test commit -q -m init
+    mkdir -p immich-library
+    echo "fake-upload" > immich-library/photo.jpg
+    [ -z "$(git clean -nd)" ]
+  )
+}
+
+@test "scaffold --recipe next-postgres: .gitignore does not gain a caddy/ entry (checked-in config, not env-indirected)" {
+  source "$CLI_ROOT/lib/recipes.sh"
+  cmd_scaffold "next-stack" --recipe next-postgres
+  run grep -xF "caddy/" "$TEST_TMP/stacks/next-stack/.gitignore"
+  [ "$status" -ne 0 ]
+}
+
+@test "scaffold --recipe static-site: .gitignore does not gain caddy/ or public/ entries (checked-in config/content)" {
+  source "$CLI_ROOT/lib/recipes.sh"
+  run cmd_scaffold "static-stack" --recipe static-site
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"bind-mounts data inside the stack dir"* ]]
+
+  local gi="$TEST_TMP/stacks/static-stack/.gitignore"
+  run grep -xF "caddy/" "$gi"
+  [ "$status" -ne 0 ]
+  run grep -xF "public/" "$gi"
+  [ "$status" -ne 0 ]
+}
