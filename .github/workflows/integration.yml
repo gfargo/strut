@@ -48,6 +48,7 @@ jobs:
           docker pull nginx:alpine
           docker pull python:3.12-slim
           docker pull postgres:16-alpine
+          docker pull mysql:8
 
       - name: Run integration tests
         run: bats tests/integration/
