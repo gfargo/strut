@@ -78,37 +78,66 @@ _tui_stacks() {
 }
 
 # _tui_commands — catalog of interactive commands surfaced in the TUI.
-# Kept short on purpose — anything the user rarely reaches for (audit,
-# migrate wizard, notify test, etc.) is left to explicit CLI invocation.
+#
+# Generated (not hand-maintained) from the per-stack dispatch table in the
+# `strut` entrypoint, so the TUI can never drift from what the CLI actually
+# dispatches. Excludes commands that structurally don't fit the TUI's generic
+# stack → command → env → confirm flow:
+#   - local|prod|staging|dev: the command name IS the env selector and each
+#     expects its own subcommand (start|stop|reset|...) as the next
+#     positional arg — double env selection, no subcommand prompt. See
+#     lib/cmd_local.sh.
+#   - provision|cert:renew|cert:status: host-scoped (strut:748-751) — the
+#     first positional arg is a host alias from strut.conf's [hosts], not a
+#     stack directory, so the TUI's stack picker could never offer a valid
+#     target.
 _tui_commands() {
-  cat <<'EOF'
-deploy
-stop
-health
-status
-logs
-backup
-drift
-validate
-shell
-rollback
-EOF
+  local strut_bin="${STRUT_HOME:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}/strut"
+  [ -f "$strut_bin" ] || return 0
+
+  awk '
+    /^case "\$COMMAND" in$/ { buf=""; capturing=1; next }
+    capturing { buf = buf $0 "\n" }
+    capturing && /^esac$/ {
+      if (buf ~ /plugins_run/) { print buf; exit }
+      capturing=0
+    }
+  ' "$strut_bin" \
+    | grep -oE '^  [A-Za-z0-9_:|-]+\)' \
+    | tr -d ')' | tr '|' '\n' \
+    | sed 's/^ *//;s/ *$//' \
+    | grep -v '^\*$' \
+    | grep -vE '^(local|prod|staging|dev|provision|cert:renew|cert:status)$' \
+    | sort -u
 }
 
-# _tui_envs — discovered env names from `$CLI_ROOT/.<name>.env` files.
-# Always includes "(none)" so the user can deliberately run without an env.
+# _tui_envs <stack> — discovered env names, unioning stack-level
+# (`stacks/<stack>/.<name>.env`) and project-level (`$CLI_ROOT/.<name>.env`)
+# files, matching resolve_env_file's priority order (strut:456-483). Always
+# includes "(none)" so the user can deliberately run without an env. Names
+# are deduped since resolve_env_file already handles precedence at read
+# time — the picker just needs the union of names.
 _tui_envs() {
+  local stack="${1:-}"
   local cli_root="${CLI_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
   printf '%s\n' "(none)"
-  local f base name
-  for f in "$cli_root"/.*.env; do
-    [ -f "$f" ] || continue
-    base="$(basename "$f")"        # .prod.env
-    name="${base#.}"               # prod.env
-    name="${name%.env}"            # prod
-    # Skip empty and sentinel entries like `.env` (which becomes "")
-    [ -z "$name" ] && continue
-    printf '%s\n' "$name"
+
+  local dirs=("$cli_root")
+  [ -n "$stack" ] && dirs=("$cli_root/stacks/$stack" "$cli_root")
+
+  local d f base name seen=""
+  for d in "${dirs[@]}"; do
+    for f in "$d"/.*.env; do
+      [ -f "$f" ] || continue
+      base="$(basename "$f")"        # .prod.env
+      name="${base#.}"               # prod.env
+      name="${name%.env}"            # prod
+      # Skip empty and sentinel entries like `.env` (which becomes "")
+      [ -z "$name" ] && continue
+      case "$seen" in *" $name "*) continue ;; esac
+      seen="$seen $name "
+      printf '%s\n' "$name"
+    done
   done
 }
 
@@ -176,7 +205,7 @@ tui_main() {
 
   # ── Pick env ───────────────────────────────────────────────────────────────
   local envs env
-  envs="$(_tui_envs)"
+  envs="$(_tui_envs "$stack")"
   # shellcheck disable=SC2046
   env="$(_tui_pick "Env for '$stack $command'" $(printf '%s ' $envs))" || { echo "cancelled" >&2; return 130; }
 
