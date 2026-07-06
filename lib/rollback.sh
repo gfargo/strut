@@ -63,10 +63,22 @@ rollback_save_snapshot() {
     (if (length == 1 and (.[0] | type) == "array") then .[0] else . end)
     | .[] | "\(.Service)\t\(.Image)\t\(.Name)"' 2>/dev/null || true)
 
-  while IFS=$'\t' read -r service image cname; do
-    [ -z "$service" ] || [ -z "$image" ] && continue
-    local image_id=""
-    [ -n "$cname" ] && image_id=$(docker inspect --format '{{.Image}}' "$cname" 2>/dev/null || echo "")
+  while IFS=$'\t' read -r service ps_image cname; do
+    [ -z "$service" ] || [ -z "$ps_image" ] && continue
+    local image_id="" image="$ps_image"
+    if [ -n "$cname" ]; then
+      # Single inspect call for both fields, "~"-joined ("~" can't appear in
+      # an image ref or ID). `.Config.Image` is the reference used AT
+      # CONTAINER-CREATE TIME and never changes; compose ps's own `.Image`
+      # column falls back to showing the raw resolved ID instead of the tag
+      # once the tag has since moved to point elsewhere — which is exactly
+      # the mutable-tag-moved case rollback exists to handle, so we can't
+      # use it as the "image" we later re-tag.
+      local inspect_out
+      inspect_out=$(docker inspect --format '{{.Image}}~{{.Config.Image}}' "$cname" 2>/dev/null || echo "")
+      image_id="${inspect_out%%~*}"
+      [ -n "$inspect_out" ] && image="${inspect_out#*~}"
+    fi
 
     if $first; then
       first=false
