@@ -15,8 +15,8 @@ calculate_backup_success_rate() {
   local service="$2"
   local days="${3:-7}"
 
-  local cli_root="${CLI_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
-  local backup_dir="$cli_root/stacks/$stack/backups"
+  local backup_dir
+  backup_dir=$(_backup_dir "$stack") || return 1
   local metadata_dir="$backup_dir/metadata"
 
   [ -d "$metadata_dir" ] || {
@@ -76,8 +76,8 @@ calculate_verification_rate() {
   local service="$2"
   local days="${3:-7}"
 
-  local cli_root="${CLI_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
-  local metadata_dir="$cli_root/stacks/$stack/backups/metadata"
+  local metadata_dir
+  metadata_dir="$(_backup_dir "$stack")/metadata" || return 1
 
   [ -d "$metadata_dir" ] || {
     warn "No metadata directory found"
@@ -251,8 +251,8 @@ EOF
 get_all_backup_health() {
   local stack="$1"
 
-  local cli_root="${CLI_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
-  local backup_dir="$cli_root/stacks/$stack/backups"
+  local backup_dir
+  backup_dir=$(_backup_dir "$stack") || return 1
 
   [ -d "$backup_dir" ] || {
     error "Backup directory not found: $backup_dir"
@@ -320,8 +320,9 @@ Command: strut $stack backup health --env prod"
 export_health_metrics() {
   local stack="$1"
 
-  local cli_root="${CLI_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
-  local metrics_file="$cli_root/stacks/$stack/backups/health-metrics.prom"
+  local backup_dir
+  backup_dir=$(_backup_dir "$stack") || return 1
+  local metrics_file="$backup_dir/health-metrics.prom"
 
   # Create Prometheus metrics file
   cat >"$metrics_file" <<EOF
@@ -333,7 +334,7 @@ EOF
   local engine glob score
   for engine in "${BACKUP_ENGINES[@]}"; do
     glob=$(backup_engine_glob "$engine")
-    if ls "$cli_root/stacks/$stack/backups"/$glob >/dev/null 2>&1; then
+    if ls "$backup_dir"/$glob >/dev/null 2>&1; then
       score=$(calculate_backup_health_score "$stack" "$engine")
       echo "backup_health_score{stack=\"$stack\",service=\"$engine\"} $score" >>"$metrics_file"
     fi
@@ -347,8 +348,9 @@ EOF
 generate_health_dashboard_data() {
   local stack="$1"
 
-  local cli_root="${CLI_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
-  local dashboard_data="$cli_root/stacks/$stack/backups/health-dashboard.json"
+  local backup_dir
+  backup_dir=$(_backup_dir "$stack") || return 1
+  local dashboard_data="$backup_dir/health-dashboard.json"
 
   # Start JSON array
   echo "[" >"$dashboard_data"
@@ -359,7 +361,7 @@ generate_health_dashboard_data() {
   local engine glob
   for engine in "${BACKUP_ENGINES[@]}"; do
     glob=$(backup_engine_glob "$engine")
-    if ls "$cli_root/stacks/$stack/backups"/$glob >/dev/null 2>&1; then
+    if ls "$backup_dir"/$glob >/dev/null 2>&1; then
       [ "$first" = false ] && echo "," >>"$dashboard_data"
       get_backup_health_json "$stack" "$engine" >>"$dashboard_data"
       first=false

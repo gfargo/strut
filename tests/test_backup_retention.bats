@@ -33,7 +33,7 @@ teardown() {
   mkdir -p "$backup_dir"
   echo "data" > "$backup_dir/postgres-20240101-120000.sql"
 
-  run delete_backup "$backup_dir/postgres-20240101-120000.sql" "test deletion"
+  run delete_backup "$stack" "$backup_dir/postgres-20240101-120000.sql" "test deletion"
   [ "$status" -eq 0 ]
   [ ! -f "$backup_dir/postgres-20240101-120000.sql" ]
   [ -f "$backup_dir/retention.log" ]
@@ -43,7 +43,7 @@ teardown() {
 }
 
 @test "delete_backup: fails for missing file" {
-  run delete_backup "$TEST_TMP/nonexistent.sql" "test"
+  run delete_backup "test-ret-missing-$$" "$TEST_TMP/nonexistent.sql" "test"
   [ "$status" -eq 1 ]
 }
 
@@ -55,7 +55,7 @@ teardown() {
   echo "data" > "$backup_dir/postgres-20240101-120000.sql"
   echo '{}' > "$metadata_dir/postgres-20240101-120000.json"
 
-  delete_backup "$backup_dir/postgres-20240101-120000.sql" "cleanup"
+  delete_backup "$stack" "$backup_dir/postgres-20240101-120000.sql" "cleanup"
   [ ! -f "$metadata_dir/postgres-20240101-120000.json" ]
 
   rm -rf "$CLI_ROOT/stacks/$stack"
@@ -102,6 +102,18 @@ teardown() {
   [ "$(jq -r '.verification.status' "$metadata_file")" = "passed" ]
 
   rm -rf "$CLI_ROOT/stacks/$stack"
+}
+
+@test "create_backup_metadata: writes metadata under BACKUP_LOCAL_DIR/metadata" {
+  local stack="test-ret-customdir-meta-$$"
+  local custom_dir="$TEST_TMP/custom-meta-$$"
+  mkdir -p "$custom_dir"
+  echo "data" > "$custom_dir/postgres-20240301-120000.sql"
+
+  export BACKUP_LOCAL_DIR="$custom_dir"
+  run create_backup_metadata "$stack" "$custom_dir/postgres-20240301-120000.sql" "postgres" ""
+  [ "$status" -eq 0 ]
+  [ -f "$custom_dir/metadata/postgres-20240301-120000.json" ]
 }
 
 # ── enforce_retention_policy ──────────────────────────────────────────────────
@@ -176,6 +188,59 @@ EOF
   [ -f "$backup_dir/postgres-20240101-120000.sql" ]
 
   rm -rf "$CLI_ROOT/stacks/$stack"
+}
+
+# ── BACKUP_LOCAL_DIR routing ───────────────────────────────────────────────────
+
+@test "enforce_retention_policy: prunes BACKUP_LOCAL_DIR, not the default stacks/ path" {
+  local stack="test-ret-customdir-$$"
+  local custom_dir="$TEST_TMP/custom-backups-$$"
+  local default_dir="$CLI_ROOT/stacks/$stack/backups"
+  mkdir -p "$custom_dir"
+
+  export BACKUP_LOCAL_DIR="$custom_dir"
+
+  mkdir -p "$CLI_ROOT/stacks/$stack"
+  cat > "$CLI_ROOT/stacks/$stack/backup.conf" <<'EOF'
+BACKUP_RETAIN_DAYS=1
+BACKUP_RETAIN_COUNT=1
+EOF
+
+  for i in $(seq 1 3); do
+    local f="$custom_dir/postgres-2024010${i}-120000.sql"
+    echo "data$i" > "$f"
+    touch -t "$(date -v-2d +%Y%m%d%H%M.%S 2>/dev/null || date -d '2 days ago' +%Y%m%d%H%M.%S 2>/dev/null)" "$f"
+    sleep 0.1
+  done
+
+  run enforce_retention_policy "$stack" "postgres"
+  [ "$status" -eq 0 ]
+
+  local remaining
+  remaining=$(ls "$custom_dir"/postgres-*.sql 2>/dev/null | wc -l)
+  [ "$remaining" -eq 1 ]
+  [ ! -d "$default_dir" ]
+
+  rm -rf "$CLI_ROOT/stacks/$stack"
+}
+
+@test "delete_backup: writes retention.log and removes metadata in a custom dir outside stacks/" {
+  local stack="test-ret-customdel-$$"
+  local custom_dir="$TEST_TMP/custom-del-$$"
+  local metadata_dir="$custom_dir/metadata"
+  mkdir -p "$metadata_dir"
+
+  export BACKUP_LOCAL_DIR="$custom_dir"
+
+  echo "data" > "$custom_dir/postgres-20240101-120000.sql"
+  echo '{}' > "$metadata_dir/postgres-20240101-120000.json"
+
+  run delete_backup "$stack" "$custom_dir/postgres-20240101-120000.sql" "custom dir test"
+  [ "$status" -eq 0 ]
+  [ ! -f "$custom_dir/postgres-20240101-120000.sql" ]
+  [ ! -f "$metadata_dir/postgres-20240101-120000.json" ]
+  [ -f "$custom_dir/retention.log" ]
+  grep -q "custom dir test" "$custom_dir/retention.log"
 }
 
 # ── Property: Retention never deletes below retain_count ──────────────────────

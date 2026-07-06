@@ -66,3 +66,21 @@ teardown() {
   [[ "$output" == *"=== PostgreSQL ==="* ]]
   [[ "$output" == *"=== MySQL ==="* ]]
 }
+
+@test "get_all_backup_health: sees backups placed only in BACKUP_LOCAL_DIR" {
+  STACK="test-health-customdir-$$"
+  local custom_dir
+  custom_dir="$(mktemp -d)"
+  mkdir -p "$custom_dir/metadata"
+
+  touch "$custom_dir/postgres-20240101-120000.sql"
+  touch "$custom_dir/metadata/postgres-20240101-120000.json"
+
+  export BACKUP_LOCAL_DIR="$custom_dir"
+  run get_all_backup_health "$STACK"
+  unset BACKUP_LOCAL_DIR
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"=== PostgreSQL ==="* ]]
+
+  rm -rf "$custom_dir"
+}

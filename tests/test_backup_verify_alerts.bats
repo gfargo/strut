@@ -14,6 +14,10 @@ setup() {
   alert_verification_failure() { echo "alert_verification_failure $*"; }
   export -f alert_verification_failure
 
+  # _backup_dir lives in lib/backup.sh, not sourced here — stub it out.
+  _backup_dir() { echo "$CLI_ROOT/stacks/$1/backups"; }
+  export -f _backup_dir
+
   # Avoid touching real metadata files on disk — not under test here.
   create_backup_metadata() { :; }
   update_backup_metadata_verification() { :; }
