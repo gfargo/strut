@@ -59,8 +59,8 @@ teardown() { common_teardown; }
 @test "cmd_cert_renew: dry-run shows execution plan" {
   # Stub topology
   topology_load() { :; }
-  topology_has_host() { return 1; }
-  export -f topology_load topology_has_host
+  topology_is_host_alias() { return 1; }
+  export -f topology_load topology_is_host_alias
   export VPS_HOST="10.0.0.1"
   export VPS_USER="deploy"
   export VPS_PORT="22"
@@ -79,8 +79,8 @@ teardown() { common_teardown; }
 
 @test "cmd_cert_renew: dry-run shows correct cert paths" {
   topology_load() { :; }
-  topology_has_host() { return 1; }
-  export -f topology_load topology_has_host
+  topology_is_host_alias() { return 1; }
+  export -f topology_load topology_is_host_alias
   export VPS_HOST="10.0.0.1"
   export VPS_USER="deploy"
 
@@ -96,8 +96,8 @@ teardown() { common_teardown; }
 
 @test "cmd_cert_renew: respects CERT_DIR override" {
   topology_load() { :; }
-  topology_has_host() { return 1; }
-  export -f topology_load topology_has_host
+  topology_is_host_alias() { return 1; }
+  export -f topology_load topology_is_host_alias
   export VPS_HOST="10.0.0.1"
   export VPS_USER="deploy"
   export CERT_DIR="/opt/certs"
@@ -126,8 +126,8 @@ teardown() { common_teardown; }
   unset VPS_HOST
 
   topology_load() { :; }
-  topology_has_host() { return 1; }
-  export -f topology_load topology_has_host
+  topology_is_host_alias() { return 1; }
+  export -f topology_load topology_is_host_alias
 
   fail() { echo "FAIL: $1" >&2; exit 1; }
   export -f fail
@@ -141,8 +141,8 @@ teardown() { common_teardown; }
 
 @test "cmd_cert_status: dry-run shows openssl check" {
   topology_load() { :; }
-  topology_has_host() { return 1; }
-  export -f topology_load topology_has_host
+  topology_is_host_alias() { return 1; }
+  export -f topology_load topology_is_host_alias
   export VPS_HOST="10.0.0.1"
   export VPS_USER="deploy"
 
