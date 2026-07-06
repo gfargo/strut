@@ -69,12 +69,16 @@ EOF
 
   # ── Apply --org flag ──────────────────────────────
   if [ -n "$org_flag" ]; then
-    # Uncomment and set DEFAULT_ORG
+    # Validate: only allow Docker-image-safe characters (lowercase, digits, dots, hyphens, underscores)
+    if ! [[ "$org_flag" =~ ^[A-Za-z0-9._-]+$ ]]; then
+      fail "Invalid --org value: '$org_flag' (must match [A-Za-z0-9._-]+)"
+    fi
+    # Uncomment and set DEFAULT_ORG (quoted to prevent source injection)
     if grep -q "^# DEFAULT_ORG=" "$PWD/strut.conf"; then
-      sed -i.bak "s/^# DEFAULT_ORG=.*/DEFAULT_ORG=$(sed_escape_replacement "$org_flag")/" "$PWD/strut.conf"
+      sed -i.bak "s/^# DEFAULT_ORG=.*/DEFAULT_ORG=\"$(sed_escape_replacement "$org_flag")\"/" "$PWD/strut.conf"
       rm -f "$PWD/strut.conf.bak"
     else
-      echo "DEFAULT_ORG=$org_flag" >> "$PWD/strut.conf"
+      echo "DEFAULT_ORG=\"$org_flag\"" >> "$PWD/strut.conf"
     fi
   fi
 
