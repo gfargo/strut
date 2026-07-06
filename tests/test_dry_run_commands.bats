@@ -74,7 +74,7 @@ EOF
   [ "$status" -eq 0 ]
   [[ "$output" == *"DRY-RUN"* ]]
   [[ "$output" == *"PostgreSQL"* ]]
-  [[ "$output" == *"GDrive"* ]]
+  [[ "$output" != *"GDrive"* ]]
   rm -rf "$CLI_ROOT/stacks/test-dry-backup-all-$$" "$CLI_ROOT/.test-dry.env"
 }
 
