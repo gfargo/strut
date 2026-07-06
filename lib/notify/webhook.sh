@@ -22,7 +22,13 @@ notify_webhook_send() {
   local payload
   payload=$(_notify_payload_json "$event" "$@")
 
-  curl -sS -X POST -H 'Content-Type: application/json' \
+  local http_code
+  http_code=$(curl -sS -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' \
     --max-time 5 \
-    -d "$payload" "$url" >/dev/null
+    -d "$payload" "$url")
+
+  case "$http_code" in
+    2??) return 0 ;;
+    *) warn "Webhook $url returned HTTP $http_code"; return 1 ;;
+  esac
 }

@@ -273,3 +273,77 @@ volumes:
   [[ "$result" == *'"old":"old"'* ]]
   [[ "$result" == *'"new":"new"'* ]]
 }
+
+# ── diff_fetch_remote (OSS-435: SSH failure vs. missing file) ────────────────
+
+@test "diff_fetch_remote: reachable host, file exists → exit 0 with content" {
+  export VPS_HOST="example.com"
+  ssh() { echo "FOO=bar"; return 0; }
+  export -f ssh
+
+  run diff_fetch_remote "/some/path/.env"
+  [ "$status" -eq 0 ]
+  [ "$output" = "FOO=bar" ]
+}
+
+@test "diff_fetch_remote: reachable host, remote cat fails (file missing) → exit 0, empty" {
+  export VPS_HOST="example.com"
+  ssh() { return 1; }
+  export -f ssh
+
+  run diff_fetch_remote "/some/path/.env"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+}
+
+@test "diff_fetch_remote: ssh itself fails (255) → exit 2, no content" {
+  export VPS_HOST="example.com"
+  ssh() { return 255; }
+  export -f ssh
+
+  run diff_fetch_remote "/some/path/.env"
+  [ "$status" -eq 2 ]
+  [ -z "$output" ]
+}
+
+# ── diff_fetch_remote (OSS-465: VPS_PORT/VPS_SSH_KEY, not SSH_PORT/SSH_KEY) ────
+
+@test "diff_fetch_remote: builds ssh opts from VPS_PORT/VPS_SSH_KEY" {
+  export VPS_HOST="example.com"
+  export VPS_PORT="2222"
+  export VPS_SSH_KEY="$TEST_TMP/testkey"
+  touch "$VPS_SSH_KEY"
+  # Legacy vars must NOT be consulted
+  export SSH_PORT="9999"
+  export SSH_KEY="$TEST_TMP/wrongkey"
+
+  ssh() { echo "$@" > "$TEST_TMP/ssh_call"; }
+  export -f ssh
+
+  run diff_fetch_remote "/some/path"
+  [ "$status" -eq 0 ]
+  [[ "$(cat "$TEST_TMP/ssh_call")" == *"-p 2222"* ]]
+  [[ "$(cat "$TEST_TMP/ssh_call")" == *"-i $TEST_TMP/testkey"* ]]
+  [[ "$(cat "$TEST_TMP/ssh_call")" != *"9999"* ]]
+  [[ "$(cat "$TEST_TMP/ssh_call")" != *"wrongkey"* ]]
+}
+
+@test "diff_fetch_remote: returns 2 when ssh fails to connect (exit 255)" {
+  export VPS_HOST="example.com"
+  ssh() { return 255; }
+  export -f ssh
+
+  run diff_fetch_remote "/some/path"
+  [ "$status" -eq 2 ]
+}
+
+@test "diff_fetch_remote: returns 0 with empty output when remote file is missing" {
+  export VPS_HOST="example.com"
+  # Simulates `cat missing 2>/dev/null` — cat exits 1, no output
+  ssh() { return 1; }
+  export -f ssh
+
+  run diff_fetch_remote "/some/missing/path"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+}

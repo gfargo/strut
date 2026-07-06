@@ -187,7 +187,7 @@ lock_force_break_local() {
 # ── Remote lock (thin SSH wrappers) ───────────────────────────────────────────
 #
 # These call into a remote shell snippet that runs the same mkdir-atomic
-# primitive. They expect VPS_HOST / VPS_USER / SSH_KEY / SSH_PORT /
+# primitive. They expect VPS_HOST / VPS_USER / VPS_SSH_KEY / VPS_PORT /
 # VPS_DEPLOY_DIR to be set in the environment.
 
 _lock_remote_dir_expr() {
@@ -207,7 +207,7 @@ lock_acquire_remote() {
   local host="${VPS_HOST:-}" user="${VPS_USER:-ubuntu}"
   [ -z "$host" ] && return 2
   local ssh_opts
-  ssh_opts=$(build_ssh_opts -p "${SSH_PORT:-22}" -k "${SSH_KEY:-}" --batch)
+  ssh_opts=$(build_ssh_opts -p "${VPS_PORT:-22}" -k "${VPS_SSH_KEY:-}" --batch)
   local dir_expr
   dir_expr=$(_lock_remote_dir_expr "$stack" "$env")
 
@@ -241,7 +241,7 @@ lock_release_remote() {
   local host="${VPS_HOST:-}" user="${VPS_USER:-ubuntu}"
   [ -z "$host" ] && return 0
   local ssh_opts
-  ssh_opts=$(build_ssh_opts -p "${SSH_PORT:-22}" -k "${SSH_KEY:-}" --batch)
+  ssh_opts=$(build_ssh_opts -p "${VPS_PORT:-22}" -k "${VPS_SSH_KEY:-}" --batch)
   local dir_expr
   dir_expr=$(_lock_remote_dir_expr "$stack" "$env")
   # shellcheck disable=SC2086
@@ -256,7 +256,7 @@ lock_status_remote() {
   local host="${VPS_HOST:-}" user="${VPS_USER:-ubuntu}"
   [ -z "$host" ] && return 1
   local ssh_opts
-  ssh_opts=$(build_ssh_opts -p "${SSH_PORT:-22}" -k "${SSH_KEY:-}" --batch)
+  ssh_opts=$(build_ssh_opts -p "${VPS_PORT:-22}" -k "${VPS_SSH_KEY:-}" --batch)
   local dir_expr
   dir_expr=$(_lock_remote_dir_expr "$stack" "$env")
   # shellcheck disable=SC2086

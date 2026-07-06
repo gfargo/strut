@@ -10,7 +10,7 @@ set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/utils.sh"
 
 # ── Constants ─────────────────────────────────────────────────────────────────
-MONITORING_STACK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../stacks/monitoring" && pwd)"
+: "${MONITORING_STACK_DIR:=${PROJECT_ROOT:-$CLI_ROOT}/stacks/monitoring}"
 
 # ── Helper Functions ──────────────────────────────────────────────────────────
 
@@ -161,6 +161,10 @@ monitoring_add_target() {
   fi
 
   log "Adding $stack_name to monitoring targets..."
+
+  if [ ! -d "$MONITORING_STACK_DIR" ]; then
+    fail "Monitoring stack directory not found: $MONITORING_STACK_DIR. Deploy it first: strut monitoring deploy"
+  fi
 
   local target_file="$MONITORING_STACK_DIR/prometheus/targets/${stack_name}.yml"
 

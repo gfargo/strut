@@ -15,6 +15,10 @@ set -euo pipefail
 #
 # This is a pure diff-based guard (no SSH path probing). It requires
 # VPS_HOST to be set; if not (local-only stacks), the guard is skipped.
+# If VPS_HOST IS set but SSH cannot reach the host, the guard fails loud
+# (aborts the deploy) rather than silently behaving like "nothing to check" —
+# unless DRY_RUN or --confirm-data-move is in play, matching the guard's
+# other abort path.
 _deploy_volguard() {
   local stack="$1"
   local env_file="$2"
@@ -37,7 +41,6 @@ _deploy_volguard() {
   local_compose_content=$(cat "$compose_file")
 
   # Fetch the remote env content — reuse diff_fetch_remote from diff.sh.
-  # If the remote is unreachable, skip the guard (non-blocking).
   local deploy_dir; deploy_dir=$(resolve_deploy_dir)
   local env_name="${CMD_ENV_NAME:-prod}"
   local remote_env_path
@@ -49,8 +52,16 @@ _deploy_volguard() {
     remote_env_path="$deploy_dir/.${env_name}.env"
   fi
 
-  local remote_env_content
-  remote_env_content=$(diff_fetch_remote "$remote_env_path" 2>/dev/null) || return 0
+  local remote_env_content rc=0
+  remote_env_content=$(diff_fetch_remote "$remote_env_path" 2>/dev/null) || rc=$?
+  if [ "$rc" -eq 2 ]; then
+    if [ "$DRY_RUN" = "true" ] || [ "$confirm_data_move" = "true" ]; then
+      warn "Cannot verify remote state for '$stack': SSH to $_vps_host failed. Check VPS_HOST/VPS_PORT/VPS_SSH_KEY."
+      return 0
+    fi
+    fail "Cannot verify remote state for '$stack': SSH to $_vps_host failed. Check VPS_HOST/VPS_PORT/VPS_SSH_KEY, or re-run with --confirm-data-move."
+    return 1
+  fi
   [ -n "$remote_env_content" ] || return 0
 
   # Compute env diff and destructive subset
@@ -322,7 +333,6 @@ cmd_deploy() {
 
   # Check if this is a VPS environment and warn user (skip if we're ON the VPS or --force-local)
   if [ "$force_local" != "true" ] && [ -f "$env_file" ]; then
-    set -a; source "$env_file"; set +a
     if [ -n "${VPS_HOST:-}" ] && ! is_running_on_vps; then
       warn "Detected VPS environment (VPS_HOST=$VPS_HOST)"
       warn "The 'deploy' command runs locally. For VPS deployment, use:"

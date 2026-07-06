@@ -207,6 +207,58 @@ EOF
   [[ "$result" == *"VPS_DEPLOY_DIR"* ]]
 }
 
+# ── Remote lock SSH opts (OSS-465: VPS_PORT/VPS_SSH_KEY, not SSH_PORT/SSH_KEY) ─
+
+@test "lock_acquire_remote: builds ssh opts from VPS_PORT/VPS_SSH_KEY" {
+  export VPS_HOST="example.com"
+  export VPS_PORT="2222"
+  export VPS_SSH_KEY="$TEST_TMP/testkey"
+  touch "$VPS_SSH_KEY"
+  export SSH_PORT="9999"
+  export SSH_KEY="$TEST_TMP/wrongkey"
+
+  ssh() { echo "$@" > "$TEST_TMP/ssh_call"; }
+  export -f ssh
+
+  run lock_acquire_remote "s" "prod" "deploy"
+  [[ "$(cat "$TEST_TMP/ssh_call")" == *"-p 2222"* ]]
+  [[ "$(cat "$TEST_TMP/ssh_call")" == *"-i $TEST_TMP/testkey"* ]]
+  [[ "$(cat "$TEST_TMP/ssh_call")" != *"9999"* ]]
+  [[ "$(cat "$TEST_TMP/ssh_call")" != *"wrongkey"* ]]
+}
+
+@test "lock_release_remote: builds ssh opts from VPS_PORT/VPS_SSH_KEY" {
+  export VPS_HOST="example.com"
+  export VPS_PORT="2222"
+  export VPS_SSH_KEY="$TEST_TMP/testkey"
+  touch "$VPS_SSH_KEY"
+  export SSH_PORT="9999"
+  export SSH_KEY="$TEST_TMP/wrongkey"
+
+  ssh() { echo "$@" > "$TEST_TMP/ssh_call"; }
+  export -f ssh
+
+  run lock_release_remote "s" "prod"
+  [[ "$(cat "$TEST_TMP/ssh_call")" == *"-p 2222"* ]]
+  [[ "$(cat "$TEST_TMP/ssh_call")" == *"-i $TEST_TMP/testkey"* ]]
+}
+
+@test "lock_status_remote: builds ssh opts from VPS_PORT/VPS_SSH_KEY" {
+  export VPS_HOST="example.com"
+  export VPS_PORT="2222"
+  export VPS_SSH_KEY="$TEST_TMP/testkey"
+  touch "$VPS_SSH_KEY"
+  export SSH_PORT="9999"
+  export SSH_KEY="$TEST_TMP/wrongkey"
+
+  ssh() { echo "$@" > "$TEST_TMP/ssh_call"; }
+  export -f ssh
+
+  run lock_status_remote "s" "prod"
+  [[ "$(cat "$TEST_TMP/ssh_call")" == *"-p 2222"* ]]
+  [[ "$(cat "$TEST_TMP/ssh_call")" == *"-i $TEST_TMP/testkey"* ]]
+}
+
 # ── Property: many acquire/release cycles never leak ────────────────────────
 
 @test "Property: 50 acquire/release cycles leave clean state" {

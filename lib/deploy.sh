@@ -73,7 +73,7 @@ $_hint"
   fi
 
   # Source env and validate required vars
-  set -a; source "$env_file"; set +a
+  validate_env_file "$env_file"
 
   # Export volume paths (NEO4J_DATA_PATH, POSTGRES_DATA_PATH, etc.) so
   # docker-compose uses data volume mounts instead of named volumes
