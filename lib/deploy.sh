@@ -61,34 +61,7 @@ deploy_stack() {
   local stack_dir="$cli_root/stacks/$stack"
   local compose_file="$stack_dir/docker-compose.yml"
 
-  [ -d "$stack_dir" ]    || fail "Stack not found: $stack (looked in $stack_dir)"
-  [ -f "$compose_file" ] || fail "Compose file not found: $compose_file"
-  if [ ! -f "$env_file" ]; then
-    local _hint _msg
-    _hint=$(_env_not_found_hint "$env_file")
-    _msg="Env file not found: $env_file"
-    [ -n "$_hint" ] && _msg="$_msg
-$_hint"
-    fail "$_msg"
-  fi
-
-  # Source env and validate required vars
-  validate_env_file "$env_file"
-
-  # Export volume paths (NEO4J_DATA_PATH, POSTGRES_DATA_PATH, etc.) so
-  # docker-compose uses data volume mounts instead of named volumes
-  export_volume_paths "$stack_dir"
-
-  # Per-stack required vars — read from stacks/<stack>/required_vars if present,
-  # otherwise skip validation entirely (no hardcoded fallback list).
-  local required_vars_file="$stack_dir/required_vars"
-  if [ -f "$required_vars_file" ]; then
-    while IFS= read -r var || [ -n "$var" ]; do
-      [ -z "$var" ] && continue
-      val="$(eval echo "\${${var}:-}")"
-      [ -n "$val" ] || fail "Missing required env var: $var (check $env_file)"
-    done < "$required_vars_file"
-  fi
+  deploy_prepare "$stack" "$stack_dir" "$compose_file" "$env_file"
 
   # Build compose command via canonical helper
   local compose_cmd
@@ -108,37 +81,8 @@ $_hint"
   # Pre-deploy validation (unless skipped)
   if [ "${SKIP_VALIDATION:-false}" != "true" ] && [ "${PRE_DEPLOY_VALIDATE:-true}" = "true" ]; then
     log "[2/7] Pre-deploy validation..."
-
-    # Run config schema validation
-    local strut_home="${STRUT_HOME:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
-    source "$strut_home/lib/cmd_validate.sh"
-    export CMD_STACK="$stack"
-    export CMD_STACK_DIR="$stack_dir"
-    export CMD_ENV_FILE="$env_file"
-    export CMD_ENV_NAME="$env_name"
-    if ! cmd_validate 2>/dev/null; then
-      echo ""
-      fail "Pre-deploy validation failed — fix errors and retry: strut $stack validate --env $env_name"
-    fi
-
-    # Validate compose file syntax
-    if $compose_cmd config --quiet 2>/dev/null; then
-      ok "docker-compose.yml: syntax valid"
-    else
-      warn "docker-compose.yml: syntax check failed (may still work)"
-    fi
-
-    # Run custom pre_deploy hook via the generic lifecycle dispatcher
-    # (falls back to legacy pre-deploy.sh for backward compat with #18)
-    if [ "${PRE_DEPLOY_HOOKS:-true}" = "true" ]; then
-      fire_hook pre_deploy "$stack_dir" || \
-        fail "pre_deploy hook failed — aborting deploy"
-    fi
-
-    ok "Pre-deploy validation passed"
-  elif [ "${SKIP_VALIDATION:-false}" = "true" ]; then
-    warn "Pre-deploy validation skipped (--skip-validation)"
   fi
+  deploy_run_pre_deploy_validation "$stack" "$stack_dir" "$env_file" "$env_name" "$compose_cmd"
 
   # Dry-run: show execution plan and exit early
   if [ "$DRY_RUN" = "true" ]; then
@@ -166,10 +110,10 @@ $_hint"
     run_cmd "Stop existing containers" $compose_cmd down --remove-orphans
     run_cmd "Start services" $compose_cmd up -d --remove-orphans
     local proxy="${REVERSE_PROXY:-nginx}"
-    case "$proxy" in
-      nginx) run_cmd "Reload reverse proxy" $compose_cmd exec -T nginx nginx -s reload ;;
-      caddy) run_cmd "Reload reverse proxy" $compose_cmd exec -T caddy caddy reload --config /etc/caddy/Caddyfile ;;
-    esac
+    local reload_cmd
+    if reload_cmd=$(build_proxy_reload_cmd "$compose_cmd" "$proxy"); then
+      run_cmd "Reload reverse proxy" $reload_cmd
+    fi
     echo ""
     echo -e "${YELLOW}[DRY-RUN] No changes made.${NC}"
     return 0
@@ -268,10 +212,10 @@ $_hint"
   local proxy="${REVERSE_PROXY:-nginx}"
   if $compose_cmd ps "$proxy" &>/dev/null && $compose_cmd ps "$proxy" | grep -q "Up"; then
     log "Reloading $proxy to refresh backend IPs..."
-    case "$proxy" in
-      nginx) $compose_cmd exec -T nginx nginx -s reload 2>/dev/null && ok "nginx reloaded" || warn "nginx reload failed (may not be critical)" ;;
-      caddy) $compose_cmd exec -T caddy caddy reload --config /etc/caddy/Caddyfile 2>/dev/null && ok "Caddy reloaded" || warn "Caddy reload failed (may not be critical)" ;;
-    esac
+    local reload_cmd
+    if reload_cmd=$(build_proxy_reload_cmd "$compose_cmd" "$proxy"); then
+      $reload_cmd 2>/dev/null && ok "$proxy reloaded" || warn "$proxy reload failed (may not be critical)"
+    fi
   else
     warn "$proxy container not running — skipping reload"
   fi
@@ -309,6 +253,8 @@ $_hint"
   # Fire post_deploy lifecycle hook (non-fatal on failure)
   # First, run one-time first-run hook if needed (after services are up)
   fire_first_run_hook "$stack_dir" || warn "First-run hook failed — deploy continues"
+  # Apply DB schema (opt-in, idempotent) — mirrors the blue-green path
+  maybe_apply_db_schema "$stack" "$compose_cmd" "$stack_dir"
   DEPLOY_STATUS="ok" fire_hook_or_warn post_deploy "$stack_dir"
 
   # Notification providers (Slack/Discord/webhook) subscribed to deploy.success

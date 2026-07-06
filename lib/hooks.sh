@@ -62,6 +62,11 @@ fire_hook() {
   # No hook present — nothing to do
   [ -z "$hook_file" ] && return 0
 
+  if [ "${DRY_RUN:-false}" = "true" ]; then
+    echo -e "  ${YELLOW:-}[DRY-RUN]${NC:-} Would run ${event} hook: $hook_file"
+    return 0
+  fi
+
   log "Running ${event} hook: $hook_file"
   if bash "$hook_file"; then
     ok "${event} hook passed"

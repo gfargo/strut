@@ -114,3 +114,27 @@ EOF
   run fire_hook_or_warn post_deploy "$STACK_DIR"
   [ "$status" -eq 0 ]
 }
+
+@test "fire_hook: DRY_RUN=true does not execute the hook" {
+  local marker="$TEST_TMP/marker"
+  cat > "$STACK_DIR/hooks/pre_deploy.sh" <<EOF
+#!/bin/bash
+touch "$marker"
+EOF
+  export DRY_RUN=true
+  run fire_hook pre_deploy "$STACK_DIR"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"[DRY-RUN]"* ]]
+  [ ! -f "$marker" ]
+}
+
+@test "fire_hook: DRY_RUN=false (default) still executes the hook" {
+  local marker="$TEST_TMP/marker"
+  cat > "$STACK_DIR/hooks/pre_deploy.sh" <<EOF
+#!/bin/bash
+touch "$marker"
+EOF
+  run fire_hook pre_deploy "$STACK_DIR"
+  [ "$status" -eq 0 ]
+  [ -f "$marker" ]
+}
