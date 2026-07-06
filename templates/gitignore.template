@@ -13,6 +13,10 @@
 #
 # See: https://github.com/gfargo/strut/wiki/Deployment#git-clean-safety
 
+# ── Strut internal state ────────────────────────────────────────────────────────
+.rollback/
+.bluegreen
+
 # ── Container data / volume bind-mounts ────────────────────────────────────────
 # Uncomment and adjust to match the bind-mount host paths in docker-compose.yml.
 #
