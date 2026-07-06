@@ -145,6 +145,8 @@ _rand_str() {
   grep -q ".env" "$project_dir/.gitignore"
   grep -q "backups/" "$project_dir/.gitignore"
   grep -q "data/" "$project_dir/.gitignore"
+  grep -q ".rollback/" "$project_dir/.gitignore"
+  grep -q ".bluegreen" "$project_dir/.gitignore"
 }
 
 @test "init: preserves existing populated .gitignore and appends missing strut rules under marker" {
@@ -166,12 +168,14 @@ _rand_str() {
   grep -qxF "!.env.template" "$project_dir/.gitignore"
   grep -qxF "backups/" "$project_dir/.gitignore"
   grep -qxF "data/" "$project_dir/.gitignore"
+  grep -qxF ".rollback/" "$project_dir/.gitignore"
+  grep -qxF ".bluegreen" "$project_dir/.gitignore"
 }
 
 @test "init: does not duplicate strut rules already present as bare lines" {
   local project_dir="$TEST_TMP/init_gitignore_no_dupe"
   mkdir -p "$project_dir"
-  printf 'node_modules/\n.env\n.env.*\n!.env.template\nbackups/\ndata/\n' > "$project_dir/.gitignore"
+  printf 'node_modules/\n.env\n.env.*\n!.env.template\nbackups/\ndata/\n.rollback/\n.bluegreen\n' > "$project_dir/.gitignore"
   local before
   before="$(cat "$project_dir/.gitignore")"
 
@@ -188,7 +192,7 @@ _rand_str() {
 @test "init: .gitignore is idempotent — unchanged on repeated invocations once marker exists" {
   local project_dir="$TEST_TMP/init_gitignore_idempotent"
   mkdir -p "$project_dir"
-  printf 'node_modules/\n\n# strut — managed rules\n.env\n.env.*\n!.env.template\nbackups/\ndata/\n' > "$project_dir/.gitignore"
+  printf 'node_modules/\n\n# strut — managed rules\n.env\n.env.*\n!.env.template\nbackups/\ndata/\n.rollback/\n.bluegreen\n' > "$project_dir/.gitignore"
 
   (cd "$project_dir" && cmd_init)
   local checksum_after_first
@@ -200,6 +204,28 @@ _rand_str() {
   checksum_after_second="$(md5sum "$project_dir/.gitignore" | awk '{print $1}')"
 
   [ "$checksum_after_first" = "$checksum_after_second" ]
+}
+
+@test "init: generated .gitignore keeps git clean from listing .rollback/ and .bluegreen (OSS-415)" {
+  local project_dir="$TEST_TMP/init_gitignore_clean_guard"
+  mkdir -p "$project_dir"
+
+  (cd "$project_dir" && cmd_init)
+
+  git -C "$project_dir" init -q
+  mkdir -p "$project_dir/.rollback"
+  echo '{}' > "$project_dir/.rollback/snapshot.json"
+  touch "$project_dir/.bluegreen"
+
+  run git -C "$project_dir" clean -fdn
+  [ "$status" -eq 0 ]
+  [[ "$output" != *".rollback"* ]]
+  [[ "$output" != *".bluegreen"* ]]
+
+  run git -C "$project_dir" clean -fd
+  [ "$status" -eq 0 ]
+  [ -f "$project_dir/.rollback/snapshot.json" ]
+  [ -f "$project_dir/.bluegreen" ]
 }
 
 @test "init: aborts if strut.conf already exists" {
