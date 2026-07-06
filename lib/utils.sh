@@ -588,7 +588,12 @@ $_hint"
     local var val
     while IFS= read -r var || [ -n "$var" ]; do
       [ -z "$var" ] && continue
-      val="$(eval echo "\${${var}:-}")"
+      # Validate var name to prevent injection — only allow valid identifiers
+      if ! [[ "$var" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+        fail "Invalid variable name in required_vars: '$var'"
+      fi
+      # Safe indirect expansion (no eval)
+      val="${!var:-}"
       [ -n "$val" ] || fail "Missing required env var: $var (check $env_file)"
     done < "$required_vars_file"
   fi
