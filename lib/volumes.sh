@@ -154,8 +154,12 @@ init_volume_directories() {
       *_DATA_PATH|*_PATH)
         dir="${!var:-}"
         if [[ -n "$dir" && ! -d "$dir" ]]; then
-          mkdir -p "$dir"
-          log_success "Created: $dir"
+          if [[ "${DRY_RUN:-false}" == "true" ]]; then
+            echo -e "  ${YELLOW:-}[DRY-RUN]${NC:-} Create directory: $dir"
+          else
+            mkdir -p "$dir"
+            log_success "Created: $dir"
+          fi
         fi
         ;;
     esac
@@ -169,7 +173,11 @@ init_volume_directories() {
       uid_gid="${mapping#*=}"
       target_dir="${!var_name:-}"
       if [[ -n "$target_dir" && -d "$target_dir" ]]; then
-        chown -R "$uid_gid" "$target_dir" 2>/dev/null || true  # may lack permissions on some hosts
+        if [[ "${DRY_RUN:-false}" == "true" ]]; then
+          echo -e "  ${YELLOW:-}[DRY-RUN]${NC:-} Chown $uid_gid: $target_dir"
+        else
+          chown -R "$uid_gid" "$target_dir" 2>/dev/null || true  # may lack permissions on some hosts
+        fi
       fi
     done
   fi

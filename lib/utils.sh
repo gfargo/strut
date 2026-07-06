@@ -544,6 +544,74 @@ $hint"
   done
 }
 
+# deploy_prepare <stack> <stack_dir> <compose_file> <env_file>
+#
+# Shared preamble for deploy_stack and bg_deploy_stack: existence checks,
+# env-file-missing hint, env sourcing/validation, volume path export, and
+# per-stack required_vars validation.
+deploy_prepare() {
+  local stack="$1" stack_dir="$2" compose_file="$3" env_file="$4"
+
+  [ -d "$stack_dir" ]    || fail "Stack not found: $stack (looked in $stack_dir)"
+  [ -f "$compose_file" ] || fail "Compose file not found: $compose_file"
+  if [ ! -f "$env_file" ]; then
+    local _hint _msg
+    _hint=$(_env_not_found_hint "$env_file")
+    _msg="Env file not found: $env_file"
+    [ -n "$_hint" ] && _msg="$_msg
+$_hint"
+    fail "$_msg"
+  fi
+
+  validate_env_file "$env_file"
+  export_volume_paths "$stack_dir"
+
+  local required_vars_file="$stack_dir/required_vars"
+  if [ -f "$required_vars_file" ]; then
+    local var val
+    while IFS= read -r var || [ -n "$var" ]; do
+      [ -z "$var" ] && continue
+      val="$(eval echo "\${${var}:-}")"
+      [ -n "$val" ] || fail "Missing required env var: $var (check $env_file)"
+    done < "$required_vars_file"
+  fi
+}
+
+# deploy_run_pre_deploy_validation <stack> <stack_dir> <env_file> <env_name> [compose_cmd]
+#
+# Shared pre-deploy validation block for deploy_stack and bg_deploy_stack:
+# --skip-validation / PRE_DEPLOY_VALIDATE gating, cmd_validate, optional
+# compose-syntax check (only when compose_cmd is passed), and the pre_deploy
+# hook.
+deploy_run_pre_deploy_validation() {
+  local stack="$1" stack_dir="$2" env_file="$3" env_name="$4" compose_cmd="${5:-}"
+
+  if [ "${SKIP_VALIDATION:-false}" = "true" ]; then
+    warn "Pre-deploy validation skipped (--skip-validation)"
+    return 0
+  fi
+  [ "${PRE_DEPLOY_VALIDATE:-true}" = "true" ] || return 0
+
+  local strut_home="${STRUT_HOME:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+  source "$strut_home/lib/cmd_validate.sh"
+  export CMD_STACK="$stack" CMD_STACK_DIR="$stack_dir" CMD_ENV_FILE="$env_file" CMD_ENV_NAME="$env_name"
+  cmd_validate 2>/dev/null \
+    || fail "Pre-deploy validation failed — fix errors and retry: strut $stack validate --env $env_name"
+
+  if [ -n "$compose_cmd" ]; then
+    if $compose_cmd config --quiet 2>/dev/null; then
+      ok "docker-compose.yml: syntax valid"
+    else
+      warn "docker-compose.yml: syntax check failed (may still work)"
+    fi
+  fi
+
+  if [ "${PRE_DEPLOY_HOOKS:-true}" = "true" ]; then
+    fire_hook pre_deploy "$stack_dir" || fail "pre_deploy hook failed — aborting deploy"
+  fi
+  ok "Pre-deploy validation passed"
+}
+
 # _validate_no_spaces <path> <label>
 #
 # Fails with a clear error if <path> contains spaces. Used by compose command
@@ -558,7 +626,7 @@ _validate_no_spaces() {
 
 # ── Compose command builders ──────────────────────────────────────────────────
 
-# resolve_compose_cmd <stack> <env_file> [services_profile]
+# resolve_compose_cmd <stack> <env_file> [services_profile] [project_override]
 #
 # Builds the canonical `docker compose` command string for a stack.
 # Handles project naming, env file, compose file path, sudo prefix,
@@ -566,14 +634,16 @@ _validate_no_spaces() {
 # go through this function to ensure consistent --project-name format.
 #
 # Project name resolution order:
-#   1. COMPOSE_PROJECT_NAME from env file (respects existing deployments)
-#   2. Auto-generated: <stack>-<env_name> (avoids double-prefix)
+#   1. project_override, if passed (e.g. blue-green color-suffixed name)
+#   2. COMPOSE_PROJECT_NAME from env file (respects existing deployments)
+#   3. Auto-generated: <stack>-<env_name> (avoids double-prefix)
 #
 # Requires: _docker_sudo() from lib/docker.sh (available at call time)
 resolve_compose_cmd() {
   local stack="$1"
   local env_file="$2"
   local services_profile="${3:-}"
+  local project_override="${4:-}"
   local cli_root="${CLI_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
   local compose_file="$cli_root/stacks/$stack/docker-compose.yml"
 
@@ -581,15 +651,18 @@ resolve_compose_cmd() {
   _validate_no_spaces "$env_file" "env file" || return 1
   _validate_no_spaces "$compose_file" "compose file" || return 1
 
-  local env_name
-  env_name=$(extract_env_name "$env_file")
-
-  # If COMPOSE_PROJECT_NAME is explicitly set in the environment (sourced from
-  # the env file by validate_env_file upstream), respect it. This allows strut
-  # to manage existing deployments that use a custom project name.
-  local project_name="${COMPOSE_PROJECT_NAME:-}"
+  local project_name="$project_override"
 
   if [ -z "$project_name" ]; then
+    # If COMPOSE_PROJECT_NAME is explicitly set in the environment (sourced from
+    # the env file by validate_env_file upstream), respect it. This allows strut
+    # to manage existing deployments that use a custom project name.
+    project_name="${COMPOSE_PROJECT_NAME:-}"
+  fi
+
+  if [ -z "$project_name" ]; then
+    local env_name
+    env_name=$(extract_env_name "$env_file")
     # Avoid double-prefixing: if env_name already starts with "<stack>-" (e.g.,
     # jitsi-prod for the jitsi stack), use it as-is; otherwise prepend stack name.
     if [[ "$env_name" == "${stack}-"* ]]; then
@@ -628,6 +701,22 @@ resolve_local_compose_cmd() {
   [ -f "$env_local" ] && cmd="$cmd --env-file $env_local"
   [ -n "$services_profile" ] && cmd="$cmd --profile $services_profile"
   echo "$cmd"
+}
+
+# ── Reverse proxy ─────────────────────────────────────────────────────────────
+
+# build_proxy_reload_cmd <compose_cmd> <proxy>
+#
+# Echoes the reload command for the given proxy type, scoped to compose_cmd.
+# Returns 1 (no output) for an unrecognized proxy — callers decide whether
+# that's a silent no-op or a warn.
+build_proxy_reload_cmd() {
+  local compose_cmd="$1" proxy="$2"
+  case "$proxy" in
+    nginx) echo "$compose_cmd exec -T nginx nginx -s reload" ;;
+    caddy) echo "$compose_cmd exec -T caddy caddy reload --config /etc/caddy/Caddyfile" ;;
+    *)     return 1 ;;
+  esac
 }
 
 # ── Remote introspection helpers ─────────────────────────────────────────────
