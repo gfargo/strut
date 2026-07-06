@@ -262,29 +262,14 @@ get_all_backup_health() {
   log "Backup health status for stack: $stack"
   echo ""
 
-  # Check postgres
-  if ls "$backup_dir"/postgres-*.sql >/dev/null 2>&1; then
-    echo "=== PostgreSQL ==="
-    get_backup_health_status "$stack" "postgres"
-  fi
-
-  # Check neo4j
-  if ls "$backup_dir"/neo4j-*.dump >/dev/null 2>&1; then
-    echo "=== Neo4j ==="
-    get_backup_health_status "$stack" "neo4j"
-  fi
-
-  # Check mysql
-  if ls "$backup_dir"/mysql-*.sql >/dev/null 2>&1; then
-    echo "=== MySQL ==="
-    get_backup_health_status "$stack" "mysql"
-  fi
-
-  # Check sqlite
-  if ls "$backup_dir"/sqlite-*.db >/dev/null 2>&1; then
-    echo "=== SQLite ==="
-    get_backup_health_status "$stack" "sqlite"
-  fi
+  local engine glob
+  for engine in "${BACKUP_ENGINES[@]}"; do
+    glob=$(backup_engine_glob "$engine")
+    if ls "$backup_dir"/$glob >/dev/null 2>&1; then
+      echo "=== $(backup_engine_label "$engine") ==="
+      get_backup_health_status "$stack" "$engine"
+    fi
+  done
 }
 
 # check_backup_health_alerts <stack> <service>
@@ -344,33 +329,15 @@ export_health_metrics() {
 # TYPE backup_health_score gauge
 EOF
 
-  # Export postgres metrics
-  if ls "$cli_root/stacks/$stack/backups"/postgres-*.sql >/dev/null 2>&1; then
-    local postgres_score
-    postgres_score=$(calculate_backup_health_score "$stack" "postgres")
-    echo "backup_health_score{stack=\"$stack\",service=\"postgres\"} $postgres_score" >>"$metrics_file"
-  fi
-
-  # Export neo4j metrics
-  if ls "$cli_root/stacks/$stack/backups"/neo4j-*.dump >/dev/null 2>&1; then
-    local neo4j_score
-    neo4j_score=$(calculate_backup_health_score "$stack" "neo4j")
-    echo "backup_health_score{stack=\"$stack\",service=\"neo4j\"} $neo4j_score" >>"$metrics_file"
-  fi
-
-  # Export mysql metrics
-  if ls "$cli_root/stacks/$stack/backups"/mysql-*.sql >/dev/null 2>&1; then
-    local mysql_score
-    mysql_score=$(calculate_backup_health_score "$stack" "mysql")
-    echo "backup_health_score{stack=\"$stack\",service=\"mysql\"} $mysql_score" >>"$metrics_file"
-  fi
-
-  # Export sqlite metrics
-  if ls "$cli_root/stacks/$stack/backups"/sqlite-*.db >/dev/null 2>&1; then
-    local sqlite_score
-    sqlite_score=$(calculate_backup_health_score "$stack" "sqlite")
-    echo "backup_health_score{stack=\"$stack\",service=\"sqlite\"} $sqlite_score" >>"$metrics_file"
-  fi
+  # Export per-engine metrics
+  local engine glob score
+  for engine in "${BACKUP_ENGINES[@]}"; do
+    glob=$(backup_engine_glob "$engine")
+    if ls "$cli_root/stacks/$stack/backups"/$glob >/dev/null 2>&1; then
+      score=$(calculate_backup_health_score "$stack" "$engine")
+      echo "backup_health_score{stack=\"$stack\",service=\"$engine\"} $score" >>"$metrics_file"
+    fi
+  done
 
   ok "Health metrics exported to: $metrics_file"
 }
@@ -388,33 +355,16 @@ generate_health_dashboard_data() {
 
   local first=true
 
-  # Add postgres data
-  if ls "$cli_root/stacks/$stack/backups"/postgres-*.sql >/dev/null 2>&1; then
-    [ "$first" = false ] && echo "," >>"$dashboard_data"
-    get_backup_health_json "$stack" "postgres" >>"$dashboard_data"
-    first=false
-  fi
-
-  # Add neo4j data
-  if ls "$cli_root/stacks/$stack/backups"/neo4j-*.dump >/dev/null 2>&1; then
-    [ "$first" = false ] && echo "," >>"$dashboard_data"
-    get_backup_health_json "$stack" "neo4j" >>"$dashboard_data"
-    first=false
-  fi
-
-  # Add mysql data
-  if ls "$cli_root/stacks/$stack/backups"/mysql-*.sql >/dev/null 2>&1; then
-    [ "$first" = false ] && echo "," >>"$dashboard_data"
-    get_backup_health_json "$stack" "mysql" >>"$dashboard_data"
-    first=false
-  fi
-
-  # Add sqlite data
-  if ls "$cli_root/stacks/$stack/backups"/sqlite-*.db >/dev/null 2>&1; then
-    [ "$first" = false ] && echo "," >>"$dashboard_data"
-    get_backup_health_json "$stack" "sqlite" >>"$dashboard_data"
-    first=false
-  fi
+  # Add per-engine data
+  local engine glob
+  for engine in "${BACKUP_ENGINES[@]}"; do
+    glob=$(backup_engine_glob "$engine")
+    if ls "$cli_root/stacks/$stack/backups"/$glob >/dev/null 2>&1; then
+      [ "$first" = false ] && echo "," >>"$dashboard_data"
+      get_backup_health_json "$stack" "$engine" >>"$dashboard_data"
+      first=false
+    fi
+  done
 
   # Close JSON array
   echo "]" >>"$dashboard_data"

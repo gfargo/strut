@@ -33,6 +33,7 @@ _setup_backup_test() {
 VPS_HOST=test-host
 VPS_USER=ubuntu
 EOF
+  source "$CLI_ROOT/lib/config.sh"
   source "$CLI_ROOT/lib/backup.sh"
   source "$CLI_ROOT/lib/cmd_backup.sh"
   validate_env_file() { return 0; }
@@ -187,6 +188,7 @@ EOF
 # ── Property: dry-run never creates files ─────────────────────────────────────
 
 @test "Property: backup dry-run creates no files in backup directory (100 iterations)" {
+  source "$CLI_ROOT/lib/config.sh"
   source "$CLI_ROOT/lib/backup.sh"
   source "$CLI_ROOT/lib/cmd_backup.sh"
   validate_env_file() { return 0; }

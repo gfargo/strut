@@ -29,27 +29,13 @@ backup_sqlite() {
 
   mkdir -p "$backup_dir"
 
-  # Load SQLite path from backup.conf
-  local cli_root="${CLI_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
-  local backup_conf="$cli_root/stacks/$stack/backup.conf"
-  local sqlite_path="${BACKUP_SQLITE_PATH:-}"
-
-  if [ -z "$sqlite_path" ] && [ -f "$backup_conf" ]; then
-    sqlite_path=$(grep '^BACKUP_SQLITE_PATH=' "$backup_conf" | cut -d= -f2-)
-  fi
-
+  # Load SQLite path and Docker-exec mode settings from backup.conf
+  load_backup_conf "$stack" || return 1
+  local sqlite_path="$BACKUP_SQLITE_PATH"
   [ -n "$sqlite_path" ] || fail "BACKUP_SQLITE_PATH not set in backup.conf"
 
-  # Load Docker-exec mode settings
-  local use_docker="${BACKUP_SQLITE_USE_DOCKER:-}"
-  local sqlite_container="${BACKUP_SQLITE_CONTAINER:-}"
-
-  if [ -z "$use_docker" ] && [ -f "$backup_conf" ]; then
-    use_docker=$(grep '^BACKUP_SQLITE_USE_DOCKER=' "$backup_conf" | cut -d= -f2-)
-  fi
-  if [ -z "$sqlite_container" ] && [ -f "$backup_conf" ]; then
-    sqlite_container=$(grep '^BACKUP_SQLITE_CONTAINER=' "$backup_conf" | cut -d= -f2-)
-  fi
+  local use_docker="$BACKUP_SQLITE_USE_DOCKER"
+  local sqlite_container="$BACKUP_SQLITE_CONTAINER"
 
   # Determine if this is a remote (VPS) or local backup
   local vps_host="${VPS_HOST:-}"
@@ -207,26 +193,12 @@ restore_sqlite() {
     set +a
   fi
 
-  local cli_root="${CLI_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
-  local backup_conf="$cli_root/stacks/$stack/backup.conf"
-  local sqlite_path="${BACKUP_SQLITE_PATH:-}"
-
-  if [ -z "$sqlite_path" ] && [ -f "$backup_conf" ]; then
-    sqlite_path=$(grep '^BACKUP_SQLITE_PATH=' "$backup_conf" | cut -d= -f2-)
-  fi
-
+  load_backup_conf "$stack" || return 1
+  local sqlite_path="$BACKUP_SQLITE_PATH"
   [ -n "$sqlite_path" ] || fail "BACKUP_SQLITE_PATH not set in backup.conf"
 
-  # Load Docker-exec mode settings
-  local use_docker="${BACKUP_SQLITE_USE_DOCKER:-}"
-  local sqlite_container="${BACKUP_SQLITE_CONTAINER:-}"
-
-  if [ -z "$use_docker" ] && [ -f "$backup_conf" ]; then
-    use_docker=$(grep '^BACKUP_SQLITE_USE_DOCKER=' "$backup_conf" | cut -d= -f2-)
-  fi
-  if [ -z "$sqlite_container" ] && [ -f "$backup_conf" ]; then
-    sqlite_container=$(grep '^BACKUP_SQLITE_CONTAINER=' "$backup_conf" | cut -d= -f2-)
-  fi
+  local use_docker="$BACKUP_SQLITE_USE_DOCKER"
+  local sqlite_container="$BACKUP_SQLITE_CONTAINER"
 
   warn "This will restore SQLite database at: $sqlite_path"
   confirm "Continue?" || {

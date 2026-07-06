@@ -44,26 +44,9 @@ get_backup_list() {
     return 1
   }
 
-  # Determine file extension based on service
+  # Determine file extension based on service, via the engine registry.
   local extension=""
-  case "$service" in
-    postgres)
-      extension="sql"
-      ;;
-    neo4j)
-      extension="dump"
-      ;;
-    mysql)
-      extension="sql"
-      ;;
-    sqlite)
-      extension="db"
-      ;;
-    *)
-      error "Unknown service: $service"
-      return 1
-      ;;
-  esac
+  extension=$(backup_engine_ext "$service" 2>/dev/null) || { error "Unknown service: $service"; return 1; }
 
   # List backups sorted by modification time (newest first)
   ls -t "$backup_dir/${service}-"*."$extension" 2>/dev/null
@@ -111,20 +94,9 @@ enforce_retention_policy() {
   local stack="$1"
   local service="$2"
 
-  local cli_root="${CLI_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
-  local backup_conf="$cli_root/stacks/$stack/backup.conf"
-
-  # Load retention policy from backup.conf
-  local retain_days=30
-  local retain_count=10
-
-  if [ -f "$backup_conf" ]; then
-    set -a
-    source "$backup_conf"
-    set +a
-    retain_days="${BACKUP_RETAIN_DAYS:-30}"
-    retain_count="${BACKUP_RETAIN_COUNT:-10}"
-  fi
+  load_backup_conf "$stack" || return 1
+  local retain_days="$BACKUP_RETAIN_DAYS"
+  local retain_count="$BACKUP_RETAIN_COUNT"
 
   log "Enforcing retention policy for $stack/$service"
   log "  Retain days: $retain_days"
@@ -195,25 +167,13 @@ enforce_retention_all() {
     return 1
   }
 
-  # Check for postgres backups
-  if ls "$backup_dir"/postgres-*.sql >/dev/null 2>&1; then
-    enforce_retention_policy "$stack" "postgres"
-  fi
-
-  # Check for neo4j backups
-  if ls "$backup_dir"/neo4j-*.dump >/dev/null 2>&1; then
-    enforce_retention_policy "$stack" "neo4j"
-  fi
-
-  # Check for mysql backups
-  if ls "$backup_dir"/mysql-*.sql >/dev/null 2>&1; then
-    enforce_retention_policy "$stack" "mysql"
-  fi
-
-  # Check for sqlite backups
-  if ls "$backup_dir"/sqlite-*.db >/dev/null 2>&1; then
-    enforce_retention_policy "$stack" "sqlite"
-  fi
+  local engine glob
+  for engine in "${BACKUP_ENGINES[@]}"; do
+    glob=$(backup_engine_glob "$engine")
+    if ls "$backup_dir"/$glob >/dev/null 2>&1; then
+      enforce_retention_policy "$stack" "$engine"
+    fi
+  done
 
   ok "Retention policy enforcement complete"
 }

@@ -225,6 +225,124 @@ load_strut_config() {
   esac
 }
 
+# load_backup_conf <stack> [stack_dir]
+#
+# Single source of truth for reading a stack's backup.conf. Sources
+# volume.conf (so BACKUP_LOCAL_DIR can interpolate ${BACKUP_PATH}) then
+# backup.conf, then applies defaults for every var previously defaulted
+# ad hoc across lib/backup*.sh. Replaces the sourced / subshell-sourced /
+# grep-parsed loading mechanisms that used to be duplicated per call site.
+#
+# Args:
+#   stack      — stack name
+#   stack_dir  — optional; defaults to $CLI_ROOT/stacks/<stack>
+#
+# Side effects: Exports all backup.conf-derived variables
+load_backup_conf() {
+  local stack="$1"
+  local stack_dir="${2:-}"
+
+  if [ -z "$stack_dir" ]; then
+    local cli_root="${CLI_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+    stack_dir="$cli_root/stacks/$stack"
+  fi
+
+  if [ -f "$stack_dir/volume.conf" ]; then
+    safe_source_config "$stack_dir/volume.conf" "volume.conf:$stack" || return 1
+  fi
+  if [ -f "$stack_dir/backup.conf" ]; then
+    safe_source_config "$stack_dir/backup.conf" "backup.conf:$stack" || return 1
+  fi
+
+  BACKUP_LOCAL_DIR="${BACKUP_LOCAL_DIR:-$stack_dir/backups}"
+
+  BACKUP_POSTGRES="${BACKUP_POSTGRES:-true}"
+  BACKUP_NEO4J="${BACKUP_NEO4J:-false}"
+  BACKUP_MYSQL="${BACKUP_MYSQL:-false}"
+  BACKUP_SQLITE="${BACKUP_SQLITE:-false}"
+
+  BACKUP_POSTGRES_SERVICE="${BACKUP_POSTGRES_SERVICE:-postgres}"
+  BACKUP_NEO4J_SERVICE="${BACKUP_NEO4J_SERVICE:-neo4j}"
+  BACKUP_MYSQL_SERVICE="${BACKUP_MYSQL_SERVICE:-mysql}"
+
+  BACKUP_SQLITE_PATH="${BACKUP_SQLITE_PATH:-}"
+  BACKUP_SQLITE_USE_DOCKER="${BACKUP_SQLITE_USE_DOCKER:-false}"
+  BACKUP_SQLITE_CONTAINER="${BACKUP_SQLITE_CONTAINER:-}"
+
+  BACKUP_RETAIN_DAYS="${BACKUP_RETAIN_DAYS:-30}"
+  BACKUP_RETAIN_COUNT="${BACKUP_RETAIN_COUNT:-10}"
+
+  BACKUP_SCHEDULE_POSTGRES="${BACKUP_SCHEDULE_POSTGRES:-}"
+  BACKUP_SCHEDULE_NEO4J="${BACKUP_SCHEDULE_NEO4J:-}"
+  BACKUP_SCHEDULE_MYSQL="${BACKUP_SCHEDULE_MYSQL:-}"
+  BACKUP_SCHEDULE_SQLITE="${BACKUP_SCHEDULE_SQLITE:-}"
+
+  BACKUP_OFFSITE="${BACKUP_OFFSITE:-none}"
+  BACKUP_OFFSITE_BUCKET="${BACKUP_OFFSITE_BUCKET:-}"
+  BACKUP_OFFSITE_PREFIX="${BACKUP_OFFSITE_PREFIX:-$stack}"
+  BACKUP_OFFSITE_RETENTION_DAYS="${BACKUP_OFFSITE_RETENTION_DAYS:-90}"
+
+  export BACKUP_LOCAL_DIR \
+         BACKUP_POSTGRES BACKUP_NEO4J BACKUP_MYSQL BACKUP_SQLITE \
+         BACKUP_POSTGRES_SERVICE BACKUP_NEO4J_SERVICE BACKUP_MYSQL_SERVICE \
+         BACKUP_SQLITE_PATH BACKUP_SQLITE_USE_DOCKER BACKUP_SQLITE_CONTAINER \
+         BACKUP_RETAIN_DAYS BACKUP_RETAIN_COUNT \
+         BACKUP_SCHEDULE_POSTGRES BACKUP_SCHEDULE_NEO4J BACKUP_SCHEDULE_MYSQL BACKUP_SCHEDULE_SQLITE \
+         BACKUP_OFFSITE BACKUP_OFFSITE_BUCKET BACKUP_OFFSITE_PREFIX BACKUP_OFFSITE_RETENTION_DAYS
+}
+
+# load_remote_backup_conf <stack> <ssh_opts> <vps_user> <vps_host> <vps_deploy_dir>
+#
+# Remote counterpart to load_backup_conf: resolves the small set of
+# backup.conf-derived vars that consumers need when operating against a
+# stack's VPS-side config (volume.conf + backup.conf living under
+# vps_deploy_dir), without sourcing an entire remote environment back over
+# SSH. Replaces the ad hoc inline SSH-sourcing strings previously
+# duplicated across lib/backup.sh.
+#
+# Side effects: Exports BACKUP_LOCAL_DIR, BACKUP_POSTGRES_SERVICE,
+#   BACKUP_NEO4J_SERVICE, BACKUP_MYSQL_SERVICE, BACKUP_SQLITE_PATH
+load_remote_backup_conf() {
+  local stack="$1"
+  local ssh_opts="$2"
+  local vps_user="$3"
+  local vps_host="$4"
+  local vps_deploy_dir="$5"
+
+  local remote_stack_dir="$vps_deploy_dir/stacks/$stack"
+  local output
+  output=$(ssh $ssh_opts "$vps_user@$vps_host" \
+    "if [ -f '$remote_stack_dir/volume.conf' ]; then . '$remote_stack_dir/volume.conf'; fi; \
+     if [ -f '$remote_stack_dir/backup.conf' ]; then . '$remote_stack_dir/backup.conf'; fi; \
+     echo \"BACKUP_LOCAL_DIR=\${BACKUP_LOCAL_DIR:-}\"; \
+     echo \"BACKUP_POSTGRES_SERVICE=\${BACKUP_POSTGRES_SERVICE:-postgres}\"; \
+     echo \"BACKUP_NEO4J_SERVICE=\${BACKUP_NEO4J_SERVICE:-neo4j}\"; \
+     echo \"BACKUP_MYSQL_SERVICE=\${BACKUP_MYSQL_SERVICE:-mysql}\"; \
+     echo \"BACKUP_SQLITE_PATH=\${BACKUP_SQLITE_PATH:-}\"" 2>/dev/null || echo "")
+
+  BACKUP_LOCAL_DIR=""
+  BACKUP_POSTGRES_SERVICE="postgres"
+  BACKUP_NEO4J_SERVICE="neo4j"
+  BACKUP_MYSQL_SERVICE="mysql"
+  BACKUP_SQLITE_PATH=""
+
+  local key value
+  while IFS='=' read -r key value; do
+    case "$key" in
+      BACKUP_LOCAL_DIR)        BACKUP_LOCAL_DIR="$value" ;;
+      BACKUP_POSTGRES_SERVICE) [ -n "$value" ] && BACKUP_POSTGRES_SERVICE="$value" ;;
+      BACKUP_NEO4J_SERVICE)    [ -n "$value" ] && BACKUP_NEO4J_SERVICE="$value" ;;
+      BACKUP_MYSQL_SERVICE)    [ -n "$value" ] && BACKUP_MYSQL_SERVICE="$value" ;;
+      BACKUP_SQLITE_PATH)      BACKUP_SQLITE_PATH="$value" ;;
+      *) ;;
+    esac
+  done <<<"$output"
+
+  BACKUP_LOCAL_DIR="${BACKUP_LOCAL_DIR:-$remote_stack_dir/backups}"
+
+  export BACKUP_LOCAL_DIR BACKUP_POSTGRES_SERVICE BACKUP_NEO4J_SERVICE BACKUP_MYSQL_SERVICE BACKUP_SQLITE_PATH
+}
+
 # resolve_strut_home <script_path>
 #
 # Resolves the real path of the given script (following symlinks) to

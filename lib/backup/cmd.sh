@@ -45,6 +45,15 @@ backup_command() {
   case "$target" in
     postgres|neo4j|mysql|sqlite|all) is_backup_target=true ;;
   esac
+
+  # Load backup.conf up front so every per-engine backup/restore function sees
+  # BACKUP_POSTGRES_SERVICE / BACKUP_NEO4J_SERVICE / BACKUP_MYSQL_SERVICE /
+  # BACKUP_LOCAL_DIR regardless of which target is invoked (previously only
+  # the "all" and "offsite" targets loaded this config at all).
+  if [ "$is_backup_target" = "true" ]; then
+    load_backup_conf "$stack" "$stack_dir" || fail "Failed to load backup.conf for $stack"
+  fi
+
   if [ "$is_backup_target" = "true" ] && [ "$DRY_RUN" != "true" ]; then
     BACKUP_TARGET="$target" fire_hook pre_backup "$stack_dir" || \
       fail "pre_backup hook failed — aborting backup"
@@ -108,8 +117,7 @@ backup_command() {
       ;;
     offsite)
       # Load backup.conf so offsite_* helpers see BACKUP_OFFSITE* vars.
-      local _bk_conf="$stack_dir/backup.conf"
-      [ -f "$_bk_conf" ] && { set -a; source "$_bk_conf"; set +a; }
+      load_backup_conf "$stack" "$stack_dir" || return 1
 
       case "$arg2" in
         ""|status)  offsite_status ;;
@@ -223,26 +231,30 @@ backup_command() {
       if [ "$DRY_RUN" = "true" ]; then
         echo ""
         echo -e "${YELLOW}[DRY-RUN] Execution plan for backup all:${NC}"
-        local _backup_conf="$CLI_ROOT/stacks/$stack/backup.conf"
-        if [ -f "$_backup_conf" ]; then
-          set -a; source "$_backup_conf"; set +a
-        fi
-        [ "${BACKUP_POSTGRES:-true}" = "true" ] && run_cmd "Backup PostgreSQL" echo "pg_dump → postgres-*.sql"
-        [ "${BACKUP_NEO4J:-false}" = "true" ] && run_cmd "Backup Neo4j (requires downtime)" echo "neo4j-admin dump → neo4j-*.dump"
-        [ "${BACKUP_MYSQL:-false}" = "true" ] && run_cmd "Backup MySQL" echo "mysqldump → mysql-*.sql"
-        [ "${BACKUP_SQLITE:-false}" = "true" ] && run_cmd "Backup SQLite" echo "cp → sqlite-*.db"
+        local engine
+        for engine in "${BACKUP_ENGINES[@]}"; do
+          backup_engine_enabled "$engine" || continue
+          local label dump_desc
+          case "$engine" in
+            postgres) label="Backup PostgreSQL"; dump_desc="pg_dump" ;;
+            neo4j)    label="Backup Neo4j (requires downtime)"; dump_desc="neo4j-admin dump" ;;
+            mysql)    label="Backup MySQL"; dump_desc="mysqldump" ;;
+            sqlite)   label="Backup SQLite"; dump_desc="cp" ;;
+          esac
+          run_cmd "$label" echo "$dump_desc → $(backup_engine_glob "$engine")"
+        done
         echo ""
         echo -e "${YELLOW}[DRY-RUN] No changes made.${NC}"
         return 0
       fi
-      local _backup_conf="$CLI_ROOT/stacks/$stack/backup.conf"
-      if [ -f "$_backup_conf" ]; then
-        set -a; source "$_backup_conf"; set +a
-      fi
-      [ "${BACKUP_POSTGRES:-true}" = "true" ] && backup_postgres "$stack" "$compose_cmd"
-      [ "${BACKUP_NEO4J:-false}" = "true" ] && backup_neo4j "$stack" "$compose_cmd"
-      [ "${BACKUP_MYSQL:-false}" = "true" ] && backup_mysql "$stack" "$compose_cmd"
-      [ "${BACKUP_SQLITE:-false}" = "true" ] && backup_sqlite "$stack" "$compose_cmd"
+      local engine
+      for engine in "${BACKUP_ENGINES[@]}"; do
+        if backup_engine_enabled "$engine"; then
+          local dump_fn
+          dump_fn=$(backup_dump_fn "$engine")
+          "$dump_fn" "$stack" "$compose_cmd"
+        fi
+      done
       BACKUP_TARGET="all" fire_hook_or_warn post_backup "$stack_dir"
       notify_event backup.success stack="$stack" env="$env_name" type=all
       ;;

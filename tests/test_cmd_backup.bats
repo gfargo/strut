@@ -7,8 +7,10 @@ setup() {
   source "$(dirname "$BATS_TEST_FILENAME")/test_helper/common.bash"
   load_utils
 
+  source "$CLI_ROOT/lib/config.sh"
   source "$CLI_ROOT/lib/hooks.sh"
   source "$CLI_ROOT/lib/notify.sh"
+  source "$CLI_ROOT/lib/backup/engines.sh"
   source "$CLI_ROOT/lib/backup/cmd.sh"
   source "$CLI_ROOT/lib/cmd_backup.sh"
 
