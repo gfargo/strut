@@ -5,10 +5,11 @@
 
 set -euo pipefail
 
-# keys_env_rotate <stack> [--services <list>] [--dry-run] [--force]
+# keys_env_rotate <stack> <env_file> [--services <list>] [--dry-run] [--force]
 keys_env_rotate() {
   local stack="$1"
-  shift || true
+  local env_file="$2"
+  shift 2 || true
 
   local services=""
   local dry_run=false
@@ -62,7 +63,6 @@ keys_env_rotate() {
     }
   fi
 
-  local env_file="$CLI_ROOT/.prod.env"
   [ -f "$env_file" ] || fail "Env file not found: $env_file"
 
   # Backup current env
@@ -85,10 +85,9 @@ keys_env_rotate() {
   # Update env file
   log "Updating .env file..."
 
-  sed -i.tmp "s|^NEO4J_PASSWORD=.*|NEO4J_PASSWORD=$new_neo4j_password|" "$env_file"
-  sed -i.tmp "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=$new_postgres_password|" "$env_file"
-  sed -i.tmp "s|^API_SECRET_KEY=.*|API_SECRET_KEY=$new_api_secret|" "$env_file"
-  rm -f "$env_file.tmp"
+  _secrets_write_var "$env_file" "NEO4J_PASSWORD" "$new_neo4j_password"
+  _secrets_write_var "$env_file" "POSTGRES_PASSWORD" "$new_postgres_password"
+  _secrets_write_var "$env_file" "API_SECRET_KEY" "$new_api_secret"
 
   ok "Environment file updated"
 
@@ -129,12 +128,13 @@ keys_env_rotate() {
   echo ""
 }
 
-# keys_env_set <stack> <key> <value> [--encrypt] [--dry-run]
+# keys_env_set <stack> <env_file> <key> <value> [--encrypt] [--dry-run]
 keys_env_set() {
   local stack="$1"
-  local key="${2:-}"
-  local value="${3:-}"
-  shift 3 || true
+  local env_file="$2"
+  local key="${3:-}"
+  local value="${4:-}"
+  shift 4 || true
 
   [ -n "$key" ] || fail "Usage: keys env:set <key> <value> [--encrypt] [--dry-run]"
   [ -n "$value" ] || fail "Usage: keys env:set <key> <value> [--encrypt] [--dry-run]"
@@ -161,7 +161,6 @@ keys_env_set() {
     esac
   done
 
-  local env_file="$CLI_ROOT/.prod.env"
   [ -f "$env_file" ] || fail "Env file not found: $env_file"
 
   # Check if key exists
@@ -178,26 +177,23 @@ keys_env_set() {
   # Backup
   cp "$env_file" "$env_file.backup-$(date +%Y%m%d-%H%M%S)"
 
-  # Check if key exists
-  if grep -q "^${key}=" "$env_file"; then
+  if [ "$action" = "Updating" ]; then
     log "Updating existing key: $key"
-    sed -i.tmp "s|^${key}=.*|${key}=${value}|" "$env_file"
-    rm -f "$env_file.tmp"
   else
     log "Adding new key: $key"
-    echo "${key}=${value}" >>"$env_file"
   fi
+  _secrets_write_var "$env_file" "$key" "$value"
 
   ok "Environment variable set: $key"
 
   log_key_operation "$stack" "env:set" "Set $key"
 }
 
-# keys_env_sync <stack>
+# keys_env_sync <stack> <env_file>
 keys_env_sync() {
   local stack="$1"
+  local env_file="$2"
 
-  local env_file="$CLI_ROOT/.prod.env"
   local template_file="$CLI_ROOT/stacks/$stack/.env.template"
 
   [ -f "$env_file" ] || fail "Env file not found: $env_file"
@@ -237,24 +233,25 @@ keys_env_sync() {
   # Backup
   cp "$env_file" "$env_file.backup-$(date +%Y%m%d-%H%M%S)"
 
-  # Add missing keys
-  echo "$missing_keys" | while read -r key; do
-    local template_value
+  # Add missing keys (one atomic write per key, for consistent perms)
+  local key template_value
+  while IFS= read -r key; do
+    [ -z "$key" ] && continue
     template_value=$(grep "^${key}=" "$template_file" | cut -d= -f2-)
-    echo "${key}=${template_value}" >>"$env_file"
+    _secrets_write_var "$env_file" "$key" "$template_value"
     log "Added: $key"
-  done
+  done <<< "$missing_keys"
 
   ok "Environment file synced"
 
   log_key_operation "$stack" "env:sync" "Synced $(echo "$missing_keys" | wc -l | xargs) keys from template"
 }
 
-# keys_env_validate <stack>
+# keys_env_validate <stack> <env_file>
 keys_env_validate() {
   local stack="$1"
+  local env_file="$2"
 
-  local env_file="$CLI_ROOT/.prod.env"
   local template_file="$CLI_ROOT/stacks/$stack/.env.template"
 
   [ -f "$env_file" ] || fail "Env file not found: $env_file"
@@ -312,10 +309,11 @@ keys_env_validate() {
   echo ""
 }
 
-# keys_env_backup <stack> [--encrypt]
+# keys_env_backup <stack> <env_file> [--encrypt]
 keys_env_backup() {
   local stack="$1"
-  shift || true
+  local env_file="$2"
+  shift 2 || true
 
   local encrypt=false
   while [[ $# -gt 0 ]]; do
@@ -328,7 +326,6 @@ keys_env_backup() {
     esac
   done
 
-  local env_file="$CLI_ROOT/.prod.env"
   [ -f "$env_file" ] || fail "Env file not found: $env_file"
 
   local backup_dir="$CLI_ROOT/stacks/$stack/keys"
@@ -343,26 +340,30 @@ keys_env_backup() {
     if command -v age &>/dev/null; then
       log "Creating encrypted backup..."
       age -p -o "$backup_file.age" "$env_file"
+      chmod 600 "$backup_file.age"
       ok "Encrypted backup created: $backup_file.age"
     else
       warn "age not installed - creating unencrypted backup"
       warn "Install age: brew install age"
       cp "$env_file" "$backup_file"
+      chmod 600 "$backup_file"
       ok "Backup created: $backup_file"
     fi
   else
     log "Creating backup..."
     cp "$env_file" "$backup_file"
+    chmod 600 "$backup_file"
     ok "Backup created: $backup_file"
   fi
 
   log_key_operation "$stack" "env:backup" "Created backup: $(basename "$backup_file")"
 }
 
-# keys_env_diff <stack> --local <file> --remote
+# keys_env_diff <stack> <env_file> --local <file> --remote
 keys_env_diff() {
   local stack="$1"
-  shift || true
+  local env_file="$2"
+  shift 2 || true
 
   local local_file=""
   local compare_remote=false
@@ -393,7 +394,6 @@ keys_env_diff() {
   fi
 
   # Load VPS connection info
-  local env_file="$CLI_ROOT/.prod.env"
   [ -f "$env_file" ] || fail "Env file not found: $env_file"
   set -a
   source "$env_file"
@@ -411,21 +411,28 @@ keys_env_diff() {
 
   log "Comparing local .env with VPS..."
 
-  # Get remote env file
-  local remote_env="/tmp/remote-env-$$"
+  # Fetch remote env file to a private temp file — cleaned up even on failure
+  # (security: secrets on disk), never a predictable /tmp path.
+  local remote_env
+  remote_env=$(mktemp "${TMPDIR:-/tmp}/strut-keys-diff-XXXXXX") || { fail "Could not create temp file"; return 1; }
+  trap 'rm -f "$remote_env"' RETURN
+
   scp $ssh_opts "$vps_user@$vps_host:$vps_deploy_dir/.prod.env" "$remote_env" 2>/dev/null || {
+    rm -f "$remote_env"
+    trap - RETURN
     warn "Could not fetch remote .env file"
     return 1
   }
 
-  # Compare
+  # Compare keys only — never print values
   echo ""
   echo -e "${BLUE}Environment Diff${NC}"
   echo ""
 
-  diff -u "$remote_env" "$local_file" || true # diff returns 1 when files differ — expected
+  _secrets_render_env_diff "$local_file" "$remote_env"
 
   rm -f "$remote_env"
+  trap - RETURN
 
   echo ""
 }
