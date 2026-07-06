@@ -11,6 +11,7 @@
 set -euo pipefail
 
 BACKUP_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/backup"
+[ -f "$BACKUP_LIB_DIR/engines.sh" ] && source "$BACKUP_LIB_DIR/engines.sh"
 [ -f "$BACKUP_LIB_DIR/alerts.sh" ] && source "$BACKUP_LIB_DIR/alerts.sh"
 [ -f "$BACKUP_LIB_DIR/verify.sh" ] && source "$BACKUP_LIB_DIR/verify.sh"
 [ -f "$BACKUP_LIB_DIR/schedule.sh" ] && source "$BACKUP_LIB_DIR/schedule.sh"
@@ -27,7 +28,6 @@ BACKUP_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/backup"
 # Priority: BACKUP_LOCAL_DIR (from backup.conf) > default stacks/<stack>/backups
 _backup_dir() {
   local stack="$1"
-  local cli_root="${CLI_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 
   # If BACKUP_LOCAL_DIR is already set (e.g. via export_volume_paths + backup.conf),
   # use it directly.
@@ -36,23 +36,8 @@ _backup_dir() {
     return
   fi
 
-  # Try sourcing volume.conf then backup.conf for this stack
-  local stack_dir="$cli_root/stacks/$stack"
-  if [ -f "$stack_dir/volume.conf" ]; then
-    safe_source_config "$stack_dir/volume.conf" || return 1
-  fi
-  if [ -f "$stack_dir/backup.conf" ]; then
-    safe_source_config "$stack_dir/backup.conf" || return 1
-  fi
-
-  # BACKUP_LOCAL_DIR in backup.conf references ${BACKUP_PATH} from volume.conf
-  if [ -n "${BACKUP_LOCAL_DIR:-}" ]; then
-    echo "$BACKUP_LOCAL_DIR"
-    return
-  fi
-
-  # Fallback: default path on root disk
-  echo "$cli_root/stacks/$stack/backups"
+  load_backup_conf "$stack" || return 1
+  echo "$BACKUP_LOCAL_DIR"
 }
 
 # _remote_backup_dir <stack> <ssh_opts> <vps_user> <vps_host> <vps_deploy_dir>
@@ -65,17 +50,8 @@ _remote_backup_dir() {
   local vps_host="$4"
   local vps_deploy_dir="$5"
 
-  local _resolved
-  _resolved=$(ssh $ssh_opts "$vps_user@$vps_host" \
-    "if [ -f '$vps_deploy_dir/stacks/$stack/volume.conf' ]; then . '$vps_deploy_dir/stacks/$stack/volume.conf'; fi; \
-     if [ -f '$vps_deploy_dir/stacks/$stack/backup.conf' ]; then . '$vps_deploy_dir/stacks/$stack/backup.conf'; fi; \
-     echo \"\${BACKUP_LOCAL_DIR:-}\"" 2>/dev/null || echo "")
-
-  if [ -n "$_resolved" ]; then
-    echo "$_resolved"
-  else
-    echo "$vps_deploy_dir/stacks/$stack/backups"
-  fi
+  load_remote_backup_conf "$stack" "$ssh_opts" "$vps_user" "$vps_host" "$vps_deploy_dir"
+  echo "$BACKUP_LOCAL_DIR"
 }
 
 # _docker_wait_stop <container_name> [max_wait]
@@ -116,6 +92,8 @@ _docker_wait_healthy() {
 # backup_neo4j <stack> <compose_cmd>
 # Creates a Neo4j database dump inside the Neo4j container and copies it locally.
 # Note: Neo4j Community Edition requires stopping the database to create a dump.
+# Supports BACKUP_NEO4J_SERVICE in backup.conf for stacks where the Neo4j
+# compose service/container is not named "neo4j".
 backup_neo4j() {
   local stack="$1"
   local compose_cmd="$2"
@@ -133,9 +111,10 @@ backup_neo4j() {
   local _sudo
   _sudo="$(vps_sudo_prefix 2>/dev/null || echo "")"
 
+  local neo4j_service="${BACKUP_NEO4J_SERVICE:-neo4j}"
   local container_name
-  container_name=$(${_sudo}docker ps --filter "name=neo4j" --format "{{.Names}}" | grep "$stack" | head -1)
-  [ -n "$container_name" ] || { error "Neo4j container not found for stack: $stack"; return 1; }
+  container_name=$(${_sudo}docker ps --filter "name=$neo4j_service" --format "{{.Names}}" | grep "$stack" | head -1)
+  [ -n "$container_name" ] || { error "Neo4j container not found for stack: $stack (service: $neo4j_service)"; return 1; }
 
   log "Using container: $container_name"
 
@@ -186,7 +165,7 @@ backup_neo4j() {
 
   # Wait for healthy
   log "Waiting for Neo4j to be healthy..."
-  if _docker_wait_healthy "$compose_cmd" "neo4j" 60; then
+  if _docker_wait_healthy "$compose_cmd" "$neo4j_service" 60; then
     ok "Neo4j is healthy again"
   else
     warn "Neo4j did not become healthy within 60s, but backup was created"
@@ -282,10 +261,12 @@ restore_neo4j() {
   warn "This will STOP Neo4j, restore from dump, then restart it."
   confirm "Continue?" || { ok "Restore cancelled"; return 0; }
 
+  local neo4j_service="${BACKUP_NEO4J_SERVICE:-neo4j}"
+
   # Get container name for direct docker operations
   # Try to find the neo4j container by searching docker ps
   local container_name
-  container_name=$(docker ps -a --format "{{.Names}}" | grep -E "^${stack}.*neo4j" | head -1)
+  container_name=$(docker ps -a --format "{{.Names}}" | grep -E "^${stack}.*${neo4j_service}" | head -1)
 
   if [ -z "$container_name" ]; then
     # Fallback: derive from compose project name
@@ -295,7 +276,7 @@ restore_neo4j() {
     else
       project_name="$stack"
     fi
-    container_name="${project_name}-neo4j-1"
+    container_name="${project_name}-${neo4j_service}-1"
   fi
 
   if ! docker ps -a --format "{{.Names}}" | grep -q "^${container_name}$"; then
@@ -390,8 +371,9 @@ restore_neo4j_from_targz() {
   confirm "Continue?" || { ok "Restore cancelled"; return 0; }
 
   # Get container name
+  local neo4j_service="${BACKUP_NEO4J_SERVICE:-neo4j}"
   local container_name
-  container_name=$(docker ps -a --filter "name=neo4j" --format "{{.Names}}" | grep "$stack" | head -1)
+  container_name=$(docker ps -a --filter "name=$neo4j_service" --format "{{.Names}}" | grep "$stack" | head -1)
 
   if [ -z "$container_name" ]; then
     error "Neo4j container not found for stack: $stack"
@@ -791,11 +773,13 @@ _db_push_postgres() {
     echo ""
     confirm "Type 'yes' to continue with remote restore" || { ok "Restore cancelled"; return 0; }
 
+    load_remote_backup_conf "$stack" "$ssh_opts" "$vps_user" "$vps_host" "$(resolve_deploy_dir)"
+    local pg_service="$BACKUP_POSTGRES_SERVICE"
+
     log "Creating safety backup on VPS before restore..."
     ssh $ssh_opts "$vps_user@$vps_host" \
       "cd $(resolve_deploy_dir) && \
-       [ -f stacks/$stack/backup.conf ] && . stacks/$stack/backup.conf; \
-       ${_sudo}docker compose --project-name $project_name exec -T \${BACKUP_POSTGRES_SERVICE:-postgres} \
+       ${_sudo}docker compose --project-name $project_name exec -T $pg_service \
          pg_dump -U \${POSTGRES_USER:-postgres} \${POSTGRES_DB:-app_db} > $remote_dir/pre-push-safety-$(date +%Y%m%d-%H%M%S).sql" \
     && ok "Safety backup created" \
     || warn "Failed to create safety backup (continuing anyway)"
@@ -806,13 +790,12 @@ _db_push_postgres() {
     # errors on every existing object yet reports success.
     if ssh $ssh_opts "$vps_user@$vps_host" \
       "cd $(resolve_deploy_dir) && \
-       [ -f stacks/$stack/backup.conf ] && . stacks/$stack/backup.conf; \
-       ${_sudo}docker compose --project-name $project_name exec -T \${BACKUP_POSTGRES_SERVICE:-postgres} \
+       ${_sudo}docker compose --project-name $project_name exec -T $pg_service \
          psql -v ON_ERROR_STOP=1 -U \${POSTGRES_USER:-postgres} -d postgres \
            -c \"SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname='\${POSTGRES_DB:-app_db}' AND pid <> pg_backend_pid();\" \
            -c \"DROP DATABASE IF EXISTS \\\"\${POSTGRES_DB:-app_db}\\\";\" \
            -c \"CREATE DATABASE \\\"\${POSTGRES_DB:-app_db}\\\";\" && \
-       ${_sudo}docker compose --project-name $project_name exec -T \${BACKUP_POSTGRES_SERVICE:-postgres} \
+       ${_sudo}docker compose --project-name $project_name exec -T $pg_service \
          psql -v ON_ERROR_STOP=1 -U \${POSTGRES_USER:-postgres} -d \${POSTGRES_DB:-app_db} < $remote_dir/$filename"; then
       ok "PostgreSQL restore complete on VPS"
     else
@@ -848,10 +831,13 @@ _db_push_neo4j() {
     echo ""
     confirm "Type 'yes' to continue with remote restore" || { ok "Restore cancelled"; return 0; }
 
+    load_remote_backup_conf "$stack" "$ssh_opts" "$vps_user" "$vps_host" "$(resolve_deploy_dir)"
+    local neo4j_service="$BACKUP_NEO4J_SERVICE"
+
     log "Creating safety backup on VPS before restore..."
     ssh $ssh_opts "$vps_user@$vps_host" \
       "cd $(resolve_deploy_dir) && \
-       ${_sudo}docker compose --project-name $project_name exec -T neo4j \
+       ${_sudo}docker compose --project-name $project_name exec -T $neo4j_service \
          neo4j-admin database dump neo4j --to-path=/var/lib/neo4j/import/pre-push-safety-$(date +%Y%m%d-%H%M%S).dump" \
     2>/dev/null && ok "Safety backup created" \
     || warn "Failed to create safety backup (continuing anyway)"
@@ -859,11 +845,11 @@ _db_push_neo4j() {
     log "Restoring Neo4j on VPS (stopping service)..."
     if ssh $ssh_opts "$vps_user@$vps_host" \
       "cd $(resolve_deploy_dir) && \
-       ${_sudo}docker compose --project-name $project_name cp $remote_dir/$filename neo4j:/var/lib/neo4j/import/restore.dump && \
-       ${_sudo}docker compose --project-name $project_name stop neo4j && \
-       ${_sudo}docker compose --project-name $project_name run --rm --entrypoint neo4j-admin neo4j \
+       ${_sudo}docker compose --project-name $project_name cp $remote_dir/$filename $neo4j_service:/var/lib/neo4j/import/restore.dump && \
+       ${_sudo}docker compose --project-name $project_name stop $neo4j_service && \
+       ${_sudo}docker compose --project-name $project_name run --rm --entrypoint neo4j-admin $neo4j_service \
          database load neo4j --from-path=/var/lib/neo4j/import/restore.dump --overwrite-destination && \
-       ${_sudo}docker compose --project-name $project_name start neo4j"; then
+       ${_sudo}docker compose --project-name $project_name start $neo4j_service"; then
       ok "Neo4j restore complete on VPS"
     else
       error "Neo4j restore failed on VPS"
@@ -937,11 +923,8 @@ _db_push_sqlite() {
     local filename
     filename=$(basename "$local_file")
 
-    local backup_conf="$CLI_ROOT/stacks/$stack/backup.conf"
-    local sqlite_path="${BACKUP_SQLITE_PATH:-}"
-    if [ -z "$sqlite_path" ] && [ -f "$backup_conf" ]; then
-      sqlite_path=$(grep '^BACKUP_SQLITE_PATH=' "$backup_conf" | cut -d= -f2-)
-    fi
+    load_backup_conf "$stack" || return 1
+    local sqlite_path="$BACKUP_SQLITE_PATH"
     [ -n "$sqlite_path" ] || fail "BACKUP_SQLITE_PATH not set in backup.conf"
 
     warn "⚠️  DESTRUCTIVE OPERATION: This will restore SQLite on REMOTE VPS ($vps_host)"
@@ -1099,128 +1082,38 @@ backup_list_cmd() {
 
     local total=0
 
-    # List postgres backups
-    for backup_file in "$backup_dir"/postgres-*.sql; do
-      [ -f "$backup_file" ] || continue
-      total=$((total + 1))
+    local engine glob
+    for engine in "${BACKUP_ENGINES[@]}"; do
+      glob=$(backup_engine_glob "$engine")
+      for backup_file in "$backup_dir"/$glob; do
+        [ -f "$backup_file" ] || continue
+        total=$((total + 1))
 
-      local filename
-      filename=$(basename "$backup_file")
-      local backup_id="${filename%.*}"
-      local metadata_file="$metadata_dir/${backup_id}.json"
+        local filename
+        filename=$(basename "$backup_file")
+        local backup_id="${filename%.*}"
+        local metadata_file="$metadata_dir/${backup_id}.json"
 
-      echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-      echo "Backup: $filename"
-      echo "Service: postgres"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "Backup: $filename"
+        echo "Service: $engine"
 
-      local size
-      size=$(du -h "$backup_file" | awk '{print $1}')
-      echo "Size: $size"
+        local size
+        size=$(du -h "$backup_file" | awk '{print $1}')
+        echo "Size: $size"
 
-      local age
-      age=$(calculate_backup_age "$backup_file")
-      echo "Age: $age days"
+        local age
+        age=$(calculate_backup_age "$backup_file")
+        echo "Age: $age days"
 
-      if [ -f "$metadata_file" ] && command -v jq &>/dev/null; then
-        local verification_status
-        verification_status=$(jq -r '.verification.status' "$metadata_file" 2>/dev/null)
-        echo "Verification: $verification_status"
-      fi
+        if [ -f "$metadata_file" ] && command -v jq &>/dev/null; then
+          local verification_status
+          verification_status=$(jq -r '.verification.status' "$metadata_file" 2>/dev/null)
+          echo "Verification: $verification_status"
+        fi
 
-      echo ""
-    done
-
-    # List neo4j backups
-    for backup_file in "$backup_dir"/neo4j-*.dump; do
-      [ -f "$backup_file" ] || continue
-      total=$((total + 1))
-
-      local filename
-      filename=$(basename "$backup_file")
-      local backup_id="${filename%.*}"
-      local metadata_file="$metadata_dir/${backup_id}.json"
-
-      echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-      echo "Backup: $filename"
-      echo "Service: neo4j"
-
-      local size
-      size=$(du -h "$backup_file" | awk '{print $1}')
-      echo "Size: $size"
-
-      local age
-      age=$(calculate_backup_age "$backup_file")
-      echo "Age: $age days"
-
-      if [ -f "$metadata_file" ] && command -v jq &>/dev/null; then
-        local verification_status
-        verification_status=$(jq -r '.verification.status' "$metadata_file" 2>/dev/null)
-        echo "Verification: $verification_status"
-      fi
-
-      echo ""
-    done
-
-    # List mysql backups
-    for backup_file in "$backup_dir"/mysql-*.sql; do
-      [ -f "$backup_file" ] || continue
-      total=$((total + 1))
-
-      local filename
-      filename=$(basename "$backup_file")
-      local backup_id="${filename%.*}"
-      local metadata_file="$metadata_dir/${backup_id}.json"
-
-      echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-      echo "Backup: $filename"
-      echo "Service: mysql"
-
-      local size
-      size=$(du -h "$backup_file" | awk '{print $1}')
-      echo "Size: $size"
-
-      local age
-      age=$(calculate_backup_age "$backup_file")
-      echo "Age: $age days"
-
-      if [ -f "$metadata_file" ] && command -v jq &>/dev/null; then
-        local verification_status
-        verification_status=$(jq -r '.verification.status' "$metadata_file" 2>/dev/null)
-        echo "Verification: $verification_status"
-      fi
-
-      echo ""
-    done
-
-    # List sqlite backups
-    for backup_file in "$backup_dir"/sqlite-*.db; do
-      [ -f "$backup_file" ] || continue
-      total=$((total + 1))
-
-      local filename
-      filename=$(basename "$backup_file")
-      local backup_id="${filename%.*}"
-      local metadata_file="$metadata_dir/${backup_id}.json"
-
-      echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-      echo "Backup: $filename"
-      echo "Service: sqlite"
-
-      local size
-      size=$(du -h "$backup_file" | awk '{print $1}')
-      echo "Size: $size"
-
-      local age
-      age=$(calculate_backup_age "$backup_file")
-      echo "Age: $age days"
-
-      if [ -f "$metadata_file" ] && command -v jq &>/dev/null; then
-        local verification_status
-        verification_status=$(jq -r '.verification.status' "$metadata_file" 2>/dev/null)
-        echo "Verification: $verification_status"
-      fi
-
-      echo ""
+        echo ""
+      done
     done
 
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
