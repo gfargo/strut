@@ -287,6 +287,90 @@ grep_lib() {
 
 # ── Entrypoint: no old cli.sh references in user-facing output ───────
 
+# ── Backup: no gdrive/ch-ingest-gdrive app-specifics ─────────────────
+
+@test "no 'gdrive' in backup modules/completions/usage text — Req audit-2026-07" {
+  if matches=$(grep -rnE "gdrive" \
+    "$CLI_ROOT"/lib/backup.sh \
+    "$CLI_ROOT"/lib/backup/*.sh \
+    "$CLI_ROOT"/completions/*.sh \
+    "$CLI_ROOT"/completions/*.fish \
+    "$CLI_ROOT"/strut \
+    2>/dev/null); then
+    echo "Found 'gdrive' references:" >&2
+    echo "$matches" >&2
+    return 1
+  fi
+}
+
+@test "no 'ch-ingest-gdrive' in any lib/**/*.sh file — Req audit-2026-07" {
+  if matches=$(grep_lib "ch-ingest-gdrive"); then
+    echo "Found 'ch-ingest-gdrive' references:" >&2
+    echo "$matches" >&2
+    return 1
+  fi
+}
+
+# ── Backup: no hardcoded neo4j:5.15 image tag ────────────────────────
+
+@test "no hardcoded 'neo4j:5.15' image tag in lib/backup.sh — Req audit-2026-07" {
+  if matches=$(grep -nE "neo4j:5\.15" "$CLI_ROOT"/lib/backup.sh 2>/dev/null); then
+    echo "Found hardcoded neo4j:5.15 image tag:" >&2
+    echo "$matches" >&2
+    return 1
+  fi
+}
+
+# ── Database: no hardcoded 'app_db' default anywhere in lib/**/*.sh ──
+
+@test "no hardcoded 'app_db' default anywhere in lib modules — Req audit-2026-07" {
+  if matches=$(grep_lib "app_db"); then
+    echo "Found hardcoded 'app_db' default:" >&2
+    echo "$matches" >&2
+    return 1
+  fi
+}
+
+# ── Monitor: no hardcoded twenty/vps-2/ch-api app-specifics ──────────
+
+@test "no 'twenty', 'vps-2', or 'ch-api' in lib/monitor.sh — Req audit-2026-07" {
+  if matches=$(grep -nE "twenty|vps-2|ch-api" "$CLI_ROOT"/lib/monitor.sh 2>/dev/null); then
+    echo "Found hardcoded app-specific references:" >&2
+    echo "$matches" >&2
+    return 1
+  fi
+}
+
+# ── Keys: no hardcoded SEMANTIC_API_KEYS env var name ────────────────
+
+@test "no hardcoded 'SEMANTIC_API_KEYS' in lib/keys/api.sh — Req audit-2026-07" {
+  if matches=$(grep -nE "SEMANTIC_API_KEYS" "$CLI_ROOT"/lib/keys/api.sh 2>/dev/null); then
+    echo "Found hardcoded SEMANTIC_API_KEYS env var name:" >&2
+    echo "$matches" >&2
+    return 1
+  fi
+}
+
+# ── Deploy: no hardcoded data/gdrive default data dir ────────────────
+
+@test "no hardcoded 'data/gdrive' default in lib/deploy.sh — Req audit-2026-07" {
+  if matches=$(grep -nE "data/gdrive" "$CLI_ROOT"/lib/deploy.sh 2>/dev/null); then
+    echo "Found hardcoded data/gdrive default:" >&2
+    echo "$matches" >&2
+    return 1
+  fi
+}
+
+# ── Utils: no leftover CH_API_PORT docstring example ─────────────────
+
+@test "no 'CH_API_PORT' in lib/utils.sh — Req audit-2026-07" {
+  if matches=$(grep -nE "CH_API_PORT" "$CLI_ROOT"/lib/utils.sh 2>/dev/null); then
+    echo "Found leftover CH_API_PORT reference:" >&2
+    echo "$matches" >&2
+    return 1
+  fi
+}
+
 @test "no './cli.sh' references in any lib module" {
   if matches=$(grep_lib '\./cli\.sh'); then
     echo "Found './cli.sh' references (should be 'strut'):" >&2

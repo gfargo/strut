@@ -142,7 +142,7 @@ run_cmd_eval() {
 #
 # Usage:
 #   load_services_conf "$stack_dir"
-#   local api_port="${CH_API_PORT:-8000}"
+#   local api_port="${API_PORT:-8000}"
 load_services_conf() {
   local stack_dir="$1"
   local conf="$stack_dir/services.conf"

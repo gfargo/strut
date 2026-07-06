@@ -177,11 +177,21 @@ monitoring_add_target() {
     fi
   fi
 
-  # Determine VPS instance
+  # Determine VPS instance from groups.conf (first matching vps-* group),
+  # defaulting to vps-1 when groups.conf is absent or the stack isn't grouped.
   local vps_instance="vps-1"
-  if [ "$stack_name" = "twenty" ] || [ "$stack_name" = "twenty-mcp" ]; then
-    vps_instance="vps-2"
+  if ! declare -f groups_list >/dev/null 2>&1; then
+    # shellcheck source=lib/groups.sh
+    source "$(dirname "${BASH_SOURCE[0]}")/groups.sh"
   fi
+  local _group
+  while IFS= read -r _group; do
+    [[ "$_group" == vps-* ]] || continue
+    if groups_has_member "$_group" "$stack_name"; then
+      vps_instance="$_group"
+      break
+    fi
+  done < <(groups_list)
 
   # Create target file
   cat > "$target_file" <<EOF
@@ -218,7 +228,7 @@ EOF
   echo "To add specific service endpoints, edit: $target_file"
   echo "Example:"
   echo "  - targets:"
-  echo "      - 'ch-api:8000'"
+  echo "      - 'app:8000'"
   echo "      - 'postgres:5432'"
 }
 

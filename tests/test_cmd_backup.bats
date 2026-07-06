@@ -31,7 +31,6 @@ setup() {
   backup_neo4j() { echo "backup_neo4j $*"; }
   backup_mysql() { echo "backup_mysql $*"; }
   backup_sqlite() { echo "backup_sqlite $*"; }
-  backup_gdrive_transcripts() { echo "backup_gdrive_transcripts $*"; }
   _backup_dir() { echo "/tmp/backups"; }
   resolve_compose_cmd() { echo "echo COMPOSE"; }
   export_volume_paths() { return 0; }
@@ -40,7 +39,7 @@ setup() {
             backup_retention_enforce_cmd backup_retention_install_cron_cmd \
             backup_storage_stats_cmd backup_check_missed_cmd \
             compare_neo4j_databases compare_postgres_databases compare_neo4j_labels \
-            backup_postgres backup_neo4j backup_mysql backup_sqlite backup_gdrive_transcripts \
+            backup_postgres backup_neo4j backup_mysql backup_sqlite \
             _backup_dir resolve_compose_cmd export_volume_paths
 
   mkdir -p "$TEST_TMP/stacks/test-stack"

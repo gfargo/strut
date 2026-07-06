@@ -211,7 +211,7 @@ keys_test_api() {
   echo "2. Test with curl:"
   echo ""
   echo "   curl -H \"Authorization: Bearer YOUR_API_KEY\" \\"
-  echo "     http://localhost:8000/api/v1/health"
+  echo "     http://localhost:<port>/api/v1/health"
   echo ""
   echo "3. Check for 200 OK response"
   echo ""
@@ -237,7 +237,7 @@ keys_test_db() {
   case "$db_type" in
     postgres)
       local postgres_user="${POSTGRES_USER:-postgres}"
-      local postgres_db="${POSTGRES_DB:-app_db}"
+      local postgres_db="${POSTGRES_DB:-${POSTGRES_USER:-postgres}}"
 
       log "Testing PostgreSQL connection..."
 

@@ -53,9 +53,6 @@ get_backup_list() {
     neo4j)
       extension="dump"
       ;;
-    gdrive-transcripts)
-      extension="tar.gz"
-      ;;
     mysql)
       extension="sql"
       ;;
@@ -206,11 +203,6 @@ enforce_retention_all() {
   # Check for neo4j backups
   if ls "$backup_dir"/neo4j-*.dump >/dev/null 2>&1; then
     enforce_retention_policy "$stack" "neo4j"
-  fi
-
-  # Check for gdrive backups
-  if ls "$backup_dir"/gdrive-transcripts-*.tar.gz >/dev/null 2>&1; then
-    enforce_retention_policy "$stack" "gdrive-transcripts"
   fi
 
   # Check for mysql backups

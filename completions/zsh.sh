@@ -51,7 +51,7 @@ _strut() {
   local -a top_cmds per_stack_cmds profiles
   top_cmds=(init list scaffold upgrade doctor status-all posture group monitoring audit audit:list audit:generate migrate migrate:status notify skills help completions --version --help)
   per_stack_cmds=(update release deploy stop diff lock health logs logs:download logs:rotate migrate backup restore db:pull db:push db:schema shell exec status volumes prune local prod staging dev debug keys validate rollback domain --help)
-  profiles=(messaging ui full gdrive)
+  profiles=(messaging ui full)
 
   local -a words_arr
   words_arr=("${(@)words}")
@@ -130,7 +130,7 @@ _strut() {
   local cmd="${words_arr[3]:-}"
   case "$cmd" in
     backup)
-      [ "$pos" -eq 4 ] && { compadd postgres neo4j mysql sqlite gdrive-transcripts all verify list health schedule retention; return 0 }
+      [ "$pos" -eq 4 ] && { compadd postgres neo4j mysql sqlite all verify list health schedule retention; return 0 }
       ;;
     drift)
       [ "$pos" -eq 4 ] && { compadd detect report fix monitor history auto-fix; return 0 }

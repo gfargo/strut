@@ -218,9 +218,18 @@ $_hint"
       || fail "Aborting deploy: required images could not be pulled — the running stack was left untouched. Check registry auth (GH_PAT/DOCKER_PASS) and network connectivity."
   fi
 
-  # Data directories — read from services.conf or use defaults
+  # Data directories — explicit STACK_DATA_DIRS wins; otherwise derive from
+  # the same DB_* flags in services.conf that health.sh reads, falling back
+  # to a single generic "data" dir when none are set.
   log "[4/5] Creating data directories..."
-  local data_dirs="${STACK_DATA_DIRS:-data/postgres data/redis data/gdrive}"
+  local data_dirs="${STACK_DATA_DIRS:-}"
+  if [ -z "$data_dirs" ]; then
+    [ "${DB_POSTGRES:-false}" = "true" ] && data_dirs="$data_dirs data/postgres"
+    [ "${DB_REDIS:-false}" = "true" ] && data_dirs="$data_dirs data/redis"
+    [ "${DB_NEO4J:-false}" = "true" ] && data_dirs="$data_dirs data/neo4j"
+    [ "${DB_MYSQL:-false}" = "true" ] && data_dirs="$data_dirs data/mysql"
+    data_dirs="${data_dirs:-data}"
+  fi
   for dir in $data_dirs; do
     mkdir -p "$stack_dir/$dir"
   done
@@ -272,7 +281,27 @@ $_hint"
   echo -e "${GREEN}  ✓  Deploy complete (stack: $stack, env: $env_name, services: ${services_profile:-core})${NC}"
   echo -e "${GREEN}════════════════════════════════════════════${NC}"
   echo ""
-  echo "  API:    http://localhost:8000/health"
+
+  # Print each service's endpoint from services.conf (*_PORT / *_HEALTH_PATH),
+  # mirroring health_check_application's discovery logic.
+  local _svc_conf="$stack_dir/services.conf"
+  if [ -f "$_svc_conf" ]; then
+    local _svc_conf_content
+    _svc_conf_content=$(cat "$_svc_conf")
+    while IFS='=' read -r _svc_key _svc_value; do
+      [[ -z "$_svc_key" || "$_svc_key" =~ ^[[:space:]]*# ]] && continue
+      _svc_key=$(echo "$_svc_key" | xargs)
+      _svc_value=$(echo "$_svc_value" | xargs)
+      [[ "$_svc_key" == DB_* ]] && continue
+      [[ "$_svc_key" != *_PORT ]] && continue
+      local _svc_prefix="${_svc_key%_PORT}"
+      local _svc_name
+      _svc_name=$(echo "$_svc_prefix" | tr '[:upper:]_' '[:lower:]-')
+      local _svc_health_path
+      _svc_health_path=$(echo "$_svc_conf_content" | grep -E "^${_svc_prefix}_HEALTH_PATH=" 2>/dev/null | head -1 | cut -d'=' -f2- | xargs) || true
+      echo "  ${_svc_name}: http://localhost:${_svc_value}${_svc_health_path}"
+    done <<< "$_svc_conf_content"
+  fi
   echo "  Logs:   $compose_cmd logs -f"
   echo "  Status: $compose_cmd ps"
   echo ""

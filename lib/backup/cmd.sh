@@ -43,7 +43,7 @@ backup_command() {
   # Non-zero exit aborts. Skipped in DRY_RUN so dry-run stays side-effect-free.
   local is_backup_target=false
   case "$target" in
-    postgres|neo4j|mysql|sqlite|gdrive-transcripts|all) is_backup_target=true ;;
+    postgres|neo4j|mysql|sqlite|all) is_backup_target=true ;;
   esac
   if [ "$is_backup_target" = "true" ] && [ "$DRY_RUN" != "true" ]; then
     BACKUP_TARGET="$target" fire_hook pre_backup "$stack_dir" || \
@@ -219,19 +219,6 @@ backup_command() {
       BACKUP_TARGET="sqlite" fire_hook_or_warn post_backup "$stack_dir"
       notify_event backup.success stack="$stack" env="$env_name" type=sqlite
       ;;
-    gdrive-transcripts)
-      if [ "$DRY_RUN" = "true" ]; then
-        echo ""
-        echo -e "${YELLOW}[DRY-RUN] Execution plan for backup:${NC}"
-        run_cmd "Create tarball of gdrive transcripts" echo "tar czf → gdrive-transcripts-$(date +%Y%m%d-%H%M%S).tar.gz"
-        echo ""
-        echo -e "${YELLOW}[DRY-RUN] No changes made.${NC}"
-        return 0
-      fi
-      backup_gdrive_transcripts "$stack" "$compose_cmd"
-      BACKUP_TARGET="gdrive-transcripts" fire_hook_or_warn post_backup "$stack_dir"
-      notify_event backup.success stack="$stack" env="$env_name" type=gdrive-transcripts
-      ;;
     all)
       if [ "$DRY_RUN" = "true" ]; then
         echo ""
@@ -244,7 +231,6 @@ backup_command() {
         [ "${BACKUP_NEO4J:-false}" = "true" ] && run_cmd "Backup Neo4j (requires downtime)" echo "neo4j-admin dump → neo4j-*.dump"
         [ "${BACKUP_MYSQL:-false}" = "true" ] && run_cmd "Backup MySQL" echo "mysqldump → mysql-*.sql"
         [ "${BACKUP_SQLITE:-false}" = "true" ] && run_cmd "Backup SQLite" echo "cp → sqlite-*.db"
-        run_cmd "Backup GDrive transcripts" echo "tar czf → gdrive-transcripts-*.tar.gz"
         echo ""
         echo -e "${YELLOW}[DRY-RUN] No changes made.${NC}"
         return 0
@@ -257,7 +243,6 @@ backup_command() {
       [ "${BACKUP_NEO4J:-false}" = "true" ] && backup_neo4j "$stack" "$compose_cmd"
       [ "${BACKUP_MYSQL:-false}" = "true" ] && backup_mysql "$stack" "$compose_cmd"
       [ "${BACKUP_SQLITE:-false}" = "true" ] && backup_sqlite "$stack" "$compose_cmd"
-      backup_gdrive_transcripts "$stack" "$compose_cmd"
       BACKUP_TARGET="all" fire_hook_or_warn post_backup "$stack_dir"
       notify_event backup.success stack="$stack" env="$env_name" type=all
       ;;
@@ -269,7 +254,6 @@ Available commands:
   neo4j                                 Create Neo4j backup
   mysql                                 Create MySQL backup
   sqlite                                Create SQLite backup
-  gdrive-transcripts                    Create GDrive transcripts backup
   all                                   Create all backups (per backup.conf)
   verify <file> [--full]                Verify a specific backup
   verify-all                            Verify all backups

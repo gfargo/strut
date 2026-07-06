@@ -41,3 +41,9 @@
 # DB_REDIS=true
 # DB_NEO4J=true
 # DB_MYSQL=true
+#
+# ── API Keys ───────────────────────────────────────
+# Env var name printed by `strut <stack> keys api:generate` (default: API_KEYS).
+# A "_PRIVILEGED" suffix is appended for the privileged tier.
+#
+# API_KEY_ENV_VAR=API_KEYS
