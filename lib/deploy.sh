@@ -42,6 +42,36 @@ fi
 SNIPPET
 }
 
+# _deploy_reclaim_named_containers <compose_file> <project_name>
+#
+# Force-removes any orphaned container with an explicit container_name in
+# <compose_file> that docker compose down may have missed (e.g. from a
+# previously failed deploy) — this prevents "name already in use" errors on
+# restart. Only removes a container that is actually owned by <project_name>
+# (per its com.docker.compose.project label); a same-named container owned by
+# a different project/env is left alone with a warning, since force-removing
+# it would kill another live deployment sharing the container_name.
+_deploy_reclaim_named_containers() {
+  local compose_file="$1"
+  local project_name="$2"
+
+  local orphaned_names
+  orphaned_names=$(grep -E '^\s+container_name:\s*' "$compose_file" \
+    | sed 's/.*container_name:\s*//' | tr -d '"' | tr -d "'" | xargs) || true
+  [ -n "$orphaned_names" ] || return 0
+
+  for cname in $orphaned_names; do
+    docker inspect "$cname" &>/dev/null || continue
+    local owner
+    owner=$(docker inspect --format '{{ index .Config.Labels "com.docker.compose.project" }}' "$cname" 2>/dev/null) || owner=""
+    if [ "$owner" = "$project_name" ]; then
+      docker rm -f "$cname" 2>/dev/null || true
+    else
+      warn "Container '$cname' exists but belongs to project '${owner:-<none>}' (expected '$project_name') — not removing."
+    fi
+  done
+}
+
 # deploy_stack <stack> <env_file> [services_profile]
 #
 # Brings up the stack at stacks/<stack>/docker-compose.yml using the given
@@ -231,19 +261,12 @@ $_hint"
   $compose_cmd down --remove-orphans 2>/dev/null || true  # may not be running yet
 
   # Force-remove any orphaned containers with explicit container_name that
-  # docker compose down may have missed (e.g. from a previously failed deploy).
-  # We parse container_name values from the compose file and remove them if they
-  # still exist — this prevents "name already in use" errors on restart.
-  local orphaned_names
-  orphaned_names=$(grep -E '^\s+container_name:\s*' "$compose_file" \
-    | sed 's/.*container_name:\s*//' | tr -d '"' | tr -d "'" | xargs) || true
-  if [ -n "$orphaned_names" ]; then
-    for cname in $orphaned_names; do
-      if docker inspect "$cname" &>/dev/null; then
-        docker rm -f "$cname" 2>/dev/null || true
-      fi
-    done
-  fi
+  # docker compose down may have missed (e.g. from a previously failed deploy),
+  # scoped to containers actually owned by this project — see
+  # _deploy_reclaim_named_containers.
+  local project_name
+  project_name=$(echo "$compose_cmd" | grep -oE '\-\-project\-name [^ ]+' | awk '{print $2}') || true
+  _deploy_reclaim_named_containers "$compose_file" "${project_name:-$stack}"
 
   ok "Existing containers stopped"
 
@@ -330,8 +353,11 @@ vps_update_repo() {
   # GH_PAT is forwarded so fetch works regardless of whether the remote is SSH
   # or HTTPS. We use reset --hard rather than pull so local drift on the VPS
   # (modified tracked files, conflicting untracked files) never blocks the sync.
+  local fleet_sync_opts=()
+  [ "${FORCE_CLEAN:-false}" = "true" ] && fleet_sync_opts+=(--force-clean)
+
   fleet_sync "$vps_user" "$vps_host" "$vps_port" "$vps_ssh_key" \
-    "$deploy_dir" "$branch" "$gh_pat" \
+    "$deploy_dir" "$branch" "$gh_pat" "${fleet_sync_opts[@]+"${fleet_sync_opts[@]}"}" \
     || fail "Update failed — check VPS_HOST, VPS_SSH_KEY, and VPS_DEPLOY_DIR"
 
   # Verify strut binary is present and executable after sync
