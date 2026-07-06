@@ -120,6 +120,54 @@ EOF
   [ -z "$result" ]
 }
 
+@test "rollback_get_latest_snapshot: with env filters to the newest matching snapshot" {
+  local stack="test-rb-envfilter-$$"
+  local rollback_dir="$CLI_ROOT/stacks/$stack/.rollback"
+  mkdir -p "$rollback_dir"
+
+  echo '{"env":"staging"}' > "$rollback_dir/20240101-100000.json"
+  sleep 0.1
+  echo '{"env":"prod"}' > "$rollback_dir/20240102-100000.json"
+  sleep 0.1
+  echo '{"env":"staging"}' > "$rollback_dir/20240103-100000.json"
+
+  local result
+  result=$(rollback_get_latest_snapshot "$stack" "prod")
+  [[ "$result" == *"20240102-100000.json" ]]
+
+  rm -rf "$CLI_ROOT/stacks/$stack"
+}
+
+@test "rollback_get_latest_snapshot: with env returns empty when no env matches" {
+  local stack="test-rb-envmiss-$$"
+  local rollback_dir="$CLI_ROOT/stacks/$stack/.rollback"
+  mkdir -p "$rollback_dir"
+
+  echo '{"env":"staging"}' > "$rollback_dir/20240101-100000.json"
+
+  local result
+  result=$(rollback_get_latest_snapshot "$stack" "prod")
+  [ -z "$result" ]
+
+  rm -rf "$CLI_ROOT/stacks/$stack"
+}
+
+@test "rollback_get_latest_snapshot: no-arg call is unaffected by mixed envs" {
+  local stack="test-rb-noarg-$$"
+  local rollback_dir="$CLI_ROOT/stacks/$stack/.rollback"
+  mkdir -p "$rollback_dir"
+
+  echo '{"env":"staging"}' > "$rollback_dir/20240101-100000.json"
+  sleep 0.1
+  echo '{"env":"prod"}' > "$rollback_dir/20240102-100000.json"
+
+  local result
+  result=$(rollback_get_latest_snapshot "$stack")
+  [[ "$result" == *"20240102-100000.json" ]]
+
+  rm -rf "$CLI_ROOT/stacks/$stack"
+}
+
 # ── rollback_list_snapshots ───────────────────────────────────────────────────
 
 @test "rollback_list_snapshots: shows available snapshots" {
