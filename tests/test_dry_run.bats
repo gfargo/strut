@@ -366,3 +366,55 @@ EOF
   [ "$(cat "$TEST_TMP/vps_host_after")" = "standby.example.com" ]
   [ "$(cat "$TEST_TMP/image_tag_after")" = "v2.5.0" ]
 }
+
+# ── Regression: deploy_stack --dry-run must not run pre_deploy hook ──────────
+# strut#242 (OSS-423): dry-run ran the pre_deploy hook (a real side-effecting
+# script) before the plan-only early-return.
+
+@test "deploy_stack: dry-run does not execute the real pre_deploy hook" {
+  _load_utils
+  source "$CLI_ROOT/lib/config.sh"
+  source "$CLI_ROOT/lib/docker.sh"
+  source "$CLI_ROOT/lib/hooks.sh"
+  source "$CLI_ROOT/lib/deploy.sh"
+
+  export DRY_RUN="true"
+  export SKIP_VALIDATION="false"
+  export PRE_DEPLOY_VALIDATE="true"
+  export PRE_DEPLOY_HOOKS="true"
+
+  mkdir -p "$TEST_TMP/stacks/test-stack/hooks"
+  cat > "$TEST_TMP/stacks/test-stack/docker-compose.yml" <<'YAML'
+version: "3"
+services:
+  app:
+    image: test:latest
+YAML
+
+  local marker="$TEST_TMP/hook-ran"
+  cat > "$TEST_TMP/stacks/test-stack/hooks/pre_deploy.sh" <<EOF
+#!/bin/bash
+touch "$marker"
+EOF
+
+  local env_file="$TEST_TMP/.env.test"
+  echo "VPS_HOST=10.0.0.1" > "$env_file"
+
+  export_volume_paths() { :; }
+  docker() {
+    if [ "$1" = "compose" ] && [ "$2" = "version" ]; then
+      echo "Docker Compose version v2.20.0"
+      return 0
+    fi
+    echo "docker $*"
+    return 0
+  }
+  export -f docker
+
+  export CLI_ROOT="$TEST_TMP"
+
+  run deploy_stack "test-stack" "$env_file" ""
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"[DRY-RUN]"* ]]
+  [ ! -f "$marker" ]
+}
