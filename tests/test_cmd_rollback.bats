@@ -39,13 +39,12 @@ VPS_HOST=primary-host.internal
 EOF
   export VPS_HOST="standby-host.internal"
 
-  local fixture_snapshot_file="$TEST_TMP/snapshot.json"
-  echo '{"timestamp":"2026-07-05T00:00:00Z","service_count":1,"services":{"web":{"image":"nginx:latest"}}}' > "$fixture_snapshot_file"
+  echo '{"timestamp":"2026-07-05T00:00:00Z","service_count":1,"services":{"web":{"image":"nginx:latest"}}}' > "$TEST_TMP/snapshot.json"
 
-  # Named distinctly from cmd_rollback's own `local snapshot_file` — bash's
-  # dynamic scoping would otherwise resolve "$snapshot_file" inside this mock
-  # to cmd_rollback's (unset) local instead of this fixture path.
-  rollback_get_latest_snapshot() { echo "$fixture_snapshot_file"; }
+  # References $TEST_TMP (a global from common.bash), not a local var — a
+  # `local snapshot_file` here would be shadowed by cmd_rollback's own
+  # same-named local via bash's dynamic scoping, echoing empty instead.
+  rollback_get_latest_snapshot() { echo "$TEST_TMP/snapshot.json"; }
   resolve_compose_cmd() { echo "echo COMPOSE"; }
   rollback_restore_snapshot() { echo "rollback_restore_snapshot $*"; }
   # Force the local restore path — this test targets VPS_HOST preservation in
@@ -104,11 +103,13 @@ EOF
 }
 
 @test "cmd_rollback: local restore looks up the env-filtered snapshot" {
-  local fixture_snapshot_file="$TEST_TMP/snapshot.json"
-  echo '{"timestamp":"2026-07-05T00:00:00Z","service_count":1,"services":{"web":{"image":"nginx:latest"}}}' > "$fixture_snapshot_file"
+  echo '{"timestamp":"2026-07-05T00:00:00Z","service_count":1,"services":{"web":{"image":"nginx:latest"}}}' > "$TEST_TMP/snapshot.json"
 
   should_dispatch_remote() { return 1; }
-  rollback_get_latest_snapshot() { echo "rollback_get_latest_snapshot $*" >&2; echo "$fixture_snapshot_file"; }
+  # References $TEST_TMP (a global from common.bash), not a local var — a
+  # `local snapshot_file` here would be shadowed by cmd_rollback's own
+  # same-named local via bash's dynamic scoping, echoing empty instead.
+  rollback_get_latest_snapshot() { echo "rollback_get_latest_snapshot $*" >&2; echo "$TEST_TMP/snapshot.json"; }
   resolve_compose_cmd() { echo "echo COMPOSE"; }
   rollback_restore_snapshot() { echo "rollback_restore_snapshot $*"; }
   export -f should_dispatch_remote rollback_get_latest_snapshot resolve_compose_cmd rollback_restore_snapshot
