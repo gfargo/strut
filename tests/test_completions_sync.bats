@@ -21,10 +21,12 @@ teardown() {
 
 # ── Helpers ──────────────────────────────────────────────────────────────
 
-# _dispatch_arms <start-pattern>
+# _dispatch_arms <start-substring>
 # Extracts the raw (possibly |-joined) arm labels of the LAST top-level
-# (nesting depth 0) case block in `strut` whose opening line matches
-# <start-pattern>. Nesting depth is tracked so inner case blocks (e.g.
+# (nesting depth 0) case block in `strut` whose opening line contains
+# <start-substring> (a literal substring match, not a regex — this avoids
+# awk-version-dependent handling of backslash escapes in -v assignments).
+# Nesting depth is tracked so inner case blocks (e.g.
 # monitoring/notify subcommands, or the small host-scoped-detection and
 # --help usage-dispatch case blocks that share the same "in" text earlier
 # in the file) are not mistaken for the real dispatch table.
@@ -37,7 +39,7 @@ _dispatch_arms() {
       is_case_open = (line ~ /(^|[^A-Za-z_])case[ \t]+.*[ \t]+in[ \t]*$/)
       is_esac      = (line ~ /^[ \t]*esac[ \t]*(;;)?[ \t]*$/)
 
-      if (!capturing && depth == 0 && line ~ start) {
+      if (!capturing && depth == 0 && index(line, start) > 0) {
         capturing = 1; depth = 1; n = 0; delete arr
         next
       }
@@ -96,11 +98,11 @@ _missing() {
 }
 
 _dispatch_top() {
-  _dispatch_commands 'case "\$\{1:-\}" in' | sort -u
+  _dispatch_commands 'case "${1:-}" in' | sort -u
 }
 
 _dispatch_stack() {
-  _dispatch_commands 'case "\$COMMAND" in' | sort -u
+  _dispatch_commands 'case "$COMMAND" in' | sort -u
 }
 
 # ── bash ─────────────────────────────────────────────────────────────────
