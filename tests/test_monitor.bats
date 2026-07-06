@@ -15,9 +15,6 @@ setup() {
   error() { echo "$1" >&2; }
   warn() { echo "$1" >&2; }
 
-  # Create the monitoring stack dir before sourcing monitor.sh
-  mkdir -p "$CLI_ROOT/stacks/monitoring"
-
   source "$CLI_ROOT/lib/monitor.sh"
 
   # Now override MONITORING_STACK_DIR to our test dir
@@ -27,6 +24,40 @@ setup() {
 
 teardown() {
   rm -rf "$TEST_TMP"
+}
+
+# ── source-time / missing monitoring dir ──────────────────────────────────────
+
+@test "sourcing monitor.sh does not crash when no monitoring stack dir exists" {
+  run bash -c '
+    export CLI_ROOT="'"$CLI_ROOT"'"
+    export PROJECT_ROOT="'"$TEST_TMP"'/no-such-project"
+    unset MONITORING_STACK_DIR
+    source "$CLI_ROOT/lib/utils.sh"
+    fail() { echo "$1" >&2; return 1; }
+    error() { echo "$1" >&2; }
+    warn() { echo "$1" >&2; }
+    source "$CLI_ROOT/lib/monitor.sh"
+  '
+  [ "$status" -eq 0 ]
+}
+
+@test "monitoring_status: gives a clean message when no monitoring stack dir exists" {
+  run bash -c '
+    export CLI_ROOT="'"$CLI_ROOT"'"
+    export PROJECT_ROOT="'"$TEST_TMP"'/no-such-project"
+    unset MONITORING_STACK_DIR
+    source "$CLI_ROOT/lib/utils.sh"
+    fail() { echo "$1" >&2; return 1; }
+    error() { echo "$1" >&2; }
+    warn() { echo "$1" >&2; }
+    source "$CLI_ROOT/lib/monitor.sh"
+    docker() { echo ""; }
+    export -f docker
+    monitoring_status "text"
+  '
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"not fully running"* ]]
 }
 
 # ── monitoring_is_running ─────────────────────────────────────────────────────

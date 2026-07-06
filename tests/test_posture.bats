@@ -235,6 +235,20 @@ EOF
   [ "$_POSTURE_PASS" -eq 1 ]
 }
 
+@test "check_required_vars: fails (not silently passes) on missing include" {
+  mkdir -p "$CLI_ROOT/stacks/api"
+  cat > "$CLI_ROOT/stacks/api/required_vars" <<'EOF'
+include = nonexistent.vars
+EOF
+  _clean_env
+  cat > "$CLI_ROOT/.env" <<'EOF'
+OTHER=value
+EOF
+  check_required_vars api
+  [ "$_POSTURE_FAIL" -eq 1 ]
+  [ "$_POSTURE_PASS" -eq 0 ]
+}
+
 # ── cmd_posture entrypoint ────────────────────────────────────────────────────
 
 @test "cmd_posture: no stacks directory fails" {

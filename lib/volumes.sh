@@ -48,8 +48,7 @@ verify_volume_config() {
     return 1
   fi
 
-  # shellcheck disable=SC1090
-  source <(preprocess_config "$volume_conf")
+  safe_source_config "$volume_conf" || return 1
 
   log_info "Volume Configuration:"
   echo "  Device: ${DATA_VOLUME_DEVICE:-not set}"
@@ -132,8 +131,7 @@ init_volume_directories() {
     return 1
   fi
 
-  # shellcheck disable=SC1090
-  source <(preprocess_config "$volume_conf")
+  safe_source_config "$volume_conf" || return 1
 
   local mount_point="${DATA_VOLUME_MOUNT:-/mnt/data}"
 
@@ -195,8 +193,7 @@ export_volume_paths() {
   local volume_conf="$stack_dir/volume.conf"
 
   if [[ -f "$volume_conf" ]]; then
-    # shellcheck disable=SC1090
-  source <(preprocess_config "$volume_conf")
+    safe_source_config "$volume_conf" || return 1
 
     # Read variable names from volume.conf and export matching patterns
     local var

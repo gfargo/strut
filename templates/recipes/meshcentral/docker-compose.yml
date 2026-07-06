@@ -1,0 +1,18 @@
+services:
+  meshcentral:
+    image: ghcr.io/ylianst/meshcentral:latest
+    container_name: STACK_NAME_PLACEHOLDER-meshcentral
+    restart: unless-stopped
+    ports:
+      - "8083:443"
+    environment:
+      - HOSTNAME=${HOSTNAME}
+    volumes:
+      - meshcentral_data:/opt/meshcentral/meshcentral-data
+      - meshcentral_files:/opt/meshcentral/meshcentral-files
+      - meshcentral_backups:/opt/meshcentral/meshcentral-backups
+
+volumes:
+  meshcentral_data:
+  meshcentral_files:
+  meshcentral_backups:
