@@ -112,6 +112,38 @@ _rand_str() {
   done
 }
 
+# ── Hostile-character property tests ─────────────────────────────────────────
+# strut #252: --org is interpolated unescaped into a `sed s/.../.../` replacement
+# (lib/cmd_init.sh) — values containing the sed delimiter (/), `&`, or `\` corrupt
+# the expression (e.g. `--org "ac/me & co"` throws
+# "sed: -e expression #1, char 39: unknown option to `s'"). Each of these must
+# propagate to strut.conf byte-for-byte instead of erroring.
+
+_hostile_org_names() {
+  printf '%s\n' \
+    'has space' \
+    'slash/org' \
+    'amp&persand' \
+    'semi;colon' \
+    "quo'te" \
+    'dollar$sign' \
+    'back`tick'
+}
+
+@test "Property 15: hostile-character org names propagate to strut.conf unmangled" {
+  while IFS= read -r org_name; do
+    local project_dir
+    project_dir="$(mktemp -d "$TEST_TMP/init_hostile_XXXXXX")"
+
+    (cd "$project_dir" && cmd_init --org "$org_name")
+
+    grep -qF "DEFAULT_ORG=$org_name" "$project_dir/strut.conf" || {
+      echo "FAIL: org name '$org_name' did not propagate unmangled" >&2
+      return 1
+    }
+  done < <(_hostile_org_names)
+}
+
 # ── Unit tests ────────────────────────────────────────────────────────────────
 
 @test "init: creates stacks/ directory" {

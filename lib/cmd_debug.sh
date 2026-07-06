@@ -103,7 +103,7 @@ Available commands:
   stats <service>                       Show real-time resource usage
 
 Examples:
-  strut $stack debug exec ch-api 'ls -la' --env prod
+  strut $stack debug exec web 'ls -la' --env prod
   strut $stack debug shell postgres --env prod
   strut $stack debug stats neo4j --env prod"
       ;;

@@ -143,6 +143,67 @@ teardown() {
   [ -s "$req_vars" ]  # non-empty
 }
 
+# ── Hostile-character property tests ─────────────────────────────────────────
+# strut #252: `_scaffold_substitute` interpolates $new_name / $DEFAULT_ORG
+# unescaped into a `sed s/.../.../` replacement (lib/cmd_scaffold.sh) — values
+# containing the sed delimiter (/), `&`, or `\` corrupt the expression, and the
+# `2>/dev/null` on the sed pipeline hid the failure, silently leaving
+# STACK_NAME_PLACEHOLDER/YOUR_ORG un-substituted (e.g. `cmd_scaffold "weird/name"`
+# left `STACK_NAME_PLACEHOLDER` in .gitignore). Each hostile value must
+# substitute cleanly instead.
+
+_hostile_names() {
+  printf '%s\n' \
+    'has space' \
+    'slash/org' \
+    'amp&persand' \
+    'semi;colon' \
+    "quo'te" \
+    'dollar$sign' \
+    'back`tick'
+}
+
+@test "scaffold: hostile-character DEFAULT_ORG substitutes cleanly, no STACK_NAME_PLACEHOLDER/YOUR_ORG left" {
+  local i=0
+  while IFS= read -r org_name; do
+    i=$((i + 1))
+    export DEFAULT_ORG="$org_name"
+    local stack_name="hostile-org-$i"
+
+    cmd_scaffold "$stack_name"
+
+    local target="$TEST_TMP/stacks/$stack_name"
+    [ -f "$target/docker-compose.yml" ]
+
+    run grep -r "STACK_NAME_PLACEHOLDER" "$target"
+    [ "$status" -ne 0 ] || { echo "FAIL: STACK_NAME_PLACEHOLDER survived for org '$org_name'"; return 1; }
+
+    run grep -r "YOUR_ORG" "$target"
+    [ "$status" -ne 0 ] || { echo "FAIL: YOUR_ORG survived for org '$org_name'"; return 1; }
+
+    grep -qF "$org_name" "$target/docker-compose.yml" || {
+      echo "FAIL: org name '$org_name' not found substituted in docker-compose.yml"
+      return 1
+    }
+  done < <(_hostile_names)
+}
+
+@test "scaffold: hostile-character stack name substitutes cleanly, no STACK_NAME_PLACEHOLDER left" {
+  local i=0
+  while IFS= read -r name_part; do
+    i=$((i + 1))
+    local stack_name="hostile-$i-${name_part}"
+
+    cmd_scaffold "$stack_name"
+
+    local target="$TEST_TMP/stacks/$stack_name"
+    [ -f "$target/docker-compose.yml" ]
+
+    run grep -r "STACK_NAME_PLACEHOLDER" "$target"
+    [ "$status" -ne 0 ] || { echo "FAIL: STACK_NAME_PLACEHOLDER survived for stack name '$stack_name'"; return 1; }
+  done < <(_hostile_names)
+}
+
 # ── Unit tests ────────────────────────────────────────────────────────────────
 
 @test "scaffold: generates services.conf from template" {

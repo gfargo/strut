@@ -228,7 +228,7 @@ EOF
   echo "To add specific service endpoints, edit: $target_file"
   echo "Example:"
   echo "  - targets:"
-  echo "      - 'app:8000'"
+  echo "      - 'web:8000'"
   echo "      - 'postgres:5432'"
 }
 

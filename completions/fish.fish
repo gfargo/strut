@@ -60,8 +60,8 @@ function __strut_tok
     end
 end
 
-set -l top_cmds init list scaffold upgrade doctor status-all posture group monitoring audit audit:list audit:generate migrate migrate:status notify skills help completions
-set -l per_stack_cmds update release deploy stop diff lock health logs logs:download logs:rotate migrate backup restore db:pull db:push db:schema shell exec status volumes prune local prod staging dev debug keys validate rollback domain
+set -l top_cmds init list scaffold upgrade doctor status-all posture group monitoring audit audit:list audit:diff audit:generate migrate migrate:status notify sync skills help completions
+set -l per_stack_cmds update release deploy rebuild ship stop diff lock health logs logs:download logs:rotate backup drift migrate restore db:pull db:push db:schema shell exec remote:init provision ssh:keygen ci:init cert:renew cert:status init-secrets secrets status volumes prune local prod staging dev debug keys validate rollback domain
 
 # Disable file completion by default; re-enable where relevant
 complete -c strut -f
