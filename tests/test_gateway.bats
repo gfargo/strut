@@ -109,8 +109,8 @@ teardown() { common_teardown; }
   echo "localhost:80" > "$TEST_TMP/stacks/gateway/Caddyfile.harbor"
 
   topology_load() { :; }
-  topology_has_host() { return 1; }
-  export -f topology_load topology_has_host
+  topology_is_host_alias() { return 1; }
+  export -f topology_load topology_is_host_alias
   export VPS_HOST="10.0.0.1"
   export VPS_USER="deploy"
 
@@ -135,8 +135,8 @@ teardown() { common_teardown; }
   mkdir -p "$TEST_TMP/stacks/gateway"
 
   topology_load() { :; }
-  topology_has_host() { return 1; }
-  export -f topology_load topology_has_host
+  topology_is_host_alias() { return 1; }
+  export -f topology_load topology_is_host_alias
   export VPS_HOST="10.0.0.1"
 
   fail() { echo "FAIL: $1" >&2; exit 1; }

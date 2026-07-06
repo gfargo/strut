@@ -51,10 +51,34 @@ rollback_save_snapshot() {
   local first=true
   local service_count=0
 
-  while IFS='|' read -r service image cid; do
-    [ -z "$service" ] || [ -z "$image" ] && continue
-    local image_id=""
-    [ -n "$cid" ] && image_id=$(docker inspect --format '{{.Image}}' "$cid" 2>/dev/null || echo "")
+  # `--format json` (not a raw multi-field Go template) because it's the
+  # form docker compose reliably supports across versions — the same
+  # NDJSON-vs-array normalization health_check_containers already relies on.
+  # We resolve the image ID by container NAME (always present) rather than
+  # trusting an `.ID` template field, since name-based `docker inspect` is
+  # the more portable lookup.
+  local raw rows
+  raw=$($compose_cmd ps --format json 2>/dev/null || true)
+  rows=$(printf '%s' "$raw" | jq -rs '
+    (if (length == 1 and (.[0] | type) == "array") then .[0] else . end)
+    | .[] | "\(.Service)\t\(.Image)\t\(.Name)"' 2>/dev/null || true)
+
+  while IFS=$'\t' read -r service ps_image cname; do
+    [ -z "$service" ] || [ -z "$ps_image" ] && continue
+    local image_id="" image="$ps_image"
+    if [ -n "$cname" ]; then
+      # Single inspect call for both fields, "~"-joined ("~" can't appear in
+      # an image ref or ID). `.Config.Image` is the reference used AT
+      # CONTAINER-CREATE TIME and never changes; compose ps's own `.Image`
+      # column falls back to showing the raw resolved ID instead of the tag
+      # once the tag has since moved to point elsewhere — which is exactly
+      # the mutable-tag-moved case rollback exists to handle, so we can't
+      # use it as the "image" we later re-tag.
+      local inspect_out
+      inspect_out=$(docker inspect --format '{{.Image}}~{{.Config.Image}}' "$cname" 2>/dev/null || echo "")
+      image_id="${inspect_out%%~*}"
+      [ -n "$inspect_out" ] && image="${inspect_out#*~}"
+    fi
 
     if $first; then
       first=false
@@ -63,7 +87,7 @@ rollback_save_snapshot() {
     fi
     services_json+="\"$service\":{\"image\":\"$image\",\"image_id\":\"$image_id\"}"
     service_count=$((service_count + 1))
-  done < <($compose_cmd ps --format '{{.Service}}|{{.Image}}|{{.ID}}' 2>/dev/null || true)
+  done <<< "$rows"
 
   services_json+="}"
 

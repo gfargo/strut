@@ -76,7 +76,7 @@ _cert_resolve_connection() {
   source "${STRUT_HOME:-$CLI_ROOT}/lib/topology.sh"
   topology_load
 
-  if topology_has_host "$host_alias" 2>/dev/null; then
+  if topology_is_host_alias "$host_alias" 2>/dev/null; then
     local host_spec="${_TOPO_HOSTS[$host_alias]:-}"
     if [ -n "$host_spec" ]; then
       local conn_part key_path

@@ -19,29 +19,32 @@ HEALTH_JSON_OUTPUT=false
 # _health_record <status> <name> <message> [details] — records a single health check result
 _health_record() {
   local status="$1" name="$2" message="$3" details="${4:-}"
+
+  # Counters/overall status must update regardless of output mode — callers
+  # like health_check_green() poll in JSON mode (to suppress human output)
+  # and rely on HEALTH_PASSED/HEALTH_FAILED/HEALTH_WARNED to judge readiness.
+  case "$status" in
+    pass) HEALTH_PASSED=$((HEALTH_PASSED + 1)) ;;
+    fail)
+      HEALTH_FAILED=$((HEALTH_FAILED + 1))
+      HEALTH_OVERALL="unhealthy"
+      ;;
+    warn)
+      HEALTH_WARNED=$((HEALTH_WARNED + 1))
+      [ "$HEALTH_OVERALL" = "healthy" ] && HEALTH_OVERALL="degraded"
+      ;;
+  esac
+
   if $HEALTH_JSON_OUTPUT; then
     HEALTH_JSON_RESULTS=$(echo "$HEALTH_JSON_RESULTS" | \
       jq -c ". += [{\"name\": \"$name\", \"status\": \"$status\", \"message\": \"$message\", \"details\": \"$details\"}]")
     return
   fi
   case "$status" in
-    pass)
-      echo -e "${GREEN}✓${NC} $name: $message"
-      HEALTH_PASSED=$((HEALTH_PASSED + 1))
-      ;;
-    fail)
-      echo -e "${RED}✗${NC} $name: $message"
-      HEALTH_FAILED=$((HEALTH_FAILED + 1))
-      HEALTH_OVERALL="unhealthy"
-      ;;
-    warn)
-      echo -e "${YELLOW}⚠${NC} $name: $message"
-      HEALTH_WARNED=$((HEALTH_WARNED + 1))
-      [ "$HEALTH_OVERALL" = "healthy" ] && HEALTH_OVERALL="degraded"
-      ;;
-    skip)
-      echo -e "  ${BLUE}–${NC} $name: $message"
-      ;;
+    pass) echo -e "${GREEN}✓${NC} $name: $message" ;;
+    fail) echo -e "${RED}✗${NC} $name: $message" ;;
+    warn) echo -e "${YELLOW}⚠${NC} $name: $message" ;;
+    skip) echo -e "  ${BLUE}–${NC} $name: $message" ;;
   esac
   [ -n "$details" ] && echo "  Details: $details"
 }

@@ -53,10 +53,22 @@ docker_require_images() {
     return 0
   }
 
+  # Services with a `build:` context are built locally by `up` if their image
+  # isn't present yet — that's not a failed registry pull, so don't treat it
+  # as fatal. jq is guaranteed here: deploy() calls rollback_save_snapshot
+  # (which hard-requires jq) before this check ever runs.
+  local build_images
+  build_images=$(${sudo_prefix}${compose_cmd} config --format json 2>/dev/null \
+    | jq -r '.services // {} | to_entries[] | select(.value.build) | .value.image // empty' 2>/dev/null) \
+    || build_images=""
+
   local img
   local -a missing=()
   while IFS= read -r img; do
     [ -z "$img" ] && continue
+    if [ -n "$build_images" ] && grep -qxF "$img" <<< "$build_images"; then
+      continue
+    fi
     ${sudo_prefix}docker image inspect "$img" >/dev/null 2>&1 || missing+=("$img")
   done <<< "$images"
 

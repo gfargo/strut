@@ -357,9 +357,10 @@ EOF
 
   # Capture the compose_cmd prefix that up/down receives so we can assert
   # which color each operation targeted.
+  _bg_wait_healthy() { _record "wait:$2"; return 0; }
   _bg_swap_proxy() { _record "swap:$2→$3"; }
   _bg_stop_color() { _record "stop:$1"; }
-  export -f _bg_swap_proxy _bg_stop_color
+  export -f _bg_wait_healthy _bg_swap_proxy _bg_stop_color
 
   # Shadow the compose command string so the `$previous_cmd up -d` call
   # inside the orchestrator routes through our recorder.
@@ -404,4 +405,45 @@ EOF
   [ "$status" -eq 0 ]
   [[ "$output" == *"DRY-RUN"* ]]
   [ "$(_bg_read_state "$STACK")" = "green" ]
+}
+
+@test "bg_rollback_stack: previous color fails health check → aborts, no swap, no stop, state unchanged" {
+  _bg_write_state "$STACK" "green" "demo-test-green"
+
+  _bg_wait_healthy() { _record "wait:FAIL"; return 1; }
+  _bg_swap_proxy()   { _record "swap:$2→$3"; }
+  _bg_stop_color()   { _record "stop:$1"; }
+  export -f _bg_wait_healthy _bg_swap_proxy _bg_stop_color
+
+  _bg_compose_for_color() {
+    local color="$3"
+    echo "compose-$color"
+  }
+  export -f _bg_compose_for_color
+  compose-blue() { _record "up:blue:$*"; }
+  export -f compose-blue
+
+  export DRY_RUN=false
+
+  run bg_rollback_stack "$STACK" "$ENV_FILE"
+  [ "$status" -ne 0 ]
+
+  grep -q "^wait:FAIL" "$CALLS_FILE"
+  ! grep -q "^swap:" "$CALLS_FILE"
+  ! grep -q "^stop:" "$CALLS_FILE"
+
+  # State unchanged — green still active, rollback never completed
+  [ "$(_bg_read_state "$STACK")" = "green" ]
+}
+
+# ── Stop uses `stop`, never `down` ───────────────────────────────────────────
+
+@test "_bg_stop_color: invokes 'stop', never 'down'" {
+  compose-recorder() { _record "cmd:$*"; }
+  export -f compose-recorder
+
+  _bg_stop_color "compose-recorder"
+
+  grep -q "^cmd:stop" "$CALLS_FILE"
+  ! grep -q "^cmd:down" "$CALLS_FILE"
 }

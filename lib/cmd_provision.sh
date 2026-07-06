@@ -119,7 +119,7 @@ cmd_provision() {
   topology_load
 
   local user host port key_path
-  if topology_has_host "$host_alias" 2>/dev/null; then
+  if topology_is_host_alias "$host_alias" 2>/dev/null; then
     # host_alias is actually a host in the topology — resolve directly
     local host_spec="${_TOPO_HOSTS[$host_alias]:-}"
     if [ -n "$host_spec" ]; then
