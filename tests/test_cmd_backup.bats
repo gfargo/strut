@@ -193,3 +193,49 @@ teardown() {
   [[ "$output" != *"offsite_sync_latest"* ]]
   [[ "$output" != *"notify_event backup.success"* ]]
 }
+
+@test "cmd_backup: all continues after one engine failure and reports which failed" {
+  # Simulate postgres fails, mysql succeeds
+  backup_postgres() { return 1; }
+  backup_mysql() { echo "mysql ok"; return 0; }
+  export -f backup_postgres backup_mysql
+  offsite_sync_all() { echo "offsite_sync_all $*"; return 0; }
+  export -f offsite_sync_all
+  notify_event() { echo "notify_event $*"; }
+  export -f notify_event
+
+  # Enable both engines
+  BACKUP_ENGINES=(postgres mysql)
+  backup_engine_enabled() { return 0; }
+  backup_dump_fn() { echo "backup_$1"; }
+  export -f backup_engine_enabled backup_dump_fn
+
+  run cmd_backup all
+  [ "$status" -ne 0 ]
+  # MySQL should still have run despite postgres failure
+  [[ "$output" == *"mysql ok"* ]]
+  # Offsite sync should have been called
+  [[ "$output" == *"offsite_sync_all"* ]]
+  # Should report which engine(s) failed
+  [[ "$output" == *"postgres"* ]]
+}
+
+@test "cmd_backup: all succeeds and calls offsite sync when all engines pass" {
+  backup_postgres() { echo "pg ok"; return 0; }
+  export -f backup_postgres
+  offsite_sync_all() { echo "offsite_sync_all $*"; return 0; }
+  export -f offsite_sync_all
+  notify_event() { echo "notify_event $*"; }
+  export -f notify_event
+
+  BACKUP_ENGINES=(postgres)
+  backup_engine_enabled() { return 0; }
+  backup_dump_fn() { echo "backup_$1"; }
+  export -f backup_engine_enabled backup_dump_fn
+
+  run cmd_backup all
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"pg ok"* ]]
+  [[ "$output" == *"offsite_sync_all"* ]]
+  [[ "$output" == *"notify_event backup.success"* ]]
+}
