@@ -13,17 +13,16 @@ setup() {
 }
 
 # ── Helper: grep across all lib shell files ──────────────────────────
+# Recurses the whole lib/ tree (not an explicit subdir allowlist) so new
+# modules — e.g. lib/notify/*.sh, lib/domain/*.sh, lib/cmd_*.sh, or any future
+# subdirectory — are covered automatically instead of silently falling
+# outside the glob (strut #252 / audit T8: the old explicit-subdir glob is
+# exactly why leftover branding survived undetected in files it missed).
 
 grep_lib() {
   # Returns matches (exit 0) or no matches (exit 1).
   # -r recursive, -n line numbers, -E extended regex
-  grep -rnE "$1" \
-    "$CLI_ROOT"/lib/*.sh \
-    "$CLI_ROOT"/lib/backup/*.sh \
-    "$CLI_ROOT"/lib/drift/*.sh \
-    "$CLI_ROOT"/lib/keys/*.sh \
-    "$CLI_ROOT"/lib/migrate/*.sh \
-    2>/dev/null
+  grep -rnE --include='*.sh' "$1" "$CLI_ROOT/lib" 2>/dev/null
 }
 
 # ── Branding: no Climate-Hub / ch-deploy / c6-hub references ────────
@@ -80,33 +79,36 @@ grep_lib() {
 }
 
 # ── Health engine: no hardcoded service names ────────────────────────
+# Scoped to all of lib/ (not just health.sh) — these are known ex-Climate-Hub
+# service names, and a leftover example/doc-string reference anywhere in the
+# engine is the same branding leak as a live hardcode.
 
-@test "no hardcoded 'ch-api' in health engine — Req 5.5" {
-  if matches=$(grep -rnE "ch-api" "$CLI_ROOT"/lib/health.sh 2>/dev/null); then
+@test "no hardcoded 'ch-api' in any lib/**/*.sh file — Req 5.5" {
+  if matches=$(grep_lib "ch-api"); then
     echo "Found hardcoded 'ch-api':" >&2
     echo "$matches" >&2
     return 1
   fi
 }
 
-@test "no hardcoded 'ch-ingest-otter' in health engine — Req 5.5" {
-  if matches=$(grep -rnE "ch-ingest-otter" "$CLI_ROOT"/lib/health.sh 2>/dev/null); then
+@test "no hardcoded 'ch-ingest-otter' in any lib/**/*.sh file — Req 5.5" {
+  if matches=$(grep_lib "ch-ingest-otter"); then
     echo "Found hardcoded 'ch-ingest-otter':" >&2
     echo "$matches" >&2
     return 1
   fi
 }
 
-@test "no hardcoded 'ch-whatsapp' in health engine — Req 5.5" {
-  if matches=$(grep -rnE "ch-whatsapp" "$CLI_ROOT"/lib/health.sh 2>/dev/null); then
+@test "no hardcoded 'ch-whatsapp' in any lib/**/*.sh file — Req 5.5" {
+  if matches=$(grep_lib "ch-whatsapp"); then
     echo "Found hardcoded 'ch-whatsapp':" >&2
     echo "$matches" >&2
     return 1
   fi
 }
 
-@test "no hardcoded 'ch-chatbot' in health engine — Req 5.5" {
-  if matches=$(grep -rnE "ch-chatbot" "$CLI_ROOT"/lib/health.sh 2>/dev/null); then
+@test "no hardcoded 'ch-chatbot' in any lib/**/*.sh file — Req 5.5" {
+  if matches=$(grep_lib "ch-chatbot"); then
     echo "Found hardcoded 'ch-chatbot':" >&2
     echo "$matches" >&2
     return 1

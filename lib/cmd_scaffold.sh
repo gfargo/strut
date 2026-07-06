@@ -316,10 +316,10 @@ _scaffold_substitute() {
   local target="$1" new_name="$2"
   command -v sed >/dev/null 2>&1 || return 0
   find "$target" -type f -not -path '*/.git/*' -print0 | \
-    xargs -0 sed -i.bak "s/STACK_NAME_PLACEHOLDER/$new_name/g" 2>/dev/null
+    xargs -0 sed -i.bak "s/STACK_NAME_PLACEHOLDER/$(sed_escape_replacement "$new_name")/g"
   if [ -n "${DEFAULT_ORG:-}" ]; then
     find "$target" -type f -not -path '*/.git/*' -print0 | \
-      xargs -0 sed -i.bak "s/YOUR_ORG/${DEFAULT_ORG}/g" 2>/dev/null
+      xargs -0 sed -i.bak "s/YOUR_ORG/$(sed_escape_replacement "$DEFAULT_ORG")/g"
   fi
   find "$target" -name "*.bak" -delete 2>/dev/null || true
 

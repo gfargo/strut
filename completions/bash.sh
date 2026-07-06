@@ -68,8 +68,8 @@ _strut_completions() {
   prev="${COMP_WORDS[COMP_CWORD-1]}"
   cword=$COMP_CWORD
 
-  local top_cmds="init list scaffold upgrade doctor status-all posture group monitoring audit audit:list audit:generate migrate migrate:status notify skills help completions --version -v --help -h"
-  local per_stack_cmds="update release deploy rebuild stop diff lock health logs logs:download logs:rotate migrate backup restore db:pull db:push db:schema shell exec remote:init status volumes prune local prod staging dev debug keys validate rollback domain --help"
+  local top_cmds="init list scaffold upgrade doctor status-all posture group monitoring audit audit:list audit:diff audit:generate migrate migrate:status notify sync skills help completions --version -v --help -h"
+  local per_stack_cmds="update release deploy rebuild ship stop diff lock health logs logs:download logs:rotate backup drift migrate restore db:pull db:push db:schema shell exec remote:init provision ssh:keygen ci:init cert:renew cert:status init-secrets secrets status volumes prune local prod staging dev debug keys validate rollback domain --help"
   local profiles="messaging ui full"
 
   # Flag-value completions — operate on prev regardless of position

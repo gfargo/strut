@@ -57,6 +57,23 @@ json_escape() {
   echo "$s"
 }
 
+# sed_escape_replacement <string>
+#
+# Escapes a string for safe interpolation into the replacement side of a
+# `sed s/.../.../ ` expression delimited by `/`. Order matters: backslashes
+# must be escaped FIRST, then the delimiter, then `&` — otherwise the
+# backslashes just inserted for `/` and `&` would themselves get doubled by
+# a later pass. Without this, a value containing `/`, `&`, or `\` (e.g. an
+# org name like "ac/me & co") corrupts the sed expression or silently
+# clobbers matched text.
+sed_escape_replacement() {
+  local s="$1"
+  s="${s//\\/\\\\}"
+  s="${s//\//\\/}"
+  s="${s//&/\\&}"
+  printf '%s' "$s"
+}
+
 # ── Banner helpers ────────────────────────────────────────────────────────────
 
 # print_banner <subtitle>

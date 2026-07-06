@@ -60,7 +60,7 @@ EOF
     esac
     # Uncomment and set REGISTRY_TYPE
     if grep -q "^# REGISTRY_TYPE=" "$PWD/strut.conf"; then
-      sed -i.bak "s/^# REGISTRY_TYPE=.*/REGISTRY_TYPE=$registry_flag/" "$PWD/strut.conf"
+      sed -i.bak "s/^# REGISTRY_TYPE=.*/REGISTRY_TYPE=$(sed_escape_replacement "$registry_flag")/" "$PWD/strut.conf"
       rm -f "$PWD/strut.conf.bak"
     else
       echo "REGISTRY_TYPE=$registry_flag" >> "$PWD/strut.conf"
@@ -71,7 +71,7 @@ EOF
   if [ -n "$org_flag" ]; then
     # Uncomment and set DEFAULT_ORG
     if grep -q "^# DEFAULT_ORG=" "$PWD/strut.conf"; then
-      sed -i.bak "s/^# DEFAULT_ORG=.*/DEFAULT_ORG=$org_flag/" "$PWD/strut.conf"
+      sed -i.bak "s/^# DEFAULT_ORG=.*/DEFAULT_ORG=$(sed_escape_replacement "$org_flag")/" "$PWD/strut.conf"
       rm -f "$PWD/strut.conf.bak"
     else
       echo "DEFAULT_ORG=$org_flag" >> "$PWD/strut.conf"

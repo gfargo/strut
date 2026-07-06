@@ -49,8 +49,8 @@ _strut_groups() {
 
 _strut() {
   local -a top_cmds per_stack_cmds profiles
-  top_cmds=(init list scaffold upgrade doctor status-all posture group monitoring audit audit:list audit:generate migrate migrate:status notify skills help completions --version --help)
-  per_stack_cmds=(update release deploy stop diff lock health logs logs:download logs:rotate migrate backup restore db:pull db:push db:schema shell exec status volumes prune local prod staging dev debug keys validate rollback domain --help)
+  top_cmds=(init list scaffold upgrade doctor status-all posture group monitoring audit audit:list audit:diff audit:generate migrate migrate:status notify sync skills help completions --version --help)
+  per_stack_cmds=(update release deploy rebuild ship stop diff lock health logs logs:download logs:rotate backup drift migrate restore db:pull db:push db:schema shell exec remote:init provision ssh:keygen ci:init cert:renew cert:status init-secrets secrets status volumes prune local prod staging dev debug keys validate rollback domain --help)
   profiles=(messaging ui full)
 
   local -a words_arr
