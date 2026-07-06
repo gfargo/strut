@@ -248,14 +248,33 @@ backup_command() {
         return 0
       fi
       local engine
+      local _all_failed_engines=()
+      local _all_has_failure=false
       for engine in "${BACKUP_ENGINES[@]}"; do
         if backup_engine_enabled "$engine"; then
           local dump_fn
           dump_fn=$(backup_dump_fn "$engine")
-          "$dump_fn" "$stack" "$compose_cmd"
+          if ! "$dump_fn" "$stack" "$compose_cmd"; then
+            _all_has_failure=true
+            _all_failed_engines+=("$engine")
+            alert_backup_failure "$stack" "$engine" "$engine backup failed during 'backup all'"
+          fi
+        fi
+      done
+      # Always attempt offsite sync — successful backups should still be
+      # pushed even if some engines failed.
+      for engine in "${BACKUP_ENGINES[@]}"; do
+        if backup_engine_enabled "$engine"; then
+          offsite_sync_latest "$stack" "$(backup_engine_glob "$engine")" 2>/dev/null || true
         fi
       done
       BACKUP_TARGET="all" fire_hook_or_warn post_backup "$stack_dir"
+      if [ "$_all_has_failure" = "true" ]; then
+        notify_event backup.partial_failure \
+          stack="$stack" env="$env_name" type=all \
+          failed_engines="${_all_failed_engines[*]}"
+        return 1
+      fi
       notify_event backup.success stack="$stack" env="$env_name" type=all
       ;;
     *)

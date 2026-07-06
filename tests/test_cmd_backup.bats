@@ -193,3 +193,104 @@ teardown() {
   [[ "$output" != *"offsite_sync_latest"* ]]
   [[ "$output" != *"notify_event backup.success"* ]]
 }
+
+# ── backup all resilience (issue #230) ────────────────────────────────────────
+
+@test "cmd_backup: all continues past first engine failure and runs remaining engines" {
+  # Enable postgres + neo4j; postgres fails, neo4j succeeds.
+  export BACKUP_POSTGRES=true
+  export BACKUP_NEO4J=true
+  export BACKUP_MYSQL=false
+  export BACKUP_SQLITE=false
+  backup_postgres() { echo "backup_postgres called"; return 1; }
+  backup_neo4j() { echo "backup_neo4j called"; return 0; }
+  export -f backup_postgres backup_neo4j
+  alert_backup_failure() { echo "alert_backup_failure $*"; }
+  export -f alert_backup_failure
+  offsite_sync_latest() { echo "offsite_sync_latest $*"; }
+  export -f offsite_sync_latest
+  notify_event() { echo "notify_event $*"; }
+  export -f notify_event
+
+  run cmd_backup all
+  # Should still exit non-zero because one engine failed
+  [ "$status" -ne 0 ]
+  # Both engines were attempted
+  [[ "$output" == *"backup_postgres called"* ]]
+  [[ "$output" == *"backup_neo4j called"* ]]
+  # Failure alert fired for postgres
+  [[ "$output" == *"alert_backup_failure test-stack postgres"* ]]
+  # Offsite sync was still attempted (for both enabled engines)
+  [[ "$output" == *"offsite_sync_latest"* ]]
+}
+
+@test "cmd_backup: all emits per-engine alerts only for failed engines" {
+  export BACKUP_POSTGRES=true
+  export BACKUP_NEO4J=true
+  export BACKUP_MYSQL=true
+  export BACKUP_SQLITE=false
+  backup_postgres() { return 0; }
+  backup_neo4j() { return 1; }
+  backup_mysql() { return 1; }
+  export -f backup_postgres backup_neo4j backup_mysql
+  alert_backup_failure() { echo "alert_backup_failure $*"; }
+  export -f alert_backup_failure
+  offsite_sync_latest() { return 0; }
+  export -f offsite_sync_latest
+  notify_event() { echo "notify_event $*"; }
+  export -f notify_event
+
+  run cmd_backup all
+  [ "$status" -ne 0 ]
+  # Alerts for neo4j and mysql, NOT for postgres
+  [[ "$output" == *"alert_backup_failure test-stack neo4j"* ]]
+  [[ "$output" == *"alert_backup_failure test-stack mysql"* ]]
+  [[ "$output" != *"alert_backup_failure test-stack postgres"* ]]
+}
+
+@test "cmd_backup: all notifies partial_failure with failed engine names" {
+  export BACKUP_POSTGRES=true
+  export BACKUP_NEO4J=true
+  export BACKUP_MYSQL=false
+  export BACKUP_SQLITE=false
+  backup_postgres() { return 1; }
+  backup_neo4j() { return 0; }
+  export -f backup_postgres backup_neo4j
+  alert_backup_failure() { echo "alert $*"; }
+  export -f alert_backup_failure
+  offsite_sync_latest() { return 0; }
+  export -f offsite_sync_latest
+  notify_event() { echo "notify_event $*"; }
+  export -f notify_event
+
+  run cmd_backup all
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"notify_event backup.partial_failure"* ]]
+  [[ "$output" == *"failed_engines=postgres"* ]]
+  [[ "$output" != *"notify_event backup.success"* ]]
+}
+
+@test "cmd_backup: all with all engines succeeding syncs offsite and notifies success" {
+  export BACKUP_POSTGRES=true
+  export BACKUP_NEO4J=true
+  export BACKUP_MYSQL=false
+  export BACKUP_SQLITE=false
+  backup_postgres() { echo "backup_postgres ok"; return 0; }
+  backup_neo4j() { echo "backup_neo4j ok"; return 0; }
+  export -f backup_postgres backup_neo4j
+  alert_backup_failure() { echo "alert_backup_failure $*"; }
+  export -f alert_backup_failure
+  offsite_sync_latest() { echo "offsite_sync_latest $*"; }
+  export -f offsite_sync_latest
+  notify_event() { echo "notify_event $*"; }
+  export -f notify_event
+
+  run cmd_backup all
+  [ "$status" -eq 0 ]
+  # No failure alerts
+  [[ "$output" != *"alert_backup_failure"* ]]
+  # Offsite sync ran
+  [[ "$output" == *"offsite_sync_latest"* ]]
+  # Success notification
+  [[ "$output" == *"notify_event backup.success"* ]]
+}
