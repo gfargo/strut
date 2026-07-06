@@ -249,6 +249,56 @@ EOF
   [ "$status" -eq 1 ]
 }
 
+@test "init_volume_directories: DRY_RUN=true creates no directories" {
+  _load_volumes
+  local mount="$TEST_TMP/mnt/data"
+  mkdir -p "$mount"
+
+  mountpoint() { [[ "$2" == "$mount" ]] && return 0 || command mountpoint "$@"; }
+
+  mkdir -p "$TEST_TMP/stack"
+  cat > "$TEST_TMP/stack/volume.conf" <<EOF
+DATA_VOLUME_MOUNT=$mount
+DB_DATA_PATH=$mount/db
+SEARCH_DATA_PATH=$mount/search
+CACHE_PATH=$mount/cache
+EOF
+
+  export DRY_RUN=true
+  run init_volume_directories "$TEST_TMP/stack"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"[DRY-RUN]"* ]]
+
+  [ ! -d "$mount/db" ]
+  [ ! -d "$mount/search" ]
+  [ ! -d "$mount/cache" ]
+}
+
+@test "init_volume_directories: DRY_RUN=true performs no chown" {
+  _load_volumes
+  local mount="$TEST_TMP/mnt/data"
+  mkdir -p "$mount/db" "$mount/search"
+
+  mountpoint() { [[ "$2" == "$mount" ]] && return 0 || command mountpoint "$@"; }
+
+  local chown_log="$TEST_TMP/chown.log"
+  chown() { echo "chown $*" >> "$chown_log"; }
+
+  mkdir -p "$TEST_TMP/stack"
+  cat > "$TEST_TMP/stack/volume.conf" <<EOF
+DATA_VOLUME_MOUNT=$mount
+DB_DATA_PATH=$mount/db
+SEARCH_DATA_PATH=$mount/search
+VOLUME_OWNERS="DB_DATA_PATH=999:999 SEARCH_DATA_PATH=1000:1000"
+EOF
+
+  export DRY_RUN=true
+  run init_volume_directories "$TEST_TMP/stack"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"[DRY-RUN]"* ]]
+  [ ! -f "$chown_log" ]
+}
+
 # ── Static analysis: no hardcoded service names or UIDs ───────────────────────
 
 @test "volumes.sh: no hardcoded NEO4J_DATA_PATH in export/init logic" {

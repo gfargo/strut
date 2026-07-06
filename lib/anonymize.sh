@@ -60,13 +60,27 @@ _anon_sql_mask() {
 }
 
 # _anon_sql_hash <table> <column> [db_type]
-# SHA256 hash — preserves uniqueness
+# One-way transform — preserves uniqueness, not reversible to plaintext.
+# postgres/mysql use their native SHA-256 functions. Stock sqlite3 has no
+# built-in crypto hash, so it uses a pure-SQL djb2-style rolling hash over a
+# recursive CTE — a documented pseudonymization, not a cryptographic digest,
+# but unlike HEX() it is lossy (fixed-width output, arithmetic overflow) and
+# cannot be decoded back to the original value.
 _anon_sql_hash() {
   local table="$1" column="$2" db_type="${3:-postgres}"
   case "$db_type" in
     postgres) echo "UPDATE \"$table\" SET \"$column\" = ENCODE(SHA256(\"$column\"::bytea), 'hex') WHERE \"$column\" IS NOT NULL;" ;;
     mysql)    echo "UPDATE \`$table\` SET \`$column\` = SHA2(\`$column\`, 256) WHERE \`$column\` IS NOT NULL;" ;;
-    sqlite)   echo "UPDATE \"$table\" SET \"$column\" = HEX(\"$column\") WHERE \"$column\" IS NOT NULL;" ;;
+    sqlite)   echo "UPDATE \"$table\" SET \"$column\" = (
+  WITH RECURSIVE anon_hash_walk(i, h) AS (
+    SELECT 1, 5381
+    UNION ALL
+    SELECT i + 1, ((h * 33) + unicode(substr(\"$table\".\"$column\", i, 1))) % 4294967296
+    FROM anon_hash_walk
+    WHERE i <= length(\"$table\".\"$column\")
+  )
+  SELECT printf('%08x%08x', h, (h * 2654435761) % 4294967296) FROM anon_hash_walk ORDER BY i DESC LIMIT 1
+) WHERE \"$column\" IS NOT NULL;" ;;
   esac
 }
 
@@ -166,7 +180,7 @@ anon_apply_postgres() {
 
   log "Applying anonymization rules to PostgreSQL..."
   echo "$sql" | $compose_cmd exec -T "$pg_service" \
-    psql -U "${POSTGRES_USER:-postgres}" "${POSTGRES_DB:-app_db}" 2>/dev/null \
+    psql -v ON_ERROR_STOP=1 -U "${POSTGRES_USER:-postgres}" "${POSTGRES_DB:-app_db}" 2>/dev/null \
     && ok "PostgreSQL anonymization complete" \
     || { error "PostgreSQL anonymization failed"; return 1; }
 }
@@ -183,8 +197,10 @@ anon_apply_mysql() {
   sql=$(anon_build_sql "$config_file" "mysql")
 
   log "Applying anonymization rules to MySQL..."
-  echo "$sql" | $compose_cmd exec -T mysql \
-    mysql -u "$mysql_user" --password="$mysql_password" "${MYSQL_DATABASE:-app_db}" 2>/dev/null \
+  # Pass the password via MYSQL_PWD (env var on the exec'd process) instead
+  # of --password=, which would put it in the container's process list.
+  echo "$sql" | $compose_cmd exec -T -e MYSQL_PWD="$mysql_password" mysql \
+    mysql -u "$mysql_user" "${MYSQL_DATABASE:-app_db}" 2>/dev/null \
     && ok "MySQL anonymization complete" \
     || { error "MySQL anonymization failed"; return 1; }
 }
@@ -199,7 +215,7 @@ anon_apply_sqlite() {
   sql=$(anon_build_sql "$config_file" "sqlite")
 
   log "Applying anonymization rules to SQLite..."
-  echo "$sql" | sqlite3 "$db_file" 2>/dev/null \
+  echo "$sql" | sqlite3 -bail "$db_file" 2>/dev/null \
     && ok "SQLite anonymization complete" \
     || { error "SQLite anonymization failed"; return 1; }
 }

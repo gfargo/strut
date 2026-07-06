@@ -279,6 +279,38 @@ _record() { echo "$*" >> "$CALLS_FILE"; }
   [ "$(_bg_read_state "$STACK")" = "blue" ]
 }
 
+@test "bg_deploy_stack: dry-run does not execute the real pre_deploy hook" {
+  # Use the REAL fire_hook (not the file-level stub) so this test can catch
+  # the class of bug where dry-run runs side-effecting steps before the
+  # plan-only exit — strut#242 / OSS-423.
+  # (CLI_ROOT is repurposed to the fixture dir above, so resolve the repo
+  # root independently to source the real lib file.)
+  local repo_root
+  repo_root="$(cd "$(dirname "$BATS_TEST_FILENAME")/.." && pwd)"
+  source "$repo_root/lib/hooks.sh"
+
+  _bg_start_color()  { _record "start:$1"; }
+  _bg_wait_healthy() { _record "wait"; return 0; }
+  _bg_swap_proxy()   { _record "swap"; }
+  _bg_drain()        { _record "drain"; }
+  _bg_stop_color()   { _record "stop"; }
+  export -f _bg_start_color _bg_wait_healthy _bg_swap_proxy _bg_drain _bg_stop_color
+
+  local marker="$TEST_TMP/hook-ran"
+  mkdir -p "$CLI_ROOT/stacks/$STACK/hooks"
+  cat > "$CLI_ROOT/stacks/$STACK/hooks/pre_deploy.sh" <<EOF
+#!/bin/bash
+touch "$marker"
+EOF
+
+  export PRE_DEPLOY_VALIDATE=true SKIP_VALIDATION=false DRY_RUN=true PRE_DEPLOY_HOOKS=true
+
+  run bg_deploy_stack "$STACK" "$ENV_FILE"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"DRY-RUN"* ]]
+  [ ! -f "$marker" ]
+}
+
 # ── Regression: bg_deploy_stack preserves dispatcher-resolved VPS_HOST ───────
 # strut#220 (OSS-466): a raw `set -a; source $env_file; set +a` right after
 # validate_env_file used to clobber a --host/topology-resolved VPS_HOST with
