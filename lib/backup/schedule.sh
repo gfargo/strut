@@ -206,32 +206,20 @@ install_default_schedules() {
     create_default_backup_conf "$stack"
   }
 
-  # Source backup.conf
-  set -a
-  source "$backup_conf"
-  set +a
+  load_backup_conf "$stack" || return 1
 
   log "Installing default backup schedules for $stack..."
 
-  # Install postgres schedule if enabled
-  if [ "${BACKUP_POSTGRES:-true}" = "true" ] && [ -n "${BACKUP_SCHEDULE_POSTGRES:-}" ]; then
-    install_backup_schedule "$stack" "postgres" "$BACKUP_SCHEDULE_POSTGRES" "$env_name"
-  fi
-
-  # Install neo4j schedule if enabled
-  if [ "${BACKUP_NEO4J:-false}" = "true" ] && [ -n "${BACKUP_SCHEDULE_NEO4J:-}" ]; then
-    install_backup_schedule "$stack" "neo4j" "$BACKUP_SCHEDULE_NEO4J" "$env_name"
-  fi
-
-  # Install mysql schedule if enabled
-  if [ "${BACKUP_MYSQL:-false}" = "true" ] && [ -n "${BACKUP_SCHEDULE_MYSQL:-}" ]; then
-    install_backup_schedule "$stack" "mysql" "$BACKUP_SCHEDULE_MYSQL" "$env_name"
-  fi
-
-  # Install sqlite schedule if enabled
-  if [ "${BACKUP_SQLITE:-false}" = "true" ] && [ -n "${BACKUP_SCHEDULE_SQLITE:-}" ]; then
-    install_backup_schedule "$stack" "sqlite" "$BACKUP_SCHEDULE_SQLITE" "$env_name"
-  fi
+  # Install a schedule for each registered engine that's enabled and has a
+  # configured cron expression (BACKUP_SCHEDULE_POSTGRES, etc.)
+  local engine schedule_var schedule
+  for engine in "${BACKUP_ENGINES[@]}"; do
+    schedule_var="BACKUP_SCHEDULE_$(echo "$engine" | tr '[:lower:]' '[:upper:]')"
+    schedule="${!schedule_var:-}"
+    if backup_engine_enabled "$engine" && [ -n "$schedule" ]; then
+      install_backup_schedule "$stack" "$engine" "$schedule" "$env_name"
+    fi
+  done
 
   ok "Default schedules installed"
 }
@@ -277,15 +265,9 @@ check_missed_backups() {
         cron_expr=$(echo "$cron_line" | awk '{print $1, $2, $3, $4, $5}')
 
         # Find latest backup for this service
-        local latest_backup=""
-        if [ "$service" = "postgres" ]; then
-          latest_backup=$(ls -t "$backup_dir/${service}-"*.sql 2>/dev/null | head -1)
-        elif [ "$service" = "neo4j" ]; then
-          latest_backup=$(ls -t "$backup_dir/${service}-"*.dump 2>/dev/null | head -1)
-        elif [ "$service" = "mysql" ]; then
-          latest_backup=$(ls -t "$backup_dir/${service}-"*.sql 2>/dev/null | head -1)
-        elif [ "$service" = "sqlite" ]; then
-          latest_backup=$(ls -t "$backup_dir/${service}-"*.db 2>/dev/null | head -1)
+        local latest_backup="" glob
+        if glob=$(backup_engine_glob "$service" 2>/dev/null); then
+          latest_backup=$(ls -t "$backup_dir/$glob" 2>/dev/null | head -1)
         fi
 
         if [ -z "$latest_backup" ]; then

@@ -124,8 +124,9 @@ _neo4j_verify_load_dump() {
 
   # Resolved the same way backup_neo4j finds the live container, so this
   # works regardless of the compose service name.
+  local neo4j_service="${BACKUP_NEO4J_SERVICE:-neo4j}"
   local container_name
-  container_name=$(${_sudo}docker ps --filter "name=neo4j" --format "{{.Names}}" | grep "$stack" | head -1 || true)
+  container_name=$(${_sudo}docker ps --filter "name=$neo4j_service" --format "{{.Names}}" | grep "$stack" | head -1 || true)
   [ -n "$container_name" ] || {
     error "Neo4j container not found for stack: $stack"
     return 1
@@ -366,11 +367,12 @@ verify_mysql_backup() {
   local temp_db="verify_temp_$(date +%s)"
 
   # Determine exec method
+  local mysql_service="${BACKUP_MYSQL_SERVICE:-mysql}"
   local exec_prefix=""
   if [ -n "$mysql_container" ]; then
     exec_prefix="docker exec -i $mysql_container"
   else
-    exec_prefix="$compose_cmd exec -T onlyoffice-mysql-server"
+    exec_prefix="$compose_cmd exec -T $mysql_service"
   fi
 
   # Create temporary database
@@ -585,32 +587,39 @@ verify_backup() {
   backup_filename=$(basename "$backup_file")
   local service=""
   local verification_result=""
-
-  # Determine service type from filename
   local verify_status=0
-  if [[ "$backup_filename" == postgres-* ]]; then
-    service="postgres"
-    verification_result=$(verify_postgres_backup "$stack" "$backup_file" "$compose_cmd")
-    verify_status=$?
-  elif [[ "$backup_filename" == neo4j-* ]]; then
-    service="neo4j"
-    if [ "$full_verify" = "--full" ]; then
-      verification_result=$(verify_neo4j_backup_full "$stack" "$backup_file" "$compose_cmd")
-    else
-      verification_result=$(verify_neo4j_backup "$stack" "$backup_file" "$compose_cmd")
+
+  # Determine engine from filename prefix via registry membership
+  local engine=""
+  local e
+  for e in "${BACKUP_ENGINES[@]}"; do
+    if [[ "$backup_filename" == "${e}-"* ]]; then
+      engine="$e"
+      break
     fi
-    verify_status=$?
-  elif [[ "$backup_filename" == mysql-* ]]; then
-    service="mysql"
-    verification_result=$(verify_mysql_backup "$stack" "$backup_file" "$compose_cmd")
-    verify_status=$?
-  elif [[ "$backup_filename" == sqlite-* ]]; then
-    service="sqlite"
-    verification_result=$(verify_sqlite_backup "$stack" "$backup_file")
-    verify_status=$?
-  else
+  done
+
+  if [ -z "$engine" ]; then
     error "Unknown backup type: $backup_filename"
     return 1
+  fi
+  service="$engine"
+
+  # verify_neo4j_backup_full is the one engine with a --full variant; it's an
+  # explicit override on top of the generic registry dispatch, not absorbed
+  # into backup_verify_fn's one-liner naming convention.
+  if [ "$engine" = "neo4j" ] && [ "$full_verify" = "--full" ]; then
+    verification_result=$(verify_neo4j_backup_full "$stack" "$backup_file" "$compose_cmd")
+    verify_status=$?
+  else
+    local verify_fn
+    verify_fn=$(backup_verify_fn "$engine")
+    if [ "$engine" = "sqlite" ]; then
+      verification_result=$("$verify_fn" "$stack" "$backup_file")
+    else
+      verification_result=$("$verify_fn" "$stack" "$backup_file" "$compose_cmd")
+    fi
+    verify_status=$?
   fi
 
   # Update or create metadata
@@ -657,52 +666,21 @@ verify_all_backups() {
   local passed=0
   local failed=0
 
-  # Verify PostgreSQL backups
-  for backup_file in "$backup_dir"/postgres-*.sql; do
-    [ -f "$backup_file" ] || continue
-    total=$((total + 1))
+  # Verify backups for every registered engine (basic verification only —
+  # neo4j's --full check is not run in batch)
+  local engine glob
+  for engine in "${BACKUP_ENGINES[@]}"; do
+    glob=$(backup_engine_glob "$engine")
+    for backup_file in "$backup_dir"/$glob; do
+      [ -f "$backup_file" ] || continue
+      total=$((total + 1))
 
-    if verify_backup "$stack" "$backup_file" "$compose_cmd"; then
-      passed=$((passed + 1))
-    else
-      failed=$((failed + 1))
-    fi
-  done
-
-  # Verify Neo4j backups (basic verification only for batch)
-  for backup_file in "$backup_dir"/neo4j-*.dump; do
-    [ -f "$backup_file" ] || continue
-    total=$((total + 1))
-
-    if verify_backup "$stack" "$backup_file" "$compose_cmd"; then
-      passed=$((passed + 1))
-    else
-      failed=$((failed + 1))
-    fi
-  done
-
-  # Verify MySQL backups
-  for backup_file in "$backup_dir"/mysql-*.sql; do
-    [ -f "$backup_file" ] || continue
-    total=$((total + 1))
-
-    if verify_backup "$stack" "$backup_file" "$compose_cmd"; then
-      passed=$((passed + 1))
-    else
-      failed=$((failed + 1))
-    fi
-  done
-
-  # Verify SQLite backups
-  for backup_file in "$backup_dir"/sqlite-*.db; do
-    [ -f "$backup_file" ] || continue
-    total=$((total + 1))
-
-    if verify_backup "$stack" "$backup_file" "$compose_cmd"; then
-      passed=$((passed + 1))
-    else
-      failed=$((failed + 1))
-    fi
+      if verify_backup "$stack" "$backup_file" "$compose_cmd"; then
+        passed=$((passed + 1))
+      else
+        failed=$((failed + 1))
+      fi
+    done
   done
 
   echo ""
