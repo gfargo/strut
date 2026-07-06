@@ -11,13 +11,14 @@ keys_db_rotate() {
   local db_type="${2:-}"
 
   [ -n "$db_type" ] || fail "Usage: keys db:rotate <neo4j|postgres>"
+  shift 2 || true
 
   case "$db_type" in
     neo4j)
-      keys_db_rotate_neo4j "$stack"
+      keys_db_rotate_neo4j "$stack" "$@"
       ;;
     postgres)
-      keys_db_rotate_postgres "$stack"
+      keys_db_rotate_postgres "$stack" "$@"
       ;;
     *)
       fail "Unknown database type: $db_type (neo4j|postgres)"

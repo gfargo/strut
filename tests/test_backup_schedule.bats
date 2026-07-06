@@ -114,3 +114,94 @@ teardown() {
 
   rm -rf "$CLI_ROOT/stacks/$stack"
 }
+
+# ── install_backup_schedule: cron line shape ──────────────────────────────────
+# Fakes crontab as a shell function backed by a temp file — never touches the
+# real system crontab. Mirrors the fail()/error() override pattern above.
+# The write side goes through a temp-file-then-rename so a read (-l) that
+# lands in the same pipeline as a write (-) can never observe a truncated
+# file — the same atomicity the real crontab binary provides.
+
+_fake_crontab_setup() {
+  FAKE_CRONTAB="$TEST_TMP/crontab.txt"
+  : > "$FAKE_CRONTAB"
+  crontab() {
+    case "$1" in
+      -l) cat "$FAKE_CRONTAB" 2>/dev/null ;;
+      -)
+        local tmp
+        tmp="$(mktemp)"
+        cat > "$tmp"
+        mv "$tmp" "$FAKE_CRONTAB"
+        ;;
+    esac
+  }
+}
+
+@test "install_backup_schedule: cron line invokes absolute strut binary, never bare 'strut'" {
+  local stack="test-sched-cron-$$"
+  mkdir -p "$CLI_ROOT/stacks/$stack"
+  _fake_crontab_setup
+
+  run install_backup_schedule "$stack" "postgres" "0 2 * * *" "prod"
+  [ "$status" -eq 0 ]
+
+  local line
+  line=$(grep -A1 "strut backup: $stack/postgres" "$FAKE_CRONTAB" | tail -1)
+  [[ "$line" == *"$CLI_ROOT/strut"* ]]
+  [[ "$line" != *" strut "* ]]
+
+  rm -rf "$CLI_ROOT/stacks/$stack"
+}
+
+@test "install_backup_schedule: adds PATH/SHELL header once, idempotent on reinstall" {
+  local stack="test-sched-header-$$"
+  mkdir -p "$CLI_ROOT/stacks/$stack"
+  _fake_crontab_setup
+
+  install_backup_schedule "$stack" "postgres" "0 2 * * *" "prod" >/dev/null
+  install_backup_schedule "$stack" "postgres" "0 3 * * *" "prod" >/dev/null
+
+  local path_count
+  path_count=$(grep -c "^PATH=" "$FAKE_CRONTAB")
+  [ "$path_count" -eq 1 ]
+  grep -q "^SHELL=" "$FAKE_CRONTAB"
+
+  rm -rf "$CLI_ROOT/stacks/$stack"
+}
+
+@test "install_backup_schedule: creates log directory and wraps command in flock" {
+  local stack="test-sched-log-$$"
+  mkdir -p "$CLI_ROOT/stacks/$stack"
+  rm -rf "$CLI_ROOT/stacks/$stack/backups"
+  _fake_crontab_setup
+
+  run install_backup_schedule "$stack" "postgres" "0 2 * * *" "prod"
+  [ "$status" -eq 0 ]
+  [ -d "$CLI_ROOT/stacks/$stack/backups" ]
+  grep -q "flock -n" "$FAKE_CRONTAB"
+
+  rm -rf "$CLI_ROOT/stacks/$stack"
+}
+
+@test "install_backup_schedule: installed cron line runs end-to-end under a minimal cron PATH" {
+  local stack="test-sched-e2e-$$"
+  mkdir -p "$CLI_ROOT/stacks/$stack"
+  _fake_crontab_setup
+
+  install_backup_schedule "$stack" "postgres" "0 2 * * *" "prod" >/dev/null
+
+  local line
+  line=$(grep "^0 2" "$FAKE_CRONTAB")
+  # Strip the 5-field schedule, keep the rest of the command
+  local remainder
+  remainder=$(echo "$line" | cut -d' ' -f6-)
+
+  run env -i PATH=/usr/bin:/bin HOME="${HOME:-/root}" sh -c "$remainder"
+  [[ "$output" != *"command not found"* ]]
+
+  local log_file="$CLI_ROOT/stacks/$stack/backups/cron.log"
+  [ -f "$log_file" ]
+
+  rm -rf "$CLI_ROOT/stacks/$stack"
+}

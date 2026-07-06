@@ -153,7 +153,10 @@ backup_command() {
         echo -e "${YELLOW}[DRY-RUN] No changes made.${NC}"
         return 0
       fi
-      backup_postgres "$stack" "$compose_cmd"
+      if ! backup_postgres "$stack" "$compose_cmd"; then
+        alert_backup_failure "$stack" "postgres" "pg_dump failed — see logs above"
+        return 1
+      fi
       offsite_sync_latest "$stack" "postgres-*.sql"
       BACKUP_TARGET="postgres" fire_hook_or_warn post_backup "$stack_dir"
       notify_event backup.success stack="$stack" env="$env_name" type=postgres
@@ -170,7 +173,10 @@ backup_command() {
         echo -e "${YELLOW}[DRY-RUN] No changes made.${NC}"
         return 0
       fi
-      backup_neo4j "$stack" "$compose_cmd"
+      if ! backup_neo4j "$stack" "$compose_cmd"; then
+        alert_backup_failure "$stack" "neo4j" "neo4j-admin dump failed — see logs above"
+        return 1
+      fi
       offsite_sync_latest "$stack" "neo4j-*.dump"
       BACKUP_TARGET="neo4j" fire_hook_or_warn post_backup "$stack_dir"
       notify_event backup.success stack="$stack" env="$env_name" type=neo4j
@@ -186,7 +192,10 @@ backup_command() {
         echo -e "${YELLOW}[DRY-RUN] No changes made.${NC}"
         return 0
       fi
-      backup_mysql "$stack" "$compose_cmd"
+      if ! backup_mysql "$stack" "$compose_cmd"; then
+        alert_backup_failure "$stack" "mysql" "mysqldump failed — see logs above"
+        return 1
+      fi
       offsite_sync_latest "$stack" "mysql-*.sql"
       BACKUP_TARGET="mysql" fire_hook_or_warn post_backup "$stack_dir"
       notify_event backup.success stack="$stack" env="$env_name" type=mysql
@@ -202,7 +211,10 @@ backup_command() {
         echo -e "${YELLOW}[DRY-RUN] No changes made.${NC}"
         return 0
       fi
-      backup_sqlite "$stack" "$compose_cmd"
+      if ! backup_sqlite "$stack" "$compose_cmd"; then
+        alert_backup_failure "$stack" "sqlite" "sqlite backup failed — see logs above"
+        return 1
+      fi
       offsite_sync_latest "$stack" "sqlite-*.db"
       BACKUP_TARGET="sqlite" fire_hook_or_warn post_backup "$stack_dir"
       notify_event backup.success stack="$stack" env="$env_name" type=sqlite

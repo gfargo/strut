@@ -101,3 +101,19 @@ EOF
   run cmd_stop
   [ "$status" -ne 0 ] || [[ "$output" == *"not found"* ]]
 }
+
+@test "cmd_stop: preserves dispatcher-resolved VPS_HOST (--host override) over env file value" {
+  cat > "$TEST_TMP/.test.env" <<'EOF'
+VPS_HOST=primary-host.internal
+EOF
+  export DRY_RUN=true
+  export VPS_HOST="standby-host.internal"
+  resolve_compose_cmd() { echo "echo COMPOSE"; }
+  export -f resolve_compose_cmd
+  _set_stop_ctx "$TEST_TMP/.test.env"
+
+  run cmd_stop
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"standby-host.internal"* ]]
+  [[ "$output" != *"primary-host.internal"* ]]
+}
