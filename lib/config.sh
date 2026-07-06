@@ -95,6 +95,24 @@ _preprocess_config() {
   done < "$abs"
 }
 
+# safe_source_config <file> [label]
+#
+# Wraps preprocess_config + source. Process substitution (`source <(...)`)
+# discards the writer's exit status, so a missing/circular include used to
+# be silently swallowed — capture the output first so a nonzero status from
+# preprocess_config is actually observed.
+safe_source_config() {
+  local file="$1"
+  local label="${2:-$file}"
+  local content
+  if ! content="$(preprocess_config "$file")"; then
+    fail "failed to load config: $label"
+    return 1
+  fi
+  # shellcheck disable=SC1090
+  source <(printf '%s\n' "$content")
+}
+
 # find_project_root
 #
 # Walks up from $PWD looking for strut.conf. Sets PROJECT_ROOT when found.
@@ -150,8 +168,7 @@ find_project_root() {
 # Side effects: Exports all config variables
 load_strut_config() {
   if [ -n "${PROJECT_ROOT:-}" ] && [ -f "$PROJECT_ROOT/strut.conf" ]; then
-    # shellcheck disable=SC1090
-    source <(preprocess_config "$PROJECT_ROOT/strut.conf")
+    safe_source_config "$PROJECT_ROOT/strut.conf" "strut.conf" || return 1
   fi
 
   REGISTRY_TYPE="${REGISTRY_TYPE:-none}"

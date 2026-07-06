@@ -295,7 +295,7 @@ $_hint"
   fi
 
   # Source env + validate required vars — same contract as deploy_stack.
-  set -a; source "$env_file"; set +a
+  validate_env_file "$env_file"
   export_volume_paths "$stack_dir"
 
   local required_vars_file="$stack_dir/required_vars"

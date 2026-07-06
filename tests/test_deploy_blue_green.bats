@@ -279,6 +279,42 @@ _record() { echo "$*" >> "$CALLS_FILE"; }
   [ "$(_bg_read_state "$STACK")" = "blue" ]
 }
 
+# ── Regression: bg_deploy_stack preserves dispatcher-resolved VPS_HOST ───────
+# strut#220 (OSS-466): a raw `set -a; source $env_file; set +a` right after
+# validate_env_file used to clobber a --host/topology-resolved VPS_HOST with
+# whatever the file said. bg_deploy_stack now relies solely on
+# validate_env_file, which preserves the ambient connection var while still
+# loading everything else the file defines.
+
+@test "bg_deploy_stack: preserves dispatcher-resolved VPS_HOST, still loads other env vars" {
+  _bg_start_color()  { _record "start:$1"; }
+  _bg_wait_healthy() { _record "wait"; return 0; }
+  _bg_swap_proxy()   { _record "swap"; }
+  _bg_drain()        { _record "drain"; }
+  _bg_stop_color()   { _record "stop"; }
+  export -f _bg_start_color _bg_wait_healthy _bg_swap_proxy _bg_drain _bg_stop_color
+
+  export PRE_DEPLOY_VALIDATE=false DRY_RUN=true SKIP_VALIDATION=true
+  export VPS_HOST="standby.example.com"
+
+  cat > "$ENV_FILE" <<'EOF'
+VPS_HOST=primary.example.com
+IMAGE_TAG=v3.1.0
+EOF
+
+  (
+    set +e
+    bg_deploy_stack "$STACK" "$ENV_FILE" > "$TEST_TMP/bg_deploy.out" 2>&1
+    echo $? > "$TEST_TMP/bg_deploy.status"
+    echo "$VPS_HOST" > "$TEST_TMP/vps_host_after"
+    echo "$IMAGE_TAG" > "$TEST_TMP/image_tag_after"
+  )
+
+  [ "$(cat "$TEST_TMP/bg_deploy.status")" = "0" ]
+  [ "$(cat "$TEST_TMP/vps_host_after")" = "standby.example.com" ]
+  [ "$(cat "$TEST_TMP/image_tag_after")" = "v3.1.0" ]
+}
+
 # ── Proxy swap hook ──────────────────────────────────────────────────────────
 
 @test "_bg_swap_proxy: sources BLUE_GREEN_PROXY_HOOK and calls the function" {

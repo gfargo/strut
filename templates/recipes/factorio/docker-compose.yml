@@ -1,0 +1,15 @@
+services:
+  factorio:
+    image: factoriotools/factorio:${FACTORIO_VERSION:-stable}
+    container_name: STACK_NAME_PLACEHOLDER-factorio
+    restart: unless-stopped
+    ports:
+      - "34197:34197/udp"
+    environment:
+      - GAME_PASSWORD=${GAME_PASSWORD}
+      - SAVE_NAME=${SAVE_NAME:-default}
+    volumes:
+      - factorio_data:/factorio
+
+volumes:
+  factorio_data:

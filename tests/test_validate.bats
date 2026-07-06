@@ -260,6 +260,17 @@ EOF
   [ "$_VALIDATE_ERRORS" -gt 0 ]
 }
 
+@test "validate_required_vars: missing include reported as error, not silently skipped" {
+  local stack_dir="$TEST_TMP/stack"
+  mkdir -p "$stack_dir"
+  echo "include = nonexistent.vars" > "$stack_dir/required_vars"
+  echo "OTHER_VAR=hello" > "$TEST_TMP/test.env"
+
+  _VALIDATE_ERRORS=0
+  run _validate_required_vars "$stack_dir" "$TEST_TMP/test.env"
+  [[ "$output" == *"missing/circular include"* ]]
+}
+
 # ── Security: eval hardening ─────────────────────────────────────────────────
 
 @test "volume.conf: malicious value does not execute commands" {

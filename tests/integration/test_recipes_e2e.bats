@@ -168,15 +168,32 @@ EOF
 
   # deploy — skip validation (our placeholder password would trip the
   # weak-password scan) and skip locking (tmp stack, no concurrent access).
-  run "$CLI_ROOT/strut" "$stack" deploy --env test --skip-validation --no-lock
-  [ "$status" -eq 0 ]
+  # Retry up to 2 times to handle transient Docker build/network failures.
+  local deploy_ok=false
+  local attempt
+  for attempt in 1 2; do
+    run "$CLI_ROOT/strut" "$stack" deploy --env test --skip-validation --no-lock
+    if [ "$status" -eq 0 ]; then
+      deploy_ok=true
+      break
+    fi
+    echo "# deploy attempt $attempt failed (status=$status), retrying..." >&3
+    # Clean up before retry so ports/containers don't conflict.
+    docker compose \
+      --env-file "$env_file" \
+      --project-name "${stack}-test" \
+      -f "$stack_dir/docker-compose.yml" \
+      down --volumes --remove-orphans 2>/dev/null || true
+    sleep 5
+  done
+  [ "$deploy_ok" = "true" ]
 
   # Let postgres finish starting even if the deploy returned a bit early.
   local code=""
-  for _ in $(seq 1 30); do
+  for _ in $(seq 1 40); do
     code="$(curl -sf -o /dev/null -w '%{http_code}' "http://127.0.0.1:8000/health" || true)"
     [ "$code" = "200" ] && break
-    sleep 2
+    sleep 3
   done
   [ "$code" = "200" ]
 

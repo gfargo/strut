@@ -5,16 +5,19 @@
 
 set -euo pipefail
 
-# keys_api_generate <stack> <name> [--tier standard|privileged] [--dry-run]
+# keys_api_generate <stack> <name> [--tier standard|privileged] [--dry-run] [--force]
 keys_api_generate() {
   local stack="$1"
   local name="${2:-}"
   shift 2 || true
 
-  [ -n "$name" ] || fail "Usage: keys api:generate <name> [--tier standard|privileged] [--dry-run]"
+  [ -n "$name" ] || fail "Usage: keys api:generate <name> [--tier standard|privileged] [--dry-run] [--force]"
 
   local tier="standard"
   local dry_run=false
+  # --force here means "overwrite an existing key of the same name" (used by
+  # api:rotate after its own confirm prompt) — not "skip confirmation".
+  local force=false
 
   while [[ $# -gt 0 ]]; do
     case $1 in
@@ -28,6 +31,10 @@ keys_api_generate() {
         ;;
       --dry-run)
         dry_run=true
+        shift
+        ;;
+      --force)
+        force=true
         shift
         ;;
       *) shift ;;
@@ -52,7 +59,7 @@ keys_api_generate() {
   local existing
   existing=$(jq -r --arg name "$name" '.api_keys[] | select(.name == $name) | .name' "$metadata_file" 2>/dev/null || echo "")
 
-  if [ -n "$existing" ]; then
+  if [ -n "$existing" ] && ! $force; then
     warn "API key with name '$name' already exists"
     echo ""
     echo "Use a different name or rotate the existing key:"
@@ -174,7 +181,7 @@ keys_api_rotate() {
   }
 
   # Generate new key
-  keys_api_generate "$stack" "$name" --tier "$tier"
+  keys_api_generate "$stack" "$name" --tier "$tier" --force
 }
 
 # keys_api_revoke <stack> <name> [--dry-run] [--force]
