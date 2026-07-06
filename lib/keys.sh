@@ -43,7 +43,7 @@ validate_vps_connection() {
   ssh_opts=$(build_ssh_opts -p "$vps_port" -k "$vps_ssh_key" -t "$timeout" --batch --keepalive)
 
   # Try connection with timeout
-  if timeout "$timeout" ssh $ssh_opts "$vps_user@$vps_host" "echo 'ok'" &>/dev/null; then
+  if portable_timeout "$timeout" ssh $ssh_opts "$vps_user@$vps_host" "echo 'ok'" &>/dev/null; then
     return 0
   else
     local exit_code=$?

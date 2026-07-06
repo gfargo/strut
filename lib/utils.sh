@@ -217,7 +217,11 @@ check_memory() {
   local warn_pct="${1:-80}"
   local fail_pct="${2:-90}"
   local usage
-  usage=$(free | awk 'NR==2 {printf "%.0f", $3/$2 * 100}')
+  usage=$(_get_mem_percent)
+  if [ -z "$usage" ] || [ "$usage" = "0" ]; then
+    warn "Memory: unable to determine usage (skipped)"
+    return 0
+  fi
   if [ "$usage" -ge "$fail_pct" ]; then
     warn "Memory: ${usage}% used (critical)"
     return 2
@@ -227,6 +231,60 @@ check_memory() {
   else
     ok "Memory: ${usage}% used"
     return 0
+  fi
+}
+
+# _get_mem_percent — portable memory usage percentage (Linux + macOS)
+_get_mem_percent() {
+  if command -v free >/dev/null 2>&1; then
+    free | awk 'NR==2 {printf "%.0f", $3/$2 * 100}'
+  elif [ "$(uname)" = "Darwin" ]; then
+    # macOS: use vm_stat + sysctl
+    local page_size total_pages pages_free pages_active pages_speculative pages_wired
+    page_size=$(sysctl -n hw.pagesize 2>/dev/null || echo 4096)
+    total_pages=$(( $(sysctl -n hw.memsize 2>/dev/null || echo 0) / page_size ))
+    # vm_stat gives counts in pages
+    local vmstat
+    vmstat=$(vm_stat 2>/dev/null) || { echo "0"; return; }
+    pages_free=$(echo "$vmstat" | awk '/Pages free:/{gsub(/\./,"",$3); print $3}')
+    pages_active=$(echo "$vmstat" | awk '/Pages active:/{gsub(/\./,"",$3); print $3}')
+    pages_speculative=$(echo "$vmstat" | awk '/Pages speculative:/{gsub(/\./,"",$3); print $3}')
+    pages_wired=$(echo "$vmstat" | awk '/Pages wired down:/{gsub(/\./,"",$4); print $4}')
+    local used=$(( (pages_active + pages_wired + pages_speculative) ))
+    if [ "$total_pages" -gt 0 ] 2>/dev/null; then
+      echo $(( used * 100 / total_pages ))
+    else
+      echo "0"
+    fi
+  else
+    echo "0"
+  fi
+}
+
+# portable_timeout <seconds> <command...>
+# Portable replacement for GNU timeout. Uses timeout if available,
+# falls back to gtimeout (Homebrew coreutils), then a backgrounded
+# process with kill.
+portable_timeout() {
+  local seconds="$1"; shift
+  if command -v timeout >/dev/null 2>&1; then
+    timeout "$seconds" "$@"
+  elif command -v gtimeout >/dev/null 2>&1; then
+    gtimeout "$seconds" "$@"
+  else
+    # Pure-bash fallback: run in background, kill after timeout
+    "$@" &
+    local pid=$!
+    (sleep "$seconds" && kill -TERM "$pid" 2>/dev/null) &
+    local watcher=$!
+    if wait "$pid" 2>/dev/null; then
+      kill "$watcher" 2>/dev/null; wait "$watcher" 2>/dev/null
+      return 0
+    else
+      local rc=$?
+      kill "$watcher" 2>/dev/null; wait "$watcher" 2>/dev/null
+      return $rc
+    fi
   fi
 }
 
