@@ -158,6 +158,14 @@ _bg_wait_healthy() {
   local timeout="${4:-${BLUE_GREEN_HEALTH_TIMEOUT:-30}}"
   local interval=3
   local elapsed=0
+  # A single healthy snapshot isn't enough: `up -d` returns as soon as the
+  # container reaches "running", which can be a split second before a
+  # crash-looping entrypoint actually exits — the very first poll can land
+  # in that window and see "running" with no restart yet recorded. Require
+  # back-to-back healthy polls so a crash gets at least one interval to
+  # reveal itself before we trust it.
+  local required_consecutive=2
+  local consecutive_ok=0
 
   log "Waiting for green health (timeout: ${timeout}s)"
   while [ "$elapsed" -lt "$timeout" ]; do
@@ -166,8 +174,13 @@ _bg_wait_healthy() {
     # dead green would pass) and host-global resources (a load spike during
     # pull would fail a healthy deploy). Subshell keeps its counters local.
     if ( health_check_green "$(basename "$stack_dir")" "$compose_cmd" "$compose_file" >/dev/null 2>&1 ); then
-      ok "green healthy"
-      return 0
+      consecutive_ok=$((consecutive_ok + 1))
+      if [ "$consecutive_ok" -ge "$required_consecutive" ]; then
+        ok "green healthy"
+        return 0
+      fi
+    else
+      consecutive_ok=0
     fi
     sleep "$interval"
     elapsed=$((elapsed + interval))
