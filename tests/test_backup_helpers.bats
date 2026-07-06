@@ -62,6 +62,22 @@ EOF
   rm -rf "$stack_dir"
 }
 
+@test "_backup_dir: aborts on missing include in volume.conf" {
+  local stack_dir="$CLI_ROOT/stacks/test-backup-dir-missing-include-$$"
+  mkdir -p "$stack_dir"
+
+  cat > "$stack_dir/volume.conf" <<'EOF'
+include = nonexistent.conf
+EOF
+
+  unset BACKUP_LOCAL_DIR
+  run _backup_dir "test-backup-dir-missing-include-$$"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"not found"* ]]
+
+  rm -rf "$stack_dir"
+}
+
 # ── get_backup_list ───────────────────────────────────────────────────────────
 
 @test "get_backup_list: lists postgres backups sorted newest first" {

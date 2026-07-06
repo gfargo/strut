@@ -534,6 +534,7 @@ verify_backup() {
       create_backup_metadata "$stack" "$backup_file" "$service" "{\"error\":\"Verification failed\"}"
       update_backup_metadata_verification "$stack" "$backup_id" "{\"error\":\"Verification failed\"}" "failed"
     fi
+    alert_verification_failure "$stack" "$backup_file" "$service verification failed — see logs above"
     return 1
   fi
 }

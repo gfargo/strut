@@ -23,7 +23,7 @@ jobs:
   integration:
     name: Integration (bats, Docker)
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
 
     steps:
       - uses: actions/checkout@v4
@@ -44,7 +44,10 @@ jobs:
 
       - name: Pre-pull test images
         # Warm the cache so the deploy step isn't measuring image-pull time.
-        run: docker pull nginx:alpine
+        run: |
+          docker pull nginx:alpine
+          docker pull python:3.12-slim
+          docker pull postgres:16-alpine
 
       - name: Run integration tests
         run: bats tests/integration/

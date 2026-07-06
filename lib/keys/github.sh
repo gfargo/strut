@@ -94,12 +94,14 @@ keys_github_set() {
   ok "GitHub secret set: $secret_name in $repo"
 }
 
-# keys_github_rotate_vps_key <stack> --repos <repo1,repo2,...>
+# keys_github_rotate_vps_key <stack> --repos <repo1,repo2,...> [--dry-run] [--force]
 keys_github_rotate_vps_key() {
   local stack="$1"
   shift || true
 
   local repos=""
+  local dry_run=false
+  local force=false
 
   while [[ $# -gt 0 ]]; do
     case $1 in
@@ -111,20 +113,39 @@ keys_github_rotate_vps_key() {
         repos="$2"
         shift 2
         ;;
+      --dry-run)
+        dry_run=true
+        shift
+        ;;
+      --force)
+        force=true
+        shift
+        ;;
       *) shift ;;
     esac
   done
 
-  [ -n "$repos" ] || fail "Usage: keys github:rotate-vps-key --repos <repo1,repo2,...>"
+  [ -n "$repos" ] || fail "Usage: keys github:rotate-vps-key --repos <repo1,repo2,...> [--dry-run] [--force]"
 
-  log "Rotating VPS SSH key and updating GitHub secrets..."
+  # Load VPS connection info
+  local env_file="$CLI_ROOT/.prod.env"
+  [ -f "$env_file" ] || fail "Env file not found: $env_file"
 
   # Generate new VPS deploy key
   local deploy_user="deploy-bot"
   local key_name="vps-deploy-$(date +%Y%m%d)"
 
+  if $dry_run; then
+    show_dry_run_changes "github:rotate-vps-key" "Generate new SSH key for $deploy_user, sync to GitHub secrets in: $repos"
+    return 0
+  fi
+
+  log "Rotating VPS SSH key and updating GitHub secrets..."
+
   log "Step 1: Generating new SSH key..."
-  keys_ssh_add "$stack" "$deploy_user" --generate
+  local generate_args=(--generate --key-name "$key_name")
+  $force && generate_args+=(--force)
+  keys_ssh_add "$stack" "$env_file" "$deploy_user" "${generate_args[@]}"
 
   # Get the new key file
   local keys_dir
@@ -150,8 +171,6 @@ keys_github_rotate_vps_key() {
   log "Step 3: Testing new key..."
 
   # Load VPS connection info
-  local env_file="$CLI_ROOT/.prod.env"
-  [ -f "$env_file" ] || fail "Env file not found: $env_file"
   set -a
   source "$env_file"
   set +a

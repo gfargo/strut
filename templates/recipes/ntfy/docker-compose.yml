@@ -1,0 +1,26 @@
+services:
+  ntfy:
+    image: binwiederhier/ntfy:latest
+    container_name: STACK_NAME_PLACEHOLDER-ntfy
+    restart: unless-stopped
+    command:
+      - serve
+    ports:
+      - "8082:80"
+    environment:
+      - NTFY_BASE_URL=${BASE_URL}
+      - NTFY_BEHIND_PROXY=true
+      - NTFY_AUTH_DEFAULT_ACCESS=${AUTH_DEFAULT_ACCESS:-read-write}
+      - NTFY_CACHE_FILE=/var/cache/ntfy/cache.db
+      - NTFY_AUTH_FILE=/var/cache/ntfy/auth.db
+      - NTFY_ATTACHMENT_CACHE_DIR=/var/cache/ntfy/attachments
+    volumes:
+      - ntfy_cache:/var/cache/ntfy
+      - ntfy_etc:/etc/ntfy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --tries=1 http://localhost/v1/health -O - | grep -q healthy"]
+      interval: 60s
+
+volumes:
+  ntfy_cache:
+  ntfy_etc:

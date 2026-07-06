@@ -48,7 +48,6 @@ cmd_stop() {
   done
 
   validate_env_file "$env_file"
-  set -a; source "$env_file"; set +a
 
   local compose_cmd
   compose_cmd=$(resolve_compose_cmd "$stack" "$env_file" "$services")

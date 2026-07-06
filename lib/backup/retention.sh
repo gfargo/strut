@@ -337,11 +337,17 @@ install_retention_cron() {
   local stack="$1"
 
   local cli_root="${CLI_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
-  local retention_cmd="cd $cli_root && strut $stack backup retention enforce --env prod"
+  local strut_bin
+  strut_bin=$(resolve_strut_binary)
+  local retention_cmd="cd $cli_root && $strut_bin $stack backup retention enforce --env prod"
+  local log_file="$cli_root/stacks/$stack/backups/retention-cron.log"
+
+  ensure_cron_env_header
 
   # Create cron job entry (run daily at 4 AM)
   local cron_comment="# strut retention: $stack"
-  local cron_entry="0 4 * * * $retention_cmd >> $cli_root/stacks/$stack/backups/retention-cron.log 2>&1"
+  local cron_entry
+  cron_entry=$(build_cron_job "retention-$stack" "0 4 * * *" "$retention_cmd" "$log_file")
 
   # Check if cron job already exists
   if crontab -l 2>/dev/null | grep -q "strut retention: $stack"; then

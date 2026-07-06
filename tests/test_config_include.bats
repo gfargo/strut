@@ -241,6 +241,66 @@ EOF
   [ "$API_PORT" = "8080" ]
 }
 
+# ── Consumer-level abort on broken include (issue #227) ──────────────────────
+# preprocess_config itself already detects missing/circular includes correctly;
+# these tests cover the call sites (load_strut_config, load_services_conf) that
+# used to silently swallow that failure via `source <(preprocess_config ...)`.
+
+@test "load_strut_config: aborts on missing include in strut.conf" {
+  cat > "$TEST_TMP/strut.conf" <<EOF
+include = nonexistent.conf
+BANNER_TEXT=should-not-apply
+EOF
+  export PROJECT_ROOT="$TEST_TMP"
+  run load_strut_config
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"not found"* ]]
+}
+
+@test "load_strut_config: aborts on circular include in strut.conf" {
+  cat > "$TEST_TMP/a.conf" <<EOF
+include = b.conf
+EOF
+  cat > "$TEST_TMP/b.conf" <<EOF
+include = a.conf
+EOF
+  cat > "$TEST_TMP/strut.conf" <<EOF
+include = a.conf
+BANNER_TEXT=should-not-apply
+EOF
+  export PROJECT_ROOT="$TEST_TMP"
+  run load_strut_config
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"circular"* ]]
+}
+
+@test "load_services_conf: aborts on missing include in services.conf" {
+  mkdir -p "$TEST_TMP/stacks/api"
+  cat > "$TEST_TMP/stacks/api/services.conf" <<EOF
+include = nonexistent.conf
+API_PORT=8080
+EOF
+  run load_services_conf "$TEST_TMP/stacks/api"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"not found"* ]]
+}
+
+@test "load_services_conf: aborts on circular include in services.conf" {
+  mkdir -p "$TEST_TMP/stacks/api"
+  cat > "$TEST_TMP/stacks/api/a.conf" <<EOF
+include = b.conf
+EOF
+  cat > "$TEST_TMP/stacks/api/b.conf" <<EOF
+include = a.conf
+EOF
+  cat > "$TEST_TMP/stacks/api/services.conf" <<EOF
+include = a.conf
+EOF
+  run load_services_conf "$TEST_TMP/stacks/api"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"circular"* ]]
+}
+
 # ── INI section skipping (issue #110) ────────────────────────────────────────
 
 @test "preprocess_config: skips [section] headers and their content" {
