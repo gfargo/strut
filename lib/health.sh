@@ -323,14 +323,16 @@ health_check_resources() {
   else                                  _health_record fail "Disk Space" "${disk_usage}% used (critical)"
   fi
 
-  mem_usage=$(free | awk 'NR==2 {printf "%.0f", $3/$2 * 100}')
-  if   [ "$mem_usage" -lt 80 ]; then _health_record pass "Memory Usage" "${mem_usage}% used"
+  mem_usage=$(_get_mem_percent)
+  if [ -z "$mem_usage" ] || [ "$mem_usage" = "0" ]; then
+    _health_record warn "Memory Usage" "unable to determine (no free or vm_stat)"
+  elif [ "$mem_usage" -lt 80 ]; then _health_record pass "Memory Usage" "${mem_usage}% used"
   elif [ "$mem_usage" -lt 90 ]; then _health_record warn "Memory Usage" "${mem_usage}% used (high)"
   else                                 _health_record fail "Memory Usage" "${mem_usage}% used (critical)"
   fi
 
   load=$(uptime | awk -F'load average:' '{print $2}' | awk '{print $1}' | sed 's/,//')
-  cpu_count=$(nproc 2>/dev/null || echo 1)
+  cpu_count=$(nproc 2>/dev/null || sysctl -n hw.logicalcpu 2>/dev/null || echo 1)
   load_percent=$(echo "$load $cpu_count" | awk '{printf "%.0f", ($1/$2)*100}')
   if   [ "$load_percent" -lt 70 ]; then _health_record pass "CPU Load" "${load} (${load_percent}% of capacity)"
   elif [ "$load_percent" -lt 90 ]; then _health_record warn "CPU Load" "${load} (${load_percent}% of capacity)"

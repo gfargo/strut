@@ -238,7 +238,7 @@ _doc_check_vps() {
     vps_user="${vps_user:-ubuntu}"
 
     # shellcheck disable=SC2086
-    if timeout 5 ssh $ssh_opts "$vps_user@$vps_host" "echo ok" &>/dev/null; then
+    if portable_timeout 5 ssh $ssh_opts "$vps_user@$vps_host" "echo ok" &>/dev/null; then
       _doc_pass "VPS ($env_name)" "reachable at $vps_host"
 
       # Deploy dir, as declared in the probed env file (not the calling process's env).
@@ -329,7 +329,7 @@ _doc_check_vps_deep() {
   # Run all remote probes in a single SSH session for speed.
   # shellcheck disable=SC2086
   local out
-  if ! out=$(timeout 20 ssh $ssh_opts "$vps_user@$vps_host" bash -s <<'REMOTE' 2>/dev/null
+  if ! out=$(portable_timeout 20 ssh $ssh_opts "$vps_user@$vps_host" bash -s <<'REMOTE' 2>/dev/null
 set -u
 echo "=== docker ==="
 command -v docker >/dev/null && docker --version 2>/dev/null || echo "docker: NOT_INSTALLED"
