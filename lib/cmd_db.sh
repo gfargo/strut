@@ -192,20 +192,27 @@ cmd_restore() {
     esac
   done
 
-  [ -n "$file" ] || fail "Usage: strut $stack restore <file> [--target-env <env>]"
+  [ -n "$file" ] || fail "Usage: strut $stack restore <file> [--target-env <env>] [--dry-run]"
   validate_env_file "$env_file"
-
-  if [ "$DRY_RUN" = "true" ]; then
-    echo ""
-    echo -e "${YELLOW}[DRY-RUN] Execution plan for restore:${NC}"
-    run_cmd "Restore from backup file" echo "restore $file → $stack"
-    echo ""
-    echo -e "${YELLOW}[DRY-RUN] No changes made.${NC}"
-    return 0
-  fi
 
   local compose_cmd
   compose_cmd=$(resolve_compose_cmd "$stack" "$env_file" "$services")
+
+  if [ "$DRY_RUN" = "true" ]; then
+    # Restore rehearsal: restore into a scratch DB and compare
+    local strut_home="${STRUT_HOME:-${CLI_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}}"
+    source "$strut_home/lib/backup/rehearsal.sh"
+    case "$file" in
+      *.sql)
+        case "$(basename "$file")" in
+          mysql-*) log "[DRY-RUN] Rehearsal not yet supported for MySQL"; return 0 ;;
+          *)       restore_rehearsal_postgres "$stack" "$compose_cmd" "$file" ;;
+        esac
+        ;;
+      *) log "[DRY-RUN] Rehearsal only supported for Postgres (.sql) currently"; return 0 ;;
+    esac
+    return $?
+  fi
 
   case "$file" in
     *.dump)   restore_neo4j    "$stack" "$compose_cmd" "$file" "$target_env" ;;
