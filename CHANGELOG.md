@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.31.1](https://github.com/gfargo/strut/compare/v0.31.0...v0.31.1) (2026-07-07)
+
+
+### Bug Fixes
+
+* **skills:** install kiro skills per Agent Skills spec ([6a98e60](https://github.com/gfargo/strut/commit/6a98e606e8ec8ba2195fb9fc8e3758476d642b51))
+* **skills:** install kiro skills per Agent Skills spec ([b066612](https://github.com/gfargo/strut/commit/b066612cbacbfa4fc55f99861099cd97d8d2fb78))
+
 ## [0.31.0](https://github.com/gfargo/strut/compare/v0.30.4...v0.31.0) (2026-07-07)
 
 
