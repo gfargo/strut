@@ -21,6 +21,12 @@
 
 set -euo pipefail
 
+# Ensure parse_host_spec is available (defined in lib/connection.sh)
+if ! declare -F parse_host_spec &>/dev/null; then
+  # shellcheck source=lib/connection.sh
+  source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/connection.sh"
+fi
+
 # Global topology state (populated by topology_load)
 declare -gA _TOPO_HOSTS=()       # alias → "user@host:port key_path"
 declare -gA _TOPO_STACK_HOST=()  # stack → host_alias
