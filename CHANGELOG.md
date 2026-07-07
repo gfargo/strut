@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.30.5](https://github.com/gfargo/strut/compare/v0.30.4...v0.30.5) (2026-07-07)
+
+
+### Bug Fixes
+
+* auto-source connection.sh from topology.sh for standalone usage ([4200021](https://github.com/gfargo/strut/commit/4200021a2bd008a5d365c13c4646fcc90bd9971c))
+* **drift:** correct hashing + graceful config-only stacks ([fbb4d64](https://github.com/gfargo/strut/commit/fbb4d64cf27af75a447f5a33b80b372a75ea6c43))
+
 ## [0.30.4](https://github.com/gfargo/strut/compare/v0.30.3...v0.30.4) (2026-07-07)
 
 
