@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.31.0](https://github.com/gfargo/strut/compare/v0.30.4...v0.31.0) (2026-07-07)
+
+
+### Features
+
+* **backup:** restore --dry-run rehearsal ([fad007e](https://github.com/gfargo/strut/commit/fad007e4c99ad39963c307334671c886b69016f1))
+* **backup:** restore --dry-run rehearsal + verify-after primitive ([473b42a](https://github.com/gfargo/strut/commit/473b42aef5c3e3c258324acd76e99ee3bdd180e2)), closes [#259](https://github.com/gfargo/strut/issues/259)
+* **drift:** add image-digest drift detection ([d7cfd5f](https://github.com/gfargo/strut/commit/d7cfd5f21e23f4a4690daf901e702d7e963e16c0))
+* **drift:** add image-digest drift detection ([14a56c4](https://github.com/gfargo/strut/commit/14a56c4f8d3c25cc31d70a01ebd8cf45bfd578a4)), closes [#258](https://github.com/gfargo/strut/issues/258)
+* **fleet:** add 'strut fleet status' command ([94f807b](https://github.com/gfargo/strut/commit/94f807b687bef67c44134f8691b6a50df5d864e7)), closes [#257](https://github.com/gfargo/strut/issues/257)
+* **fleet:** add strut fleet status command ([9d6415c](https://github.com/gfargo/strut/commit/9d6415cf2ee40613dd84cd19f25a9d55286e4623))
+
+
+### Bug Fixes
+
+* auto-source connection.sh from topology.sh for standalone usage ([4200021](https://github.com/gfargo/strut/commit/4200021a2bd008a5d365c13c4646fcc90bd9971c))
+* **drift:** correct hashing + graceful config-only stacks ([fbb4d64](https://github.com/gfargo/strut/commit/fbb4d64cf27af75a447f5a33b80b372a75ea6c43))
+* **skills:** honor positional format arg, backup before overwrite, include generic in all ([2cb5289](https://github.com/gfargo/strut/commit/2cb52893482b4e1fa5a4a8e7402d9ad3838b3985)), closes [#263](https://github.com/gfargo/strut/issues/263)
+* **skills:** honor positional format, backup before overwrite, include generic in all ([64d8099](https://github.com/gfargo/strut/commit/64d8099c056220e7276f8a8ab0db93b085bd10f5))
+
 ## [0.30.4](https://github.com/gfargo/strut/compare/v0.30.3...v0.30.4) (2026-07-07)
 
 
