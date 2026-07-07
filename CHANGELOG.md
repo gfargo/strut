@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.30.4](https://github.com/gfargo/strut/compare/v0.30.3...v0.30.4) (2026-07-07)
+
+
+### Bug Fixes
+
+* resolve pre-existing CI failures (shellcheck + tests) ([923e0c1](https://github.com/gfargo/strut/commit/923e0c13037b15b5ee7735e6aa0208fd25812fa0))
+* **security:** safe env parser + SSH accept-new + fleet PAT gating ([2f541f9](https://github.com/gfargo/strut/commit/2f541f939c460842a26b4749589cc444cb0ccc64)), closes [#236](https://github.com/gfargo/strut/issues/236) [#240](https://github.com/gfargo/strut/issues/240)
+* **security:** safe env parser, SSH accept-new, fleet PAT gating ([e9588a2](https://github.com/gfargo/strut/commit/e9588a2c7b1f956c76a450542996730284fb1451))
+
 ## [0.30.3](https://github.com/gfargo/strut/compare/v0.30.2...v0.30.3) (2026-07-07)
 
 
