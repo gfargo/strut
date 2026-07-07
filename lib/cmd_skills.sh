@@ -139,22 +139,34 @@ _backup_if_exists() {
 
 # ── Kiro: native format ───────────────────────────────────────────────────────
 # Steering → .kiro/steering/
-# Skills   → .kiro/skills/
+# Skills   → .kiro/skills/<skill-name>/ (one folder per skill, per Agent Skills spec)
 _install_kiro() {
   local strut_home="$1"
   local project_root="$2"
 
-  # Install skills
-  local skills_target="$project_root/.kiro/skills/strut"
-  if [ -d "$skills_target" ]; then
-    rm -rf "$skills_target"
-  fi
-  mkdir -p "$(dirname "$skills_target")"
-  cp -r "$strut_home/.kiro/skills" "$skills_target"
-  rm -f "$skills_target/.DS_Store" "$skills_target/README.md" 2>/dev/null || true
+  # Install skills — each skill folder goes directly under .kiro/skills/
+  # per the Agent Skills spec (name must match parent directory name).
+  local skills_target="$project_root/.kiro/skills"
+  mkdir -p "$skills_target"
 
-  local skill_count
-  skill_count=$(find "$skills_target" -name "SKILL.md" | wc -l | tr -d ' ')
+  local skill_count=0
+  for skill_dir in "$strut_home/.kiro/skills"/*/; do
+    [ -d "$skill_dir" ] || continue
+    local skill_name
+    skill_name=$(basename "$skill_dir")
+    [ -f "$skill_dir/SKILL.md" ] || continue
+
+    # Remove existing copy if present
+    if [ -d "$skills_target/$skill_name" ]; then
+      rm -rf "${skills_target:?}/${skill_name:?}"
+    fi
+    cp -r "$skill_dir" "$skills_target/$skill_name"
+    rm -f "$skills_target/$skill_name/.DS_Store" 2>/dev/null || true
+    skill_count=$((skill_count + 1))
+  done
+
+  # Clean up legacy strut/ subdirectory from older installs
+  [ -d "$skills_target/strut" ] && rm -rf "$skills_target/strut"
 
   # Install steering
   local steering_count=0
@@ -171,7 +183,7 @@ _install_kiro() {
     done
   fi
 
-  ok "Kiro: $skill_count skills → .kiro/skills/strut/"
+  ok "Kiro: $skill_count skills → .kiro/skills/ (Agent Skills spec)"
   ok "Kiro: $steering_count steering docs → .kiro/steering/strut-*.md"
 }
 
