@@ -13,6 +13,7 @@ export TEST_TMP="$(mktemp -d)"
 # Source utils.sh with fail() overridden to not exit the test runner
 load_utils() {
   source "$CLI_ROOT/lib/utils.sh"
+  source "$CLI_ROOT/lib/connection.sh"
   fail() { echo "$1" >&2; return 1; }
 }
 

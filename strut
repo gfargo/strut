@@ -104,6 +104,7 @@ source "$LIB/utils.sh"
 load_strut_config
 
 source "$LIB/topology.sh"
+source "$LIB/connection.sh"
 
 # Unified EXIT trap — runs every cleanup registered via `strut_register_cleanup`.
 # Registered here (not in utils.sh) so sourcing the library in tests doesn't

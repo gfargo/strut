@@ -92,42 +92,20 @@ _gateway_find_caddyfile() {
 _gateway_resolve_host() {
   local host_alias="$1"
 
-  source "${STRUT_HOME:-$CLI_ROOT}/lib/topology.sh"
-  topology_load
+  # Ensure connection primitives are available
+  local _strut_home="${STRUT_HOME:-${CLI_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}}"
+  declare -F parse_host_spec &>/dev/null || source "$_strut_home/lib/connection.sh"
+  declare -F topology_load &>/dev/null || source "$_strut_home/lib/topology.sh"
 
-  if topology_is_host_alias "$host_alias" 2>/dev/null; then
-    local host_spec="${_TOPO_HOSTS[$host_alias]:-}"
-    if [ -n "$host_spec" ]; then
-      local conn_part key_path
-      conn_part="${host_spec%% *}"
-      key_path="${host_spec#* }"
-      [ "$key_path" = "$conn_part" ] && key_path=""
-
-      if [[ "$conn_part" == *@* ]]; then
-        _GW_USER="${conn_part%%@*}"
-        local host_port="${conn_part#*@}"
-      else
-        _GW_USER="ubuntu"
-        local host_port="$conn_part"
-      fi
-
-      if [[ "$host_port" == *:* ]]; then
-        _GW_HOST="${host_port%%:*}"
-        _GW_PORT="${host_port#*:}"
-      else
-        _GW_HOST="$host_port"
-        _GW_PORT="22"
-      fi
-      _GW_KEY="$key_path"
-      return 0
-    fi
+  if resolve_connection_from_host_alias "$host_alias"; then
+    _GW_USER="$VPS_USER"
+    _GW_HOST="$VPS_HOST"
+    _GW_PORT="$VPS_PORT"
+    _GW_KEY="${VPS_SSH_KEY:-}"
+    return 0
   fi
 
-  _GW_HOST="${VPS_HOST:-}"
-  _GW_USER="${VPS_USER:-ubuntu}"
-  _GW_PORT="${VPS_PORT:-22}"
-  _GW_KEY="${VPS_SSH_KEY:-}"
-  [ -n "$_GW_HOST" ] || return 1
+  return 1
 }
 
 # ── Subcommands ───────────────────────────────────────────────────────────────

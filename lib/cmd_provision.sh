@@ -115,44 +115,20 @@ cmd_provision() {
   log "Provision script: $script"
 
   # Resolve host connection info from topology
-  source "${STRUT_HOME:-$CLI_ROOT}/lib/topology.sh"
-  topology_load
+  local _strut_home="${STRUT_HOME:-${CLI_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}}"
+  declare -F parse_host_spec &>/dev/null || source "$_strut_home/lib/connection.sh"
+  declare -F topology_load &>/dev/null || source "$_strut_home/lib/topology.sh"
 
   local user host port key_path
-  if topology_is_host_alias "$host_alias" 2>/dev/null; then
-    # host_alias is actually a host in the topology — resolve directly
-    local host_spec="${_TOPO_HOSTS[$host_alias]:-}"
-    if [ -n "$host_spec" ]; then
-      local conn_part
-      conn_part="${host_spec%% *}"
-      key_path="${host_spec#* }"
-      [ "$key_path" = "$conn_part" ] && key_path=""
-
-      if [[ "$conn_part" == *@* ]]; then
-        user="${conn_part%%@*}"
-        local host_port="${conn_part#*@}"
-      else
-        user="ubuntu"
-        local host_port="$conn_part"
-      fi
-
-      if [[ "$host_port" == *:* ]]; then
-        host="${host_port%%:*}"
-        port="${host_port#*:}"
-      else
-        host="$host_port"
-        port="22"
-      fi
-    fi
-  else
-    # Fall back to env vars
-    host="${VPS_HOST:-}"
-    user="${VPS_USER:-ubuntu}"
-    port="${VPS_PORT:-22}"
+  if resolve_connection_from_host_alias "$host_alias"; then
+    user="$VPS_USER"
+    host="$VPS_HOST"
+    port="$VPS_PORT"
     key_path="${VPS_SSH_KEY:-}"
+  else
+    fail "Cannot resolve host for '$host_alias'. Add to [hosts] in strut.conf or set VPS_HOST."
+    return 1
   fi
-
-  [ -n "$host" ] || { fail "Cannot resolve host for '$host_alias'. Add to [hosts] in strut.conf or set VPS_HOST."; return 1; }
 
   local ssh_opts
   ssh_opts=$(build_ssh_opts -p "$port" -k "$key_path" --tty)
