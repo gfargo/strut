@@ -185,7 +185,7 @@ cmd_ssh_keygen() {
 
   # Source env file for VPS connection fallback
   if [ -f "$env_file" ]; then
-    set -a; source "$env_file" 2>/dev/null; set +a
+    safe_load_env "$env_file"
   fi
 
   # Resolve the target host

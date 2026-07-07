@@ -95,20 +95,20 @@ clone_with_pat() {
   local pat="$6"
   local dest_dir="$7"
 
-  # Convert URL to use PAT
-  local auth_url
-  auth_url=$(echo "$https_url" | sed "s|https://|https://${pat}@|")
-
-  # Clone
+  # Clone using a one-shot credential helper that feeds the PAT via stdin.
+  # This avoids embedding the PAT in the URL (which would persist in .git/config
+  # and be visible in `ps` output on the remote).
   ssh_exec "$vps_user" "$vps_host" "$ssh_port" "$ssh_key" \
-    "git clone $auth_url $dest_dir"
+    "git -c 'credential.helper=!f() { echo username=oauth2; echo password=$pat; };f' clone $https_url $dest_dir"
 
-  # Configure git credentials
+  # Configure a persistent credential helper for future fetches — store
+  # credentials in ~/.git-credentials (append, don't clobber existing entries).
   ssh_exec "$vps_user" "$vps_host" "$ssh_port" "$ssh_key" \
     "cd $dest_dir && git config credential.helper store"
 
+  # Append credential (don't clobber existing entries for other hosts)
   ssh_exec "$vps_user" "$vps_host" "$ssh_port" "$ssh_key" \
-    "echo 'https://${pat}@github.com' > ~/.git-credentials && chmod 600 ~/.git-credentials"
+    "grep -qF 'github.com' ~/.git-credentials 2>/dev/null && sed -i 's|https://[^@]*@github.com|https://oauth2:$pat@github.com|' ~/.git-credentials || printf '%s\n' 'https://oauth2:$pat@github.com' >> ~/.git-credentials; chmod 600 ~/.git-credentials"
 }
 
 # Detect if URL is SSH or HTTPS

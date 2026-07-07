@@ -68,10 +68,10 @@ cmd_diff() {
   # Source the project-root env first (for VPS connection info), then overlay
   # the stack-level env so stack vars take precedence for the diff comparison.
   if [ -f "$CMD_ENV_FILE" ]; then
-    set -a; source "$CMD_ENV_FILE"; set +a
+    safe_load_env "$CMD_ENV_FILE"
   fi
   if [ "$env_file" != "$CMD_ENV_FILE" ] && [ -f "$env_file" ]; then
-    set -a; source "$env_file"; set +a
+    safe_load_env "$env_file"
   fi
   [ -n "${VPS_HOST:-}" ] || { fail "VPS_HOST not set — diff requires a remote target (checked $env_file)"; return 2; }
 

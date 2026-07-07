@@ -236,6 +236,6 @@ topology_apply_host_override() {
   # Source per-host env override if it exists
   local host_env="$stack_dir/.$host_alias.env"
   if [ -f "$host_env" ]; then
-    set -a; source "$host_env"; set +a
+    safe_load_env "$host_env"
   fi
 }

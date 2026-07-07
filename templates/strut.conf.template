@@ -47,6 +47,12 @@
 # when stderr is not a TTY.
 # STRUT_NO_UPDATE_CHECK=1
 
+# ── SSH Host Key Checking ──────────────────────────
+# Controls SSH StrictHostKeyChecking behavior for all strut SSH connections.
+# Values: accept-new (default, TOFU model), yes (strict), no (insecure legacy)
+# Override per-environment via env var: STRUT_SSH_HOST_KEY_CHECK=no
+# STRUT_SSH_HOST_KEY_CHECK=accept-new
+
 # ── Includes ───────────────────────────────────────
 # Pull in shared config from another file. Base values load first,
 # child assignments below override. Relative paths resolve against

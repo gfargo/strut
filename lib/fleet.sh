@@ -177,10 +177,14 @@ fleet_sync() {
     git log --oneline -1
 
     echo '--- Fetching origin ---'
-    git \
-      -c 'url.https://oauth2:$gh_pat@github.com/.insteadOf=https://github.com/' \
-      -c 'url.https://oauth2:$gh_pat@github.com/.insteadOf=git@github.com:' \
-      fetch origin
+    if [ -n '$gh_pat' ]; then
+      git \\
+        -c 'url.https://oauth2:$gh_pat@github.com/.insteadOf=https://github.com/' \\
+        -c 'url.https://oauth2:$gh_pat@github.com/.insteadOf=git@github.com:' \\
+        fetch origin
+    else
+      git fetch origin
+    fi
 
     echo '--- Resetting to origin/$branch ---'
     git reset --hard 'origin/$branch'

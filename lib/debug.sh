@@ -73,7 +73,7 @@ debug_is_vps_env() {
   local env_file="$1"
 
   if [ -f "$env_file" ]; then
-    set -a; source "$env_file"; set +a
+    safe_load_env "$env_file"
     [ -n "${VPS_HOST:-}" ]
   else
     return 1
@@ -93,7 +93,7 @@ debug_vps_exec() {
   local env_file="$1"
   local cmd="$2"
 
-  set -a; source "$env_file"; set +a
+  safe_load_env "$env_file"
 
   local vps_host="${VPS_HOST:-}"
   local vps_user="${VPS_USER:-ubuntu}"
@@ -171,7 +171,7 @@ debug_shell() {
 
   if debug_is_vps_env "$env_file"; then
     # Interactive shell on VPS
-    set -a; source "$env_file"; set +a
+    safe_load_env "$env_file"
     local vps_host="${VPS_HOST:-}"
     local vps_user="${VPS_USER:-ubuntu}"
     local vps_ssh_key="${VPS_SSH_KEY:-}"
@@ -216,7 +216,7 @@ debug_port_forward() {
 
   if debug_is_vps_env "$env_file"; then
     # Port forward from VPS to local
-    set -a; source "$env_file"; set +a
+    safe_load_env "$env_file"
     local vps_host="${VPS_HOST:-}"
     local vps_user="${VPS_USER:-ubuntu}"
     local vps_ssh_key="${VPS_SSH_KEY:-}"
@@ -279,7 +279,7 @@ debug_copy() {
 
   if debug_is_vps_env "$env_file"; then
     # Copy via VPS
-    set -a; source "$env_file"; set +a
+    safe_load_env "$env_file"
     local vps_host="${VPS_HOST:-}"
     local vps_user="${VPS_USER:-ubuntu}"
     local vps_ssh_key="${VPS_SSH_KEY:-}"
@@ -423,7 +423,7 @@ debug_resource_usage() {
 
   if debug_is_vps_env "$env_file"; then
     # Stream stats from VPS
-    set -a; source "$env_file"; set +a
+    safe_load_env "$env_file"
     local vps_host="${VPS_HOST:-}"
     local vps_user="${VPS_USER:-ubuntu}"
     local vps_ssh_key="${VPS_SSH_KEY:-}"

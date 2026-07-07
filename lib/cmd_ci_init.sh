@@ -358,7 +358,7 @@ cmd_ci_init() {
 
   # Source env file for VPS connection info
   if [ -f "$env_file" ]; then
-    set -a; source "$env_file" 2>/dev/null; set +a
+    safe_load_env "$env_file"
   fi
 
   # Resolve host (reuse ssh:keygen's resolver)

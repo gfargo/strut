@@ -95,7 +95,7 @@ _status_health() {
   # from the previous loop iteration so a stack with no VPS_HOST doesn't
   # inherit the prior stack's remote target.
   unset VPS_HOST VPS_USER VPS_PORT VPS_SSH_KEY VPS_DEPLOY_DIR 2>/dev/null || true
-  [ -f "$env_file" ] && { set -a; source "$env_file"; set +a; } 2>/dev/null || true
+  [ -f "$env_file" ] && safe_load_env "$env_file" 2>/dev/null || true
 
   if should_dispatch_remote; then
     _status_health_remote "$stack" "$env_name"
