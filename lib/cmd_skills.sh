@@ -96,6 +96,9 @@ _build_steering_content() {
 }
 
 # Build the skills block (on-demand procedures)
+#
+# Flat rules files (Cursor, Copilot, AGENTS.md, etc.) have no progressive
+# disclosure, so we inline the skill's SKILL.md body plus every reference file.
 _build_skills_content() {
   local strut_home="$1"
   local skills_dir="$strut_home/.kiro/skills"
@@ -112,8 +115,20 @@ _build_skills_content() {
     echo ""
     echo "---"
     echo ""
-    # Strip YAML frontmatter
+    # Strip YAML frontmatter from the router body
     awk 'BEGIN{fm=0} /^---$/{fm++; next} fm>=2||fm==0{print}' "$skill_file"
+
+    # Inline every reference file (flat formats can't load them on demand)
+    if [ -d "$skill_dir/references" ]; then
+      local ref
+      for ref in "$skill_dir/references"/*.md; do
+        [ -f "$ref" ] || continue
+        echo ""
+        echo "---"
+        echo ""
+        cat "$ref"
+      done
+    fi
   done
 }
 
@@ -165,9 +180,6 @@ _install_kiro() {
     skill_count=$((skill_count + 1))
   done
 
-  # Clean up legacy strut/ subdirectory from older installs
-  [ -d "$skills_target/strut" ] && rm -rf "$skills_target/strut"
-
   # Install steering
   local steering_count=0
   if [ -d "$strut_home/.kiro/steering" ]; then
@@ -183,13 +195,13 @@ _install_kiro() {
     done
   fi
 
-  ok "Kiro: $skill_count skills → .kiro/skills/ (Agent Skills spec)"
+  ok "Kiro: $skill_count skill(s) → .kiro/skills/ (Agent Skills spec)"
   ok "Kiro: $steering_count steering docs → .kiro/steering/strut-*.md"
 }
 
-# ── Claude Code: CLAUDE.md + .claude/commands/ ────────────────────────────────
+# ── Claude Code: CLAUDE.md + .claude/skills/ ──────────────────────────────────
 # Steering → CLAUDE.md (always loaded)
-# Skills   → .claude/commands/<name>.md (invoked as /name)
+# Skills   → .claude/skills/<name>/ (Agent Skills spec — progressive disclosure)
 _install_claude() {
   local strut_home="$1"
   local project_root="$2"
@@ -200,27 +212,25 @@ _install_claude() {
   _build_steering_content "$strut_home" > "$claude_file"
   ok "Claude: steering → CLAUDE.md"
 
-  # Skills → .claude/commands/strut-<name>.md
-  local commands_dir="$project_root/.claude/commands"
-  mkdir -p "$commands_dir"
+  # Skills → .claude/skills/<name>/ (native Agent Skills support)
+  local skills_target="$project_root/.claude/skills"
+  mkdir -p "$skills_target"
 
   local skill_count=0
   for skill_dir in "$strut_home/.kiro/skills"/*/; do
     [ -d "$skill_dir" ] || continue
-    local skill_file="$skill_dir/SKILL.md"
-    [ -f "$skill_file" ] || continue
-
+    [ -f "$skill_dir/SKILL.md" ] || continue
     local name
     name=$(basename "$skill_dir")
-    local cmd_file="$commands_dir/strut-$name.md"
-
-    # Strip frontmatter for the command file
-    awk 'BEGIN{fm=0} /^---$/{fm++; next} fm>=2||fm==0{print}' "$skill_file" > "$cmd_file"
+    if [ -d "$skills_target/$name" ]; then
+      rm -rf "${skills_target:?}/${name:?}"
+    fi
+    cp -r "$skill_dir" "$skills_target/$name"
+    rm -f "$skills_target/$name/.DS_Store" 2>/dev/null || true
     skill_count=$((skill_count + 1))
   done
 
-  ok "Claude: $skill_count skills → .claude/commands/strut-*.md"
-  echo "  Invoke with: /strut-vps-deployment, /strut-database-backups, etc."
+  ok "Claude: $skill_count skill → .claude/skills/ (Agent Skills spec)"
 }
 
 # ── Copilot: .github/copilot-instructions.md ──────────────────────────────────
@@ -356,6 +366,15 @@ _skills_list() {
       else
         echo -e "  ${GREEN}✓${NC} $name"
       fi
+
+      # List reference files (progressive-disclosure detail)
+      if [ -d "$skill_dir/references" ]; then
+        local ref
+        for ref in "$skill_dir/references"/*.md; do
+          [ -f "$ref" ] || continue
+          echo "      → references/$(basename "$ref")"
+        done
+      fi
     fi
   done
   echo ""
@@ -376,7 +395,7 @@ _skills_usage() {
   echo "              skills   → .kiro/skills/strut/"
   echo "  claude    Claude Code / Claude Desktop"
   echo "              steering → CLAUDE.md"
-  echo "              skills   → .claude/commands/strut-*.md (as /slash commands)"
+  echo "              skills   → .claude/skills/strut/ (Agent Skills spec)"
   echo "  cursor    Cursor"
   echo "              steering + skills → .cursorrules"
   echo "  windsurf  Windsurf"

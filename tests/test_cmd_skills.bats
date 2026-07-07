@@ -108,3 +108,56 @@ teardown() {
   run cmd_skills install --format bogus
   [[ "$output" == *"Unknown format"* ]]
 }
+
+# ── Structural tests: real installers, Agent Skills spec compliance ──────────
+
+@test "install kiro: skill lands at .kiro/skills/<name>/SKILL.md with references" {
+  # Restore real installer implementations (setup() stubbed them)
+  source "$CLI_ROOT/lib/cmd_skills.sh"
+
+  # Build a fake single-skill source tree
+  mkdir -p "$STRUT_HOME/.kiro/skills/strut/references"
+  printf -- '---\nname: strut\ndescription: test skill\n---\n# strut\n' \
+    > "$STRUT_HOME/.kiro/skills/strut/SKILL.md"
+  echo "# deploy ref" > "$STRUT_HOME/.kiro/skills/strut/references/deployment.md"
+
+  run _install_kiro "$STRUT_HOME" "$PROJECT_ROOT"
+  [ "$status" -eq 0 ]
+
+  # Skill must be directly under .kiro/skills/strut/ (not nested deeper)
+  [ -f "$PROJECT_ROOT/.kiro/skills/strut/SKILL.md" ]
+  [ -f "$PROJECT_ROOT/.kiro/skills/strut/references/deployment.md" ]
+  # No double-nesting
+  [ ! -d "$PROJECT_ROOT/.kiro/skills/strut/strut" ]
+}
+
+@test "install kiro: skill name in SKILL.md matches its directory" {
+  source "$CLI_ROOT/lib/cmd_skills.sh"
+
+  mkdir -p "$STRUT_HOME/.kiro/skills/strut"
+  printf -- '---\nname: strut\ndescription: test\n---\n' \
+    > "$STRUT_HOME/.kiro/skills/strut/SKILL.md"
+
+  _install_kiro "$STRUT_HOME" "$PROJECT_ROOT" >/dev/null
+
+  local dir_name md_name
+  dir_name=$(basename "$PROJECT_ROOT/.kiro/skills/strut")
+  md_name=$(sed -n 's/^name: *//p' "$PROJECT_ROOT/.kiro/skills/strut/SKILL.md" | head -1)
+  [ "$dir_name" = "$md_name" ]
+}
+
+@test "install claude: skill copied to .claude/skills/ with references" {
+  source "$CLI_ROOT/lib/cmd_skills.sh"
+
+  mkdir -p "$STRUT_HOME/.kiro/skills/strut/references"
+  printf -- '---\nname: strut\ndescription: test\n---\n' \
+    > "$STRUT_HOME/.kiro/skills/strut/SKILL.md"
+  echo "# ref" > "$STRUT_HOME/.kiro/skills/strut/references/backups.md"
+
+  run _install_claude "$STRUT_HOME" "$PROJECT_ROOT"
+  [ "$status" -eq 0 ]
+
+  [ -f "$PROJECT_ROOT/.claude/skills/strut/SKILL.md" ]
+  [ -f "$PROJECT_ROOT/.claude/skills/strut/references/backups.md" ]
+  [ -f "$PROJECT_ROOT/CLAUDE.md" ]
+}
