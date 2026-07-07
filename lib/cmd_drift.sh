@@ -108,6 +108,14 @@ cmd_drift() {
         *) fail "Unknown auto-fix subcommand: $autofix_cmd (enable|disable|status)" ;;
       esac
       ;;
+    images)
+      source "$LIB/cmd_drift_images.sh"
+      local img_args=()
+      [ -n "$json_flag" ] && img_args+=(--json)
+      # Default to remote if VPS_HOST is set
+      [ -n "${VPS_HOST:-}" ] && img_args+=(--remote)
+      drift_images "$stack" "${img_args[@]+"${img_args[@]}"}" "$@"
+      ;;
     *)
       fail "Unknown drift command: $target
 
@@ -117,6 +125,7 @@ Available commands:
   fix [--dry-run]                       Fix configuration drift
   monitor [--auto-fix]                  Monitor for drift (for cron)
   history [--limit N]                   Show drift detection history
+  images [--json] [--remote]            Check for stale image digests
   auto-fix enable                       Enable automatic drift fixing
   auto-fix disable                      Disable automatic drift fixing
   auto-fix status                       Show auto-fix status"
