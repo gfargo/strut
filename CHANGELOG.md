@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.30.3](https://github.com/gfargo/strut/compare/v0.30.2...v0.30.3) (2026-07-07)
+
+
+### Bug Fixes
+
+* **backup:** isolate engine failures in backup all, run offsite sync ([64db3c6](https://github.com/gfargo/strut/commit/64db3c6a3fb5c11503bdf1f2d24c28aa2b421d3f))
+* **backup:** isolate engine failures in backup all, run offsite sync ([3966a34](https://github.com/gfargo/strut/commit/3966a3496abd669ceb2ffe8c7ba0970958bba2ea)), closes [#230](https://github.com/gfargo/strut/issues/230)
+* **deploy:** blue-green teardown no longer destroys shared volumes ([f925af7](https://github.com/gfargo/strut/commit/f925af7ffdc6ec6f7253a2dab11231c3754c7bed))
+* **deploy:** blue-green teardown no longer destroys shared volumes ([e8e2f2e](https://github.com/gfargo/strut/commit/e8e2f2ef869ff742f5fb1c62e4d8248bfc7ffdb5)), closes [#247](https://github.com/gfargo/strut/issues/247)
+* **deploy:** replace eval with safe indirect expansion in required_vars ([b90f9f9](https://github.com/gfargo/strut/commit/b90f9f99ab0d0dfe684d4066421df237251f0e7b))
+* **deploy:** replace eval with safe indirect expansion in required_vars check ([007672d](https://github.com/gfargo/strut/commit/007672d74d9503a06a1f1a77565477938683320b)), closes [#223](https://github.com/gfargo/strut/issues/223)
+* **init:** validate --org against safe character set ([1042ff6](https://github.com/gfargo/strut/commit/1042ff67113c7a9c396e9f986dbb4d3b04a22c6d))
+* **init:** validate --org against safe character set, quote on write ([5cbcb93](https://github.com/gfargo/strut/commit/5cbcb93b3f22a0829d1d16739aebf0db9ccffdac)), closes [#239](https://github.com/gfargo/strut/issues/239)
+* **portability:** macOS-safe alternatives for free/timeout/nproc ([0a8f000](https://github.com/gfargo/strut/commit/0a8f000ceb802f942583b822206a671f05758297))
+* **portability:** replace free/timeout/nproc with macOS-safe alternatives ([c114cd7](https://github.com/gfargo/strut/commit/c114cd78be6cff981012eb52adce6486d4b5ebe7)), closes [#241](https://github.com/gfargo/strut/issues/241)
+* **secrets:** secure temp files and mask values in ci:init ([099a0e5](https://github.com/gfargo/strut/commit/099a0e5a3823e38d805798e58cd8cb44620c1163))
+* **secrets:** use mktemp for temp files, mask values in ci:init output ([07822e6](https://github.com/gfargo/strut/commit/07822e63b62a4b540c39074f051ac92af332152b))
+
 ## [0.30.2](https://github.com/gfargo/strut/compare/v0.30.1...v0.30.2) (2026-07-06)
 
 
