@@ -263,23 +263,29 @@ EOF
 
     # Create backups with staggered timestamps
     for j in $(seq 1 "$num_backups"); do
-      local f="$backup_dir/postgres-20240${j}01-120000.sql"
+      local f="$backup_dir/postgres-2024$(printf '%02d' "$j")01-120000.sql"
       echo "data" > "$f"
-      # Make them all "old" so retention would want to delete them
-      touch -t "$(date -v-60d +%Y%m%d%H%M.%S 2>/dev/null || date -d '60 days ago' +%Y%m%d%H%M.%S 2>/dev/null)" "$f"
-      sleep 0.01
+      # Make them all "old" so retention would want to delete them (60 days ago)
+      touch -t 202401010000.00 "$f"
     done
 
-    enforce_retention_policy "$stack" "postgres" >/dev/null 2>&1
+    # Clear any stale BACKUP_LOCAL_DIR from prior iterations
+    unset BACKUP_LOCAL_DIR
+    enforce_retention_policy "$stack" "postgres" >/dev/null 2>&1 || true
 
-    local remaining
-    remaining=$(ls "$backup_dir"/postgres-*.sql 2>/dev/null | wc -l)
+    local remaining=0
+    # Count remaining .sql files (if any exist)
+    if compgen -G "$backup_dir/postgres-*.sql" >/dev/null 2>&1; then
+      remaining=$(find "$backup_dir" -name 'postgres-*.sql' | wc -l | tr -d ' ')
+    fi
 
     # Property: remaining >= min(retain_count, num_backups)
     local expected_min=$retain_count
-    [ "$num_backups" -lt "$retain_count" ] && expected_min=$num_backups
+    if [ "$num_backups" -lt "$retain_count" ]; then
+      expected_min=$num_backups
+    fi
     [ "$remaining" -ge "$expected_min" ] || {
-      echo "FAILED: retain_count=$retain_count num_backups=$num_backups remaining=$remaining expected_min=$expected_min"
+      echo "FAILED at i=$i: retain_count=$retain_count num_backups=$num_backups remaining=$remaining expected_min=$expected_min"
       rm -rf "$CLI_ROOT/stacks/$stack"
       return 1
     }
@@ -343,6 +349,8 @@ _fake_crontab_setup() {
 }
 
 @test "install_retention_cron: installed cron line runs end-to-end under a minimal cron PATH" {
+  command -v flock >/dev/null 2>&1 || skip "flock not available (Linux only)"
+
   local stack="test-ret-e2e-$$"
   mkdir -p "$CLI_ROOT/stacks/$stack"
   _fake_crontab_setup

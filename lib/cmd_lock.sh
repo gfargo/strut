@@ -60,7 +60,7 @@ cmd_lock() {
 
   # Best-effort load env (for VPS_HOST); missing env file is only fatal for remote scope.
   if [ -f "$env_file" ]; then
-    set -a; source "$env_file"; set +a
+    safe_load_env "$env_file"
   fi
 
   case "$sub" in

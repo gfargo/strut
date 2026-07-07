@@ -285,7 +285,7 @@ _secrets_push() {
   local conn_env="$CLI_ROOT/.${env_name}.env"
   [ -f "$conn_env" ] || conn_env="$local_env"
   local _vh="${VPS_HOST:-}" _vu="${VPS_USER:-}" _vp="${VPS_PORT:-}" _vk="${VPS_SSH_KEY:-}" _vd="${VPS_DEPLOY_DIR:-}"
-  set -a; source "$conn_env" 2>/dev/null; set +a
+  safe_load_env "$conn_env"
   [ -n "$_vh" ] && export VPS_HOST="$_vh"
   [ -n "$_vu" ] && export VPS_USER="$_vu"
   [ -n "$_vp" ] && export VPS_PORT="$_vp"
@@ -418,7 +418,7 @@ _secrets_pull() {
   local conn_env="$CLI_ROOT/.${env_name}.env"
   if [ -f "$conn_env" ]; then
     local _vh="${VPS_HOST:-}" _vu="${VPS_USER:-}" _vp="${VPS_PORT:-}" _vk="${VPS_SSH_KEY:-}" _vd="${VPS_DEPLOY_DIR:-}"
-    set -a; source "$conn_env" 2>/dev/null; set +a
+    safe_load_env "$conn_env"
     [ -n "$_vh" ] && export VPS_HOST="$_vh"
     [ -n "$_vu" ] && export VPS_USER="$_vu"
     [ -n "$_vp" ] && export VPS_PORT="$_vp"
@@ -511,7 +511,7 @@ _secrets_diff() {
   local conn_env="$CLI_ROOT/.${env_name}.env"
   if [ -f "$conn_env" ]; then
     local _vh="${VPS_HOST:-}" _vu="${VPS_USER:-}" _vp="${VPS_PORT:-}" _vk="${VPS_SSH_KEY:-}" _vd="${VPS_DEPLOY_DIR:-}"
-    set -a; source "$conn_env" 2>/dev/null; set +a
+    safe_load_env "$conn_env"
     [ -n "$_vh" ] && export VPS_HOST="$_vh"
     [ -n "$_vu" ] && export VPS_USER="$_vu"
     [ -n "$_vp" ] && export VPS_PORT="$_vp"
@@ -896,10 +896,10 @@ _secrets_status() {
   # Source connection info
   local conn_env="$CLI_ROOT/.${env_name}.env"
   if [ -f "$conn_env" ]; then
-    set -a; source "$conn_env" 2>/dev/null; set +a
+    safe_load_env "$conn_env"
   fi
   if [ -n "$local_env" ] && [ -f "$local_env" ] && [ "$local_env" != "$conn_env" ]; then
-    set -a; source "$local_env" 2>/dev/null; set +a
+    safe_load_env "$local_env"
   fi
 
   local vps_host="${VPS_HOST:-}"
@@ -1085,7 +1085,7 @@ _secrets_rotate() {
     [ -f "$conn_env" ] || conn_env=$(_secrets_resolve_local_env "$stack_dir" "$env_name" 2>/dev/null || echo "")
     if [ -n "$conn_env" ] && [ -f "$conn_env" ]; then
       local _vh="${VPS_HOST:-}" _vu="${VPS_USER:-}" _vp="${VPS_PORT:-}" _vk="${VPS_SSH_KEY:-}" _vd="${VPS_DEPLOY_DIR:-}"
-      set -a; source "$conn_env" 2>/dev/null; set +a
+      safe_load_env "$conn_env"
       [ -n "$_vh" ] && export VPS_HOST="$_vh"
       [ -n "$_vu" ] && export VPS_USER="$_vu"
       [ -n "$_vp" ] && export VPS_PORT="$_vp"
@@ -1552,6 +1552,7 @@ _secrets_lock() {
   local tmp_encrypted
   tmp_encrypted=$(mktemp "${encrypted_file}.XXXXXX") || { fail "Failed to create secure temp file"; return 1; }
   chmod 600 "$tmp_encrypted"
+  # shellcheck disable=SC2064
   trap "rm -f '$tmp_encrypted'" EXIT INT TERM
 
   if [ "$backend" = "age" ]; then
@@ -1675,6 +1676,7 @@ _secrets_unlock() {
   tmp_output=$(mktemp "${output_env}.XXXXXX") || { fail "Failed to create secure temp file"; return 1; }
   chmod 600 "$tmp_output"
   # Ensure cleanup on interrupt
+  # shellcheck disable=SC2064
   trap "rm -f '$tmp_output'" EXIT INT TERM
 
   if [ "$backend" = "age" ]; then

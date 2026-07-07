@@ -639,7 +639,7 @@ db_pull() {
   local specific_file="$5"
 
   [ -f "$env_file" ] || fail "Env file not found: $env_file"
-  set -a; source "$env_file"; set +a
+  safe_load_env "$env_file"
 
   local vps_host="${VPS_HOST:-}"
   local vps_user="${VPS_USER:-ubuntu}"
@@ -913,7 +913,7 @@ db_push() {
   local specific_file="$5"
 
   [ -f "$env_file" ] || fail "Env file not found: $env_file"
-  set -a; source "$env_file"; set +a
+  safe_load_env "$env_file"
 
   local vps_host="${VPS_HOST:-}"
   local vps_user="${VPS_USER:-ubuntu}"

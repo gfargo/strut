@@ -367,7 +367,7 @@ pull_only_stack() {
 $_hint"
     fail "$_msg"
   fi
-  set -a; source "$env_file"; set +a
+  safe_load_env "$env_file"
 
   local compose_cmd
   compose_cmd=$(resolve_compose_cmd "$stack" "$env_file" "$services_profile")

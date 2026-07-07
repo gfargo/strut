@@ -87,10 +87,10 @@ _load_utils() {
 
 # ── build_ssh_opts ────────────────────────────────────────────────────────────
 
-@test "build_ssh_opts: defaults (no args) → StrictHostKeyChecking + ConnectTimeout=10" {
+@test "build_ssh_opts: defaults (no args) → StrictHostKeyChecking=accept-new + ConnectTimeout=10" {
   _load_utils
   result=$(build_ssh_opts)
-  [[ "$result" == *"StrictHostKeyChecking=no"* ]]
+  [[ "$result" == *"StrictHostKeyChecking=accept-new"* ]]
   [[ "$result" == *"ConnectTimeout=10"* ]]
   # No port, no key, no batch, no tty
   [[ "$result" != *"-p "* ]]

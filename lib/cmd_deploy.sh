@@ -26,9 +26,9 @@ _deploy_volguard() {
 
   # Only run when we have a VPS target to diff against
   [ -f "$env_file" ] || return 0
-  # Source env to get VPS_HOST (already sourced earlier but may not be in scope)
+  # Read VPS_HOST from env file without sourcing (safe parsing)
   local _vps_host
-  _vps_host=$(bash -c "set -a; source \"$env_file\"; echo \"\${VPS_HOST:-}\"" 2>/dev/null || true)
+  _vps_host=$(grep -E '^\s*(export\s+)?VPS_HOST=' "$env_file" 2>/dev/null | tail -1 | sed 's/^[^=]*=//' | tr -d '"'"'" || true)
   [ -n "$_vps_host" ] || return 0
 
   # Locate the stack compose file
@@ -394,7 +394,7 @@ cmd_health() {
   fi
 
   # Local path: run health checks against the local Docker daemon.
-  [ -f "$env_file" ] && { set -a; source "$env_file"; set +a; } 2>/dev/null || true  # env file may not exist for local-only health checks
+  [ -f "$env_file" ] && safe_load_env "$env_file" 2>/dev/null || true  # env file may not exist for local-only health checks
   local compose_file="$stack_dir/docker-compose.yml"
   local compose_cmd
   compose_cmd=$(resolve_compose_cmd "$stack" "$env_file" "$services")

