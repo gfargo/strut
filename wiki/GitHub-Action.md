@@ -41,7 +41,7 @@ The workflow must `actions/checkout` before the strut action so `strut.conf` and
 | `services` | | — | Services profile passed as `--services <profile>` |
 | `strict` | | `false` | Pass `--strict` — treat migration failures as fatal |
 | `dry-run` | | `false` | Pass `--dry-run` — print the plan without making changes |
-| `version` | | `v0.28.0` | strut tag to install — pin to a release tag for reproducible deploys |
+| `version` | | `main` | strut tag to install — pin to a release tag for reproducible deploys |
 | `env-vars` | | — | Extra `KEY=VALUE` pairs, one per line (e.g. `GH_PAT`, registry tokens) |
 
 ---
@@ -100,7 +100,7 @@ jobs:
           env: prod
           host: ${{ secrets.STRUT_HOST }}
           ssh-key: ${{ secrets.STRUT_SSH_KEY }}
-          version: v0.28.0          # pin to a specific strut release
+          version: v0.31.0          # pin to a specific strut release
           strict: true              # fail on migration errors
           dry-run: ${{ github.event.inputs.dry-run || 'false' }}
           env-vars: |
@@ -172,7 +172,7 @@ These are written to the `.prod.env` file (or whichever `env` you chose) and nev
 - The env file is written with mode `600`. Values are materialized via `printf`, not `echo`.
 - `VPS_HOST` is masked in the action log with `::add-mask::`.
 - Secrets passed as `${{ secrets.* }}` are automatically redacted by GitHub Actions.
-- strut uses `StrictHostKeyChecking=no` (consistent with its standard SSH behavior) — no `known_hosts` pinning.
+- strut uses `StrictHostKeyChecking=accept-new` by default (TOFU model — accepts on first connection, rejects if key changes). Override with `STRUT_SSH_HOST_KEY_CHECK=no` for legacy behavior.
 - `--dry-run` shows the SSH plan (host/user only) without leaking key or env values.
 
 ---
