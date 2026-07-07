@@ -144,7 +144,7 @@ teardown() {
 
   printf 'NEO4J_PASSWORD=oldneo\nPOSTGRES_PASSWORD=oldpg\n# API_SECRET_KEY=oldapi\n' > "$CLI_ROOT/.prod.env"
 
-  run keys_env_rotate "$stack" --force
+  run keys_env_rotate "$stack" "$CLI_ROOT/.prod.env" --force
   [ "$status" -ne 0 ]
   [[ "$output" == *"Refusing to rotate"* ]]
 
@@ -161,7 +161,7 @@ teardown() {
 
   printf 'NEO4J_PASSWORD=oldneo\nPOSTGRES_PASSWORD=oldpg\nAPI_SECRET_KEY=oldapi\n' > "$CLI_ROOT/.prod.env"
 
-  run keys_env_rotate "$stack" --force
+  run keys_env_rotate "$stack" "$CLI_ROOT/.prod.env" --force
   [ "$status" -eq 0 ]
 
   grep -q "^NEO4J_PASSWORD=oldneo$" "$CLI_ROOT/.prod.env" && return 1

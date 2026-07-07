@@ -250,7 +250,7 @@ _get_mem_percent() {
     pages_active=$(echo "$vmstat" | awk '/Pages active:/{gsub(/\./,"",$3); print $3}')
     pages_speculative=$(echo "$vmstat" | awk '/Pages speculative:/{gsub(/\./,"",$3); print $3}')
     pages_wired=$(echo "$vmstat" | awk '/Pages wired down:/{gsub(/\./,"",$4); print $4}')
-    local used=$(( (pages_active + pages_wired + pages_speculative) ))
+    local used=$(( pages_active + pages_wired + pages_speculative ))
     if [ "$total_pages" -gt 0 ] 2>/dev/null; then
       echo $(( used * 100 / total_pages ))
     else

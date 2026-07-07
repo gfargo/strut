@@ -1552,6 +1552,7 @@ _secrets_lock() {
   local tmp_encrypted
   tmp_encrypted=$(mktemp "${encrypted_file}.XXXXXX") || { fail "Failed to create secure temp file"; return 1; }
   chmod 600 "$tmp_encrypted"
+  # shellcheck disable=SC2064
   trap "rm -f '$tmp_encrypted'" EXIT INT TERM
 
   if [ "$backend" = "age" ]; then
@@ -1675,6 +1676,7 @@ _secrets_unlock() {
   tmp_output=$(mktemp "${output_env}.XXXXXX") || { fail "Failed to create secure temp file"; return 1; }
   chmod 600 "$tmp_output"
   # Ensure cleanup on interrupt
+  # shellcheck disable=SC2064
   trap "rm -f '$tmp_output'" EXIT INT TERM
 
   if [ "$backend" = "age" ]; then
