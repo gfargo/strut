@@ -1,5 +1,4 @@
 {
-  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
   "bump-minor-pre-major": true,
   "bump-patch-for-minor-pre-major": false,
   "packages": {
@@ -7,12 +6,7 @@
       "release-type": "simple",
       "package-name": "strut",
       "include-component-in-tag": false,
-      "extra-files": [
-        {
-          "type": "generic",
-          "path": "VERSION"
-        }
-      ]
+      "version-file": "VERSION"
     }
   }
 }
