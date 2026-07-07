@@ -21,6 +21,12 @@
 
 set -euo pipefail
 
+# Ensure parse_host_spec is available (defined in lib/connection.sh)
+if ! declare -F parse_host_spec &>/dev/null; then
+  # shellcheck source=lib/connection.sh
+  source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/connection.sh"
+fi
+
 # Global topology state (populated by topology_load)
 declare -gA _TOPO_HOSTS=()       # alias → "user@host:port key_path"
 declare -gA _TOPO_STACK_HOST=()  # stack → host_alias
@@ -90,32 +96,12 @@ topology_resolve_host() {
   local host_spec="${_TOPO_HOSTS[$host_alias]:-}"
   [ -n "$host_spec" ] || return 1
 
-  # Parse: user@host:port /path/to/key
-  local conn_part key_path
-  conn_part="${host_spec%% *}"
-  key_path="${host_spec#* }"
-  # If no space (no key), key_path equals conn_part — clear it
-  [ "$key_path" = "$conn_part" ] && key_path=""
-
-  local user host port
-  # Parse user@host:port
-  if [[ "$conn_part" == *@* ]]; then
-    user="${conn_part%%@*}"
-    local host_port="${conn_part#*@}"
+  # Use the shared parser from lib/connection.sh
+  if parse_host_spec "$host_spec"; then
+    echo "$CONN_USER $CONN_HOST $CONN_PORT $CONN_KEY"
   else
-    user="ubuntu"
-    local host_port="$conn_part"
+    return 1
   fi
-
-  if [[ "$host_port" == *:* ]]; then
-    host="${host_port%%:*}"
-    port="${host_port#*:}"
-  else
-    host="$host_port"
-    port="22"
-  fi
-
-  echo "$user $host $port $key_path"
 }
 
 # topology_has_host <stack>
@@ -206,32 +192,13 @@ topology_apply_host_override() {
   fi
 
   # Parse host spec and force-set VPS_* vars (override everything)
-  local conn_part key_path
-  conn_part="${host_spec%% *}"
-  key_path="${host_spec#* }"
-  [ "$key_path" = "$conn_part" ] && key_path=""
-
-  local user host port
-  if [[ "$conn_part" == *@* ]]; then
-    user="${conn_part%%@*}"
-    local host_port="${conn_part#*@}"
-  else
-    user="ubuntu"
-    local host_port="$conn_part"
+  if parse_host_spec "$host_spec"; then
+    export VPS_HOST="$CONN_HOST"
+    export VPS_USER="$CONN_USER"
+    export VPS_PORT="$CONN_PORT"
+    [ -n "$CONN_KEY" ] && export VPS_SSH_KEY="$CONN_KEY"
+    [ -n "$CONN_DEPLOY_DIR" ] && export VPS_DEPLOY_DIR="$CONN_DEPLOY_DIR"
   fi
-
-  if [[ "$host_port" == *:* ]]; then
-    host="${host_port%%:*}"
-    port="${host_port#*:}"
-  else
-    host="$host_port"
-    port="22"
-  fi
-
-  export VPS_HOST="$host"
-  export VPS_USER="$user"
-  export VPS_PORT="$port"
-  [ -n "$key_path" ] && export VPS_SSH_KEY="$key_path"
 
   # Source per-host env override if it exists
   local host_env="$stack_dir/.$host_alias.env"

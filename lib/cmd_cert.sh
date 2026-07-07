@@ -73,44 +73,20 @@ _cert_resolve_hostname() {
 _cert_resolve_connection() {
   local host_alias="$1"
 
-  source "${STRUT_HOME:-$CLI_ROOT}/lib/topology.sh"
-  topology_load
+  # Ensure connection primitives are available
+  local _strut_home="${STRUT_HOME:-${CLI_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}}"
+  declare -F parse_host_spec &>/dev/null || source "$_strut_home/lib/connection.sh"
+  declare -F topology_load &>/dev/null || source "$_strut_home/lib/topology.sh"
 
-  if topology_is_host_alias "$host_alias" 2>/dev/null; then
-    local host_spec="${_TOPO_HOSTS[$host_alias]:-}"
-    if [ -n "$host_spec" ]; then
-      local conn_part key_path
-      conn_part="${host_spec%% *}"
-      key_path="${host_spec#* }"
-      [ "$key_path" = "$conn_part" ] && key_path=""
-
-      if [[ "$conn_part" == *@* ]]; then
-        _CERT_USER="${conn_part%%@*}"
-        local host_port="${conn_part#*@}"
-      else
-        _CERT_USER="ubuntu"
-        local host_port="$conn_part"
-      fi
-
-      if [[ "$host_port" == *:* ]]; then
-        _CERT_HOST="${host_port%%:*}"
-        _CERT_PORT="${host_port#*:}"
-      else
-        _CERT_HOST="$host_port"
-        _CERT_PORT="22"
-      fi
-      _CERT_KEY="$key_path"
-      return 0
-    fi
+  if resolve_connection_from_host_alias "$host_alias"; then
+    _CERT_USER="$VPS_USER"
+    _CERT_HOST="$VPS_HOST"
+    _CERT_PORT="$VPS_PORT"
+    _CERT_KEY="${VPS_SSH_KEY:-}"
+    return 0
   fi
 
-  # Fallback to env vars
-  _CERT_HOST="${VPS_HOST:-}"
-  _CERT_USER="${VPS_USER:-ubuntu}"
-  _CERT_PORT="${VPS_PORT:-22}"
-  _CERT_KEY="${VPS_SSH_KEY:-}"
-
-  [ -n "$_CERT_HOST" ] || return 1
+  return 1
 }
 
 # ── Commands ──────────────────────────────────────────────────────────────────

@@ -47,9 +47,9 @@ inputs:
     required: false
     default: 'false'
   version:
-    description: 'strut tag to install (e.g. v0.28.0). Pin to a release tag for reproducible deploys.'
+    description: 'strut tag to install (e.g. v0.30.4). Pin to a release tag for reproducible deploys.'
     required: false
-    default: 'v0.28.0'
+    default: 'main'
   host:
     description: 'VPS hostname or IP address (sets VPS_HOST) — pass as a repository secret'
     required: true

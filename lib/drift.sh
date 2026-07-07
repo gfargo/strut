@@ -48,21 +48,21 @@ drift_get_git_hash() {
     return 1
   fi
 
-  # Get the git-committed version hash using git show
+  # Get the git-committed version using git show
   local cli_root="${CLI_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
   local relative_path="${file_path#$cli_root/}"
 
-  local git_content
-  git_content=$(git -C "$cli_root" show "HEAD:$relative_path" 2>/dev/null || echo "")
-
-  if [ -z "$git_content" ]; then
+  # Check if the file is tracked in git
+  if ! git -C "$cli_root" show "HEAD:$relative_path" &>/dev/null; then
     # File not tracked in git, use current file hash
     sha256sum "$file_path" 2>/dev/null | awk '{print $1}'
     return 0
   fi
 
-  # Hash the git-committed content
-  echo "$git_content" | sha256sum | awk '{print $1}'
+  # Hash the git-committed content — pipe directly from git show to avoid
+  # echo adding a trailing newline that the file may not have (fixes phantom
+  # drift false positives on files without a final newline).
+  git -C "$cli_root" show "HEAD:$relative_path" 2>/dev/null | sha256sum | awk '{print $1}'
 }
 
 # drift_get_vps_hash <file_path>
@@ -215,7 +215,10 @@ drift_detect() {
   local cli_root="${CLI_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
   local stack_dir="$cli_root/stacks/$stack"
 
-  [ -d "$stack_dir" ] || { error "Stack directory not found: $stack_dir"; return 1; }
+  if [ ! -d "$stack_dir" ]; then
+    log "Stack directory not found: $stack_dir (config-only stack — skipping drift)"
+    return 0
+  fi
 
   log "Detecting configuration drift for stack: $stack (env: $env)"
 
@@ -233,6 +236,9 @@ drift_detect() {
   # Check each tracked file
   for tracked_file in "${tracked_files[@]}"; do
     local git_file="$stack_dir/$tracked_file"
+    # Compare git-committed content against the local working-tree copy.
+    # Note: this catches local uncommitted drift, not VPS drift. For full
+    # remote comparison, use `strut diff` which fetches via SSH.
     local vps_file="$stack_dir/$tracked_file"
 
     # Skip if file doesn't exist in git

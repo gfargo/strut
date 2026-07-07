@@ -114,33 +114,19 @@ _sync_via_topology_host() {
     return 1
   fi
 
-  # Resolve host alias directly from _TOPO_HOSTS (not via topology_resolve_host
-  # which expects a stack name and looks up _TOPO_STACK_HOST first).
-  local host_spec="${_TOPO_HOSTS[$host_alias]:-}"
-  [ -n "$host_spec" ] || { fail "Failed to resolve topology for host: $host_alias"; return 1; }
-
-  # Parse: user@host:port /path/to/key
-  local conn_part key_path
-  conn_part="${host_spec%% *}"
-  key_path="${host_spec#* }"
-  [ "$key_path" = "$conn_part" ] && key_path=""
-
-  local vps_user vps_host vps_port vps_ssh_key
-  if [[ "$conn_part" == *@* ]]; then
-    vps_user="${conn_part%%@*}"
-    local host_port="${conn_part#*@}"
-  else
-    vps_user="ubuntu"
-    local host_port="$conn_part"
+  # Resolve connection via the shared primitive
+  if ! resolve_connection_from_host_alias "$host_alias"; then
+    fail "Failed to resolve topology for host: $host_alias"
+    return 1
   fi
-  if [[ "$host_port" == *:* ]]; then
-    vps_host="${host_port%%:*}"
-    vps_port="${host_port#*:}"
-  else
-    vps_host="$host_port"
-    vps_port="22"
-  fi
-  vps_ssh_key="$key_path"
+
+  # shellcheck disable=SC2153
+  local vps_user="$VPS_USER"
+  # shellcheck disable=SC2153
+  local vps_host="$VPS_HOST"
+  # shellcheck disable=SC2153
+  local vps_port="$VPS_PORT"
+  local vps_ssh_key="${VPS_SSH_KEY:-}"
 
   local deploy_dir; deploy_dir=$(resolve_deploy_dir)
   local gh_pat="${GH_PAT:-}"

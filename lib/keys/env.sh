@@ -416,16 +416,16 @@ keys_env_diff() {
     fail "Usage: keys env:diff --local <file> --remote"
   fi
 
-  # Load VPS connection info
+  # Load VPS connection info safely
   [ -f "$env_file" ] || fail "Env file not found: $env_file"
-  set -a
-  source "$env_file"
-  set +a
+  safe_load_env "$env_file"
 
   local vps_host="${VPS_HOST:-}"
   local vps_user="${VPS_USER:-ubuntu}"
   local vps_ssh_key="${VPS_SSH_KEY:-}"
   local vps_deploy_dir; vps_deploy_dir=$(resolve_deploy_dir)
+  local env_name
+  env_name=$(extract_env_name "$env_file" 2>/dev/null || echo "prod")
 
   [ -n "$vps_host" ] || fail "VPS_HOST not set in $env_file"
 
@@ -440,7 +440,7 @@ keys_env_diff() {
   remote_env=$(mktemp "${TMPDIR:-/tmp}/strut-keys-diff-XXXXXX") || { fail "Could not create temp file"; return 1; }
   trap 'rm -f "$remote_env"' RETURN
 
-  scp $ssh_opts "$vps_user@$vps_host:$vps_deploy_dir/.prod.env" "$remote_env" 2>/dev/null || {
+  scp $ssh_opts "$vps_user@$vps_host:$vps_deploy_dir/.${env_name}.env" "$remote_env" 2>/dev/null || {
     rm -f "$remote_env"
     trap - RETURN
     warn "Could not fetch remote .env file"
