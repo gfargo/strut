@@ -1549,7 +1549,10 @@ _secrets_lock() {
     return 0
   fi
 
-  local tmp_encrypted="${encrypted_file}.tmp"
+  local tmp_encrypted
+  tmp_encrypted=$(mktemp "${encrypted_file}.XXXXXX") || { fail "Failed to create secure temp file"; return 1; }
+  chmod 600 "$tmp_encrypted"
+  trap "rm -f '$tmp_encrypted'" EXIT INT TERM
 
   if [ "$backend" = "age" ]; then
     # Resolve recipients file
@@ -1668,7 +1671,11 @@ _secrets_unlock() {
     return 0
   fi
 
-  local tmp_output="${output_env}.tmp"
+  local tmp_output
+  tmp_output=$(mktemp "${output_env}.XXXXXX") || { fail "Failed to create secure temp file"; return 1; }
+  chmod 600 "$tmp_output"
+  # Ensure cleanup on interrupt
+  trap "rm -f '$tmp_output'" EXIT INT TERM
 
   if [ "$backend" = "age" ]; then
     # Resolve identity

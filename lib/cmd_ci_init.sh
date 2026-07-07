@@ -235,7 +235,9 @@ _ci_print_commands() {
         if [ "$category" = "KEY" ] && [ -n "$value" ]; then
           echo "  gh secret set $name < $value${repo:+ -R $repo}"
         elif [ -n "$value" ]; then
-          echo "  gh secret set $name --body \"$value\"${repo:+ -R $repo}"
+          local masked="${value:0:4}••••${value: -4}"
+          [ ${#value} -le 8 ] && masked="••••••••"
+          echo "  echo '<value>' | gh secret set $name${repo:+ -R $repo}  # value: ${masked}"
         fi
       done <<< "$secrets_data"
       ;;
@@ -248,7 +250,9 @@ _ci_print_commands() {
         if [ "$category" = "KEY" ] && [ -n "$value" ]; then
           echo "  glab variable set $name --value \"\$(cat $value)\"${repo:+ -R $repo}"
         elif [ -n "$value" ]; then
-          echo "  glab variable set $name --value \"$value\"${repo:+ -R $repo}"
+          local masked="${value:0:4}••••${value: -4}"
+          [ ${#value} -le 8 ] && masked="••••••••"
+          echo "  echo '<value>' | glab variable set $name${repo:+ -R $repo}  # value: ${masked}"
         fi
       done <<< "$secrets_data"
       ;;
@@ -261,7 +265,9 @@ _ci_print_commands() {
         if [ "$category" = "KEY" ] && [ -n "$value" ]; then
           echo "  $name = (contents of $value)"
         elif [ -n "$value" ]; then
-          echo "  $name = $value"
+          local masked="${value:0:4}••••${value: -4}"
+          [ ${#value} -le 8 ] && masked="••••••••"
+          echo "  $name = ${masked}"
         fi
       done <<< "$secrets_data"
       ;;
