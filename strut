@@ -186,6 +186,7 @@ source "$LIB/cmd_tui.sh"
 source "$LIB/cmd_upgrade.sh"
 source "$LIB/version_check.sh"
 source "$LIB/cmd_sync.sh"
+source "$LIB/cmd_fleet.sh"
 
 # Project-local plugins are discovered once PROJECT_ROOT is known. find_project_root
 # above populates it when strut is invoked inside a project; outside one this is a no-op.
@@ -309,6 +310,7 @@ usage() {
   echo "  list plugins [--json]                                          List discovered project plugins"
   echo "  status-all [--env <name>] [--json]                             Dashboard across all stacks"
   echo "  sync       [<host>|--all] [--env <name>] [--dry-run]          Bring host checkout in sync with origin"
+  echo "  fleet      status [--json]                                    Show git sync state across all hosts"
   echo "  rollback   [--env <name>]                                      Rollback to previous deploy snapshot"
   echo "  prune      [--env <name>]                                      Remove unused containers/images/volumes on VPS"
   echo "  gateway    deploy|status|reload|validate --host <alias>        Caddy gateway management"
@@ -564,6 +566,11 @@ case "${1:-}" in
   sync)
     shift
     cmd_sync "$@"
+    exit $?
+    ;;
+  fleet)
+    shift
+    cmd_fleet "$@"
     exit $?
     ;;
   posture)
