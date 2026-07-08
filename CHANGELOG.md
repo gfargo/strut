@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.33.0](https://github.com/gfargo/strut/compare/v0.32.0...v0.33.0) (2026-07-08)
+
+
+### Features
+
+* **mcp:** built-in MCP server for AI agent integration ([280241c](https://github.com/gfargo/strut/commit/280241c684d842d58a8c203cbbb6bef9245f2845))
+* **mcp:** built-in MCP server for AI agent integration ([e5e1626](https://github.com/gfargo/strut/commit/e5e16260c57434f366b9b07e18827f2132d1fa19)), closes [#332](https://github.com/gfargo/strut/issues/332)
+
 ## [0.32.0](https://github.com/gfargo/strut/compare/v0.31.1...v0.32.0) (2026-07-08)
 
 
