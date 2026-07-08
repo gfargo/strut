@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.32.0](https://github.com/gfargo/strut/compare/v0.31.1...v0.32.0) (2026-07-08)
+
+
+### Features
+
+* **ssl:** auto-provision Let's Encrypt certs on deploy ([c0e018a](https://github.com/gfargo/strut/commit/c0e018a19373c50e53c361ac5a7f80baa3e7aa3c))
+* **ssl:** auto-provision Let's Encrypt certs on deploy ([f1e761d](https://github.com/gfargo/strut/commit/f1e761d1fab33486c4eb09448c188f619623498c)), closes [#334](https://github.com/gfargo/strut/issues/334)
+* **webhook:** push-to-deploy automation ([774f90e](https://github.com/gfargo/strut/commit/774f90e56bf18931c4aef92aa829e1c3ad653b43))
+* **webhook:** push-to-deploy automation (poll + serve + install) ([086580e](https://github.com/gfargo/strut/commit/086580ec671655a442313d370317d1b6e4c1e487)), closes [#331](https://github.com/gfargo/strut/issues/331)
+
 ## [0.31.1](https://github.com/gfargo/strut/compare/v0.31.0...v0.31.1) (2026-07-07)
 
 
