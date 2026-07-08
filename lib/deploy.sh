@@ -514,6 +514,13 @@ vps_release() {
     ./strut $stack health --env $env_name $profile_flag
   " || warn "Health check failed — check logs with: strut $stack logs --env $env_name"
 
+  # Auto-SSL: provision certs for detected domains (if configured)
+  local strut_home="${STRUT_HOME:-${CLI_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}}"
+  if [ -f "$strut_home/lib/ssl/auto.sh" ]; then
+    source "$strut_home/lib/ssl/auto.sh"
+    ssl_auto_provision "$stack" "$env_file" "$ssh_opts" "$vps_user" "$vps_host" "$deploy_dir" || true
+  fi
+
   echo ""
   echo -e "${GREEN}════════════════════════════════════════════${NC}"
   echo -e "${GREEN}  ✓  Release complete!${NC}"
