@@ -312,6 +312,7 @@ usage() {
   echo "  sync       [<host>|--all] [--env <name>] [--dry-run]          Bring host checkout in sync with origin"
   echo "  fleet      status [--json]                                    Show git sync state across all hosts"
   echo "  webhook    poll|serve|install                                  Push-to-deploy automation"
+  echo "  mcp        serve|install                                       MCP server for AI agents"
   echo "  rollback   [--env <name>]                                      Rollback to previous deploy snapshot"
   echo "  prune      [--env <name>]                                      Remove unused containers/images/volumes on VPS"
   echo "  gateway    deploy|status|reload|validate --host <alias>        Caddy gateway management"
@@ -578,6 +579,12 @@ case "${1:-}" in
     shift
     source "$LIB/cmd_webhook.sh"
     cmd_webhook "$@"
+    exit $?
+    ;;
+  mcp)
+    shift
+    source "$LIB/cmd_mcp.sh"
+    cmd_mcp "$@"
     exit $?
     ;;
   posture)
