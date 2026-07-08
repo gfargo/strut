@@ -198,10 +198,15 @@ load_strut_config() {
   # Unset → falls back to the built-in reload of the green project's proxy.
   BLUE_GREEN_PROXY_HOOK="${BLUE_GREEN_PROXY_HOOK:-}"
 
+  # Auto-SSL: provision Let's Encrypt certs for detected domains on deploy.
+  AUTO_SSL="${AUTO_SSL:-true}"
+  SSL_EMAIL="${SSL_EMAIL:-}"
+
   export REGISTRY_TYPE REGISTRY_HOST DEFAULT_ORG DEFAULT_BRANCH BANNER_TEXT \
          REVERSE_PROXY PRE_DEPLOY_VALIDATE PRE_DEPLOY_HOOKS \
          RUN_DB_SCHEMA_ON_DEPLOY \
-         DEPLOY_MODE BLUE_GREEN_HEALTH_TIMEOUT BLUE_GREEN_DRAIN BLUE_GREEN_PROXY_HOOK
+         DEPLOY_MODE BLUE_GREEN_HEALTH_TIMEOUT BLUE_GREEN_DRAIN BLUE_GREEN_PROXY_HOOK \
+         AUTO_SSL SSL_EMAIL
 
   # Validate REVERSE_PROXY
   # Belt-and-suspenders `return 1` after fail — in production `fail` exits, but
