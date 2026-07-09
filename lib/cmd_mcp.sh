@@ -22,15 +22,20 @@ _usage_mcp() {
   echo "The MCP server exposes strut operations as callable tools,"
   echo "enabling AI agents to deploy, inspect, backup, and debug stacks."
   echo ""
-  echo "Requires: jq"
+  echo "Requires: npx (preferred, for multi-editor support) or jq (Kiro-only fallback)"
   echo ""
-  echo "Configuration (written by 'strut mcp install'):"
-  echo "  Kiro:   .kiro/settings/mcp.json"
-  echo "  Claude: .claude/settings.json or ~/.claude/settings.json"
+  echo "Supported editors (via agent-add):"
+  echo "  Cursor, Claude Code, VS Code Copilot, Windsurf, Kiro,"
+  echo "  Gemini CLI, Codex CLI, Augment, Roo Code, and more."
+  echo ""
+  echo "Options:"
+  echo "  --host <editor>   Target a specific editor (e.g. cursor, claude-code, kiro)"
+  echo "                    Omit for interactive selection."
   echo ""
   echo "Examples:"
-  echo "  strut mcp serve              # start server (stdio)"
-  echo "  strut mcp install            # write IDE config"
+  echo "  strut mcp serve                    # start server (stdio)"
+  echo "  strut mcp install                  # interactive editor picker"
+  echo "  strut mcp install --host cursor    # install for Cursor"
   echo ""
 }
 
@@ -40,7 +45,7 @@ cmd_mcp() {
 
   case "$subcmd" in
     serve)   _mcp_cmd_serve ;;
-    install) _mcp_cmd_install ;;
+    install) _mcp_cmd_install "$@" ;;
     ""|help) _usage_mcp ;;
     *)       _usage_mcp; fail "Unknown mcp subcommand: $subcmd" ;;
   esac
@@ -59,12 +64,50 @@ _mcp_cmd_install() {
   local strut_bin="$cli_root/strut"
   local project_root="${PROJECT_ROOT:-$PWD}"
 
-  # Kiro config
+  # Parse flags
+  local host_flag=""
+  while [[ $# -gt 0 ]]; do
+    case $1 in
+      --host=*) host_flag="${1#*=}"; shift ;;
+      --host)   host_flag="$2"; shift 2 ;;
+      --help|-h) _usage_mcp; return 0 ;;
+      *) shift ;;
+    esac
+  done
+
+  local mcp_json
+  mcp_json=$(printf '{"strut":{"command":"%s","args":["mcp","serve"]}}' "$strut_bin")
+
+  # Prefer agent-add if npx is available — handles Cursor, Claude Code,
+  # VS Code Copilot, Windsurf, Kiro, and 10+ other editors automatically.
+  if command -v npx >/dev/null 2>&1; then
+    log "Installing strut MCP server via agent-add..."
+    local cmd=(npx -y agent-add --mcp "$mcp_json")
+    [ -n "$host_flag" ] && cmd+=(--host "$host_flag")
+    if "${cmd[@]}"; then
+      echo ""
+      echo "  Read-only tools (auto-approved where supported):"
+      echo "    strut_list, strut_status, strut_health, strut_logs,"
+      echo "    strut_fleet_status, strut_drift_detect, strut_drift_images,"
+      echo "    strut_diff, strut_backup_health"
+      echo ""
+      echo "  Write tools (require approval):"
+      echo "    strut_deploy, strut_sync, strut_backup, strut_stop"
+      echo ""
+      echo "  Restart your IDE to activate."
+      return 0
+    fi
+    warn "agent-add failed; falling back to manual Kiro config..."
+  fi
+
+  # Fallback: write Kiro config directly (no npx/Node.js required)
+  command -v jq >/dev/null 2>&1 || fail "strut mcp install requires 'jq' or 'npx' (for agent-add)"
+
   local kiro_config="$project_root/.kiro/settings/mcp.json"
   mkdir -p "$(dirname "$kiro_config")"
 
-  local kiro_json
-  kiro_json=$(jq -n \
+  local kiro_json_full
+  kiro_json_full=$(jq -n \
     --arg cmd "$strut_bin" \
     '{
       mcpServers: {
@@ -87,14 +130,13 @@ _mcp_cmd_install() {
     }')
 
   if [ -f "$kiro_config" ]; then
-    # Merge into existing config
     local existing
     existing=$(cat "$kiro_config")
-    echo "$existing" | jq --argjson new "$kiro_json" '.mcpServers.strut = $new.mcpServers.strut' > "$kiro_config"
-    ok "MCP: updated $kiro_config"
+    echo "$existing" | jq --argjson new "$kiro_json_full" '.mcpServers.strut = $new.mcpServers.strut' > "$kiro_config"
+    ok "MCP: updated $kiro_config (Kiro only — install npx for multi-editor support)"
   else
-    echo "$kiro_json" > "$kiro_config"
-    ok "MCP: created $kiro_config"
+    echo "$kiro_json_full" > "$kiro_config"
+    ok "MCP: created $kiro_config (Kiro only — install npx for multi-editor support)"
   fi
 
   echo ""
