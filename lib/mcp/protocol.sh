@@ -70,7 +70,8 @@ _mcp_error() {
 
 # _mcp_initialize — return server capabilities
 _mcp_initialize() {
-  cat << 'EOF'
-{"protocolVersion":"2024-11-05","capabilities":{"tools":{}},"serverInfo":{"name":"strut","version":"0.32.0"}}
-EOF
+  local strut_home="${STRUT_HOME:-${CLI_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}}"
+  local version="unknown"
+  [ -f "$strut_home/VERSION" ] && version=$(tr -d '[:space:]' < "$strut_home/VERSION")
+  printf '{"protocolVersion":"2024-11-05","capabilities":{"tools":{"listChanged":true}},"serverInfo":{"name":"strut","version":"%s"}}' "$version"
 }
