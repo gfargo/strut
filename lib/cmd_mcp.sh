@@ -61,8 +61,13 @@ _mcp_cmd_serve() {
 
 _mcp_cmd_install() {
   local cli_root="${CLI_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
-  local strut_bin="$cli_root/strut"
   local project_root="${PROJECT_ROOT:-$PWD}"
+
+  # Use the bare command name if strut is on PATH (portable), otherwise absolute path
+  local strut_bin="strut"
+  if ! command -v strut >/dev/null 2>&1; then
+    strut_bin="$cli_root/strut"
+  fi
 
   # Parse flags
   local host_flag=""
