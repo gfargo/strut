@@ -80,9 +80,30 @@ _mcp_cmd_install() {
 
   # Prefer agent-add if npx is available — handles Cursor, Claude Code,
   # VS Code Copilot, Windsurf, Kiro, and 10+ other editors automatically.
-  if command -v npx >/dev/null 2>&1; then
+  local npx_bin=""
+  # Resolve npx from nvm if available (lazy-load shells may not have it on PATH)
+  if [ -n "${NVM_DIR:-}" ] && [ -d "$NVM_DIR/versions/node" ]; then
+    # Try the default alias first, then the highest installed version
+    local nvm_node_dir=""
+    if [ -f "$NVM_DIR/alias/default" ]; then
+      local alias_val
+      alias_val=$(cat "$NVM_DIR/alias/default" 2>/dev/null)
+      # Resolve partial aliases like "22" to full version dirs
+      nvm_node_dir=$(ls -d "$NVM_DIR/versions/node/v${alias_val}"* 2>/dev/null | sort -V | tail -1)
+    fi
+    # Fallback: highest installed version
+    if [ -z "$nvm_node_dir" ] || [ ! -d "$nvm_node_dir" ]; then
+      nvm_node_dir=$(ls -d "$NVM_DIR/versions/node/"v* 2>/dev/null | sort -V | tail -1)
+    fi
+    if [ -n "$nvm_node_dir" ] && [ -x "$nvm_node_dir/bin/npx" ]; then
+      npx_bin="$nvm_node_dir/bin/npx"
+    fi
+  fi
+  [ -z "$npx_bin" ] && command -v npx >/dev/null 2>&1 && npx_bin="$(command -v npx)"
+
+  if [ -n "$npx_bin" ]; then
     log "Installing strut MCP server via agent-add..."
-    local cmd=(npx -y agent-add --mcp "$mcp_json")
+    local cmd=("$npx_bin" -y agent-add --mcp "$mcp_json")
     [ -n "$host_flag" ] && cmd+=(--host "$host_flag")
     if "${cmd[@]}"; then
       echo ""
