@@ -25,6 +25,8 @@ setup_file() {
   CLI_ROOT="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)"
   export CLI_ROOT
   export STRUT_HOME="$CLI_ROOT"
+  export POSTGRES_USER="postgres"
+  export POSTGRES_DB="app_db"
 
   if ! command -v docker >/dev/null 2>&1 || ! docker info >/dev/null 2>&1; then
     return 0

@@ -36,9 +36,11 @@ stacks/
 
 # Wiki (cloned separately as git submodule)
 .wiki
+wiki
 
 .www
 .homebrew-tap
+strut-action
 
 # VHS recording output (regenerated, not committed)
 bin/output/gif/*.gif
