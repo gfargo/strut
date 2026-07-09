@@ -97,6 +97,8 @@ _mcp_cmd_install() {
     fi
     if [ -n "$nvm_node_dir" ] && [ -x "$nvm_node_dir/bin/npx" ]; then
       npx_bin="$nvm_node_dir/bin/npx"
+      # Prepend to PATH so #!/usr/bin/env node resolves to the same version
+      export PATH="$nvm_node_dir/bin:$PATH"
     fi
   fi
   [ -z "$npx_bin" ] && command -v npx >/dev/null 2>&1 && npx_bin="$(command -v npx)"
