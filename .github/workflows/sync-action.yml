@@ -1,0 +1,64 @@
+name: Sync strut-action
+
+# When a new strut release is published, tag gfargo/strut-action with the
+# same version so consumers of @v1 pick up the matching strut CLI version.
+# Also updates the default strut-version input to point at the new release.
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout strut-action
+        uses: actions/checkout@v4
+        with:
+          repository: gfargo/strut-action
+          token: ${{ secrets.STRUT_ACTION_PAT }}
+          path: strut-action
+          fetch-depth: 0
+
+      - name: Update default strut-version
+        working-directory: strut-action
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"  # e.g. v0.30.4
+
+          # Update the strut-version default in action.yml from 'latest' to the release tag
+          # This ensures @v1 consumers get the exact matching CLI version
+          sed -i "s|default: 'latest'|default: '${TAG}'|" action.yml
+
+          # Update entrypoint.sh default if it references a version
+          if grep -q "strut_version=\"\${INPUT_STRUT_VERSION:-latest}\"" entrypoint.sh; then
+            sed -i "s|strut_version=\"\${INPUT_STRUT_VERSION:-latest}\"|strut_version=\"\${INPUT_STRUT_VERSION:-${TAG}}\"|" entrypoint.sh
+          fi
+
+      - name: Commit, tag, and push
+        working-directory: strut-action
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add -A
+          if ! git diff --cached --quiet; then
+            git commit -m "chore: pin strut-version default to ${TAG}
+
+          Synced automatically from gfargo/strut release ${TAG}."
+            git push origin main
+          fi
+
+          # Create the exact version tag matching the strut release
+          git tag -a "$TAG" -m "strut-action ${TAG} (synced from gfargo/strut)"
+          git push origin "$TAG"
+
+          # Move the major tag (v1) so @v1 consumers get automatic updates
+          git tag -fa v1 -m "strut-action v1 -> ${TAG}"
+          git push -f origin v1
