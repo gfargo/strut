@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.34.0](https://github.com/gfargo/strut/compare/v0.33.0...v0.34.0) (2026-07-09)
+
+
+### Features
+
+* **mcp:** use agent-add for multi-editor MCP install ([28b9ac9](https://github.com/gfargo/strut/commit/28b9ac9b9b16f2ae8e535801407cc6d916c9afc9))
+
+
+### Bug Fixes
+
+* resolve CI failures (completions sync + shellcheck) ([7e57cb5](https://github.com/gfargo/strut/commit/7e57cb5b3c915351054fd8106e38fde6b353504c))
+* **test:** export POSTGRES_DB for backup/restore integration test ([810c8c3](https://github.com/gfargo/strut/commit/810c8c3ce622d2da1ff2ab56101499378fc16b5c))
+
 ## [0.33.0](https://github.com/gfargo/strut/compare/v0.32.0...v0.33.0) (2026-07-08)
 
 
