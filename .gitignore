@@ -39,6 +39,7 @@ stacks/
 
 .www
 .homebrew-tap
+strut-action
 
 # VHS recording output (regenerated, not committed)
 bin/output/gif/*.gif
