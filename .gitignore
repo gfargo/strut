@@ -36,6 +36,7 @@ stacks/
 
 # Wiki (cloned separately as git submodule)
 .wiki
+wiki
 
 .www
 .homebrew-tap
