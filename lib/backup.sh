@@ -473,14 +473,27 @@ restore_postgres() {
 
   log "Restoring PostgreSQL (service: $pg_service)..."
 
-  # Drop and recreate the database to avoid "already exists" errors
+  # Drop and recreate the database to avoid "already exists" errors.
+  # pg_terminate_backend() only sends SIGTERM and returns immediately — it
+  # does not wait for the target backend to actually disconnect. DROP
+  # DATABASE run right after can still race a backend that hasn't finished
+  # tearing down yet and fail with "database ... is being accessed by other
+  # users". Retry a few times with a short backoff instead of failing the
+  # whole restore over that transient window.
   log "Dropping and recreating database..."
-  $compose_cmd exec -T "$pg_service" \
-    psql -v ON_ERROR_STOP=1 -U "${POSTGRES_USER:-postgres}" -d postgres \
-    -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname='${POSTGRES_DB:-${POSTGRES_USER:-postgres}}' AND pid <> pg_backend_pid();" \
-    -c "DROP DATABASE IF EXISTS \"${POSTGRES_DB:-${POSTGRES_USER:-postgres}}\";" \
-    -c "CREATE DATABASE \"${POSTGRES_DB:-${POSTGRES_USER:-postgres}}\";" \
-  || { error "Failed to recreate database"; return 1; }
+  local db_recreate_attempt db_recreated=false
+  for db_recreate_attempt in 1 2 3; do
+    if $compose_cmd exec -T "$pg_service" \
+      psql -v ON_ERROR_STOP=1 -U "${POSTGRES_USER:-postgres}" -d postgres \
+      -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname='${POSTGRES_DB:-${POSTGRES_USER:-postgres}}' AND pid <> pg_backend_pid();" \
+      -c "DROP DATABASE IF EXISTS \"${POSTGRES_DB:-${POSTGRES_USER:-postgres}}\";" \
+      -c "CREATE DATABASE \"${POSTGRES_DB:-${POSTGRES_USER:-postgres}}\";"; then
+      db_recreated=true
+      break
+    fi
+    [ "$db_recreate_attempt" -eq 3 ] || { warn "Database recreate failed (attempt $db_recreate_attempt/3) — retrying after connections settle"; sleep 1; }
+  done
+  $db_recreated || { error "Failed to recreate database"; return 1; }
 
   # ON_ERROR_STOP=1 makes psql exit non-zero on the first failed statement,
   # so a partial restore is reported as a failure instead of "complete".

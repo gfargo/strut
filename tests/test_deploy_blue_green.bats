@@ -522,6 +522,42 @@ EOF
   [ "$status" -ne 0 ]
 }
 
+# ── Wait-healthy: restart resets progress instead of accepting early ────────
+
+@test "_bg_wait_healthy: a restart spotted mid-poll resets progress rather than being missed" {
+  health_check_green() { return 0; }
+  export -f health_check_green
+
+  local poll_count_file="$TEST_TMP/restart_poll_count"
+  echo 0 > "$poll_count_file"
+  # Report a restart on the 2nd poll only, simulating a crash that shows up
+  # between polls. The gate must not have already accepted by then, and
+  # must require a fresh run of consecutive clean polls afterward.
+  _bg_any_container_restarted() {
+    local n
+    n=$(($(cat "$poll_count_file") + 1))
+    echo "$n" > "$poll_count_file"
+    [ "$n" -eq 2 ]
+  }
+  export -f _bg_any_container_restarted
+
+  export BLUE_GREEN_HEALTH_POLL_INTERVAL=1
+  run _bg_wait_healthy "$CLI_ROOT/stacks/$STACK" "fake-compose" "$CLI_ROOT/stacks/$STACK/docker-compose.yml" 10
+  [ "$status" -eq 0 ]
+  # Poll 1: ok=1. Poll 2: restart seen, resets to 0. Polls 3-5: ok=1,2,3 → accept.
+  [ "$(cat "$poll_count_file")" -eq 5 ]
+}
+
+@test "_bg_wait_healthy: never accepts a container that keeps restarting" {
+  health_check_green() { return 0; }
+  export -f health_check_green
+  _bg_any_container_restarted() { return 0; }
+  export -f _bg_any_container_restarted
+
+  export BLUE_GREEN_HEALTH_POLL_INTERVAL=1
+  run _bg_wait_healthy "$CLI_ROOT/stacks/$STACK" "fake-compose" "$CLI_ROOT/stacks/$STACK/docker-compose.yml" 2
+  [ "$status" -ne 0 ]
+}
 
 @test "_bg_teardown_failed_color: uses 'down' without --volumes (data safety)" {
   compose-recorder() { _record "cmd:$*"; }

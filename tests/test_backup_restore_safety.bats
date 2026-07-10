@@ -134,6 +134,57 @@ teardown() {
   [[ "$output" == *"restore complete"* ]]
 }
 
+@test "restore_postgres: retries the database recreate after a transient connection-teardown race" {
+  local sql_file="$TEST_TMP/valid.sql"
+  echo "SELECT 1;" > "$sql_file"
+
+  # pg_terminate_backend() signals but doesn't wait for the backend to
+  # actually disconnect, so DROP DATABASE can transiently fail with
+  # "being accessed by other users" right after. Simulate that: the first
+  # two recreate attempts fail, the third (once the connection has
+  # settled) succeeds.
+  local drop_attempts_file="$TEST_TMP/drop_attempts"
+  echo 0 > "$drop_attempts_file"
+  fake_compose() {
+    echo "$*" >> "$COMPOSE_CALL_LOG"
+    if [[ "$*" == *"DROP DATABASE"* ]]; then
+      local n
+      n=$(($(cat "$drop_attempts_file") + 1))
+      echo "$n" > "$drop_attempts_file"
+      [ "$n" -ge 3 ] && return 0
+      return 1
+    fi
+    [ "${FAKE_RESTORE_FAIL:-0}" = "1" ] && return 1
+    return 0
+  }
+  export -f fake_compose
+
+  run restore_postgres "test-stack" "fake_compose" "$sql_file"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"restore complete"* ]]
+  [ "$(cat "$drop_attempts_file")" -eq 3 ]
+}
+
+@test "restore_postgres: gives up after repeated database-recreate failures" {
+  local sql_file="$TEST_TMP/valid.sql"
+  echo "SELECT 1;" > "$sql_file"
+
+  fake_compose() {
+    echo "$*" >> "$COMPOSE_CALL_LOG"
+    [[ "$*" == *"DROP DATABASE"* ]] && return 1
+    [ "${FAKE_RESTORE_FAIL:-0}" = "1" ] && return 1
+    return 0
+  }
+  export -f fake_compose
+
+  run restore_postgres "test-stack" "fake_compose" "$sql_file"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"Failed to recreate database"* ]]
+  # Exactly 3 recreate attempts, then gave up — never reached the
+  # dump-apply step (which would add a 4th call without "DROP DATABASE").
+  [ "$(wc -l < "$COMPOSE_CALL_LOG")" -eq 3 ]
+}
+
 # ── restore_neo4j_from_targz ──────────────────────────────────────────────────
 
 @test "restore_neo4j_from_targz: refuses an empty archive without wiping /data" {
