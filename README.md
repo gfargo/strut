@@ -1,10 +1,41 @@
+<div align="center">
+
 # strut
 
-Generic, installable CLI tool for managing Docker stacks on VPS infrastructure. Deploy, monitor, and operate any number of stacks from a single command line.
+**A Bash CLI that deploys Docker Compose stacks to any VPS over SSH.**
 
-📖 **[Full Documentation →](https://github.com/gfargo/strut/wiki)**
+No agents, no daemons, no vendor lock-in — just a config-driven engine that treats your VPS like a deploy target instead of a pet.
+
+[![Tests](https://img.shields.io/github/actions/workflow/status/gfargo/strut/test.yml?branch=main&label=tests&style=flat-square)](https://github.com/gfargo/strut/actions/workflows/test.yml)
+[![Integration](https://img.shields.io/github/actions/workflow/status/gfargo/strut/integration.yml?branch=main&label=integration&style=flat-square)](https://github.com/gfargo/strut/actions/workflows/integration.yml)
+[![ShellCheck](https://img.shields.io/github/actions/workflow/status/gfargo/strut/lint.yml?branch=main&label=shellcheck&style=flat-square)](https://github.com/gfargo/strut/actions/workflows/lint.yml)
+[![Release](https://img.shields.io/github/v/release/gfargo/strut?style=flat-square&label=release&color=00c853)](https://github.com/gfargo/strut/releases/latest)
+[![License: MIT](https://img.shields.io/github/license/gfargo/strut?style=flat-square)](LICENSE)
+[![Stars](https://img.shields.io/github/stars/gfargo/strut?style=flat-square)](https://github.com/gfargo/strut/stargazers)
+
+[**Website**](https://strut.griffen.codes) · [**Wiki**](https://github.com/gfargo/strut/wiki) · [**CLI Reference**](https://github.com/gfargo/strut/wiki/CLI-Reference) · [**Changelog**](https://github.com/gfargo/strut/releases)
+
+<img src="https://strut.griffen.codes/demos/gif/hero-deploy.gif" alt="strut init, scaffold, and release in three commands" width="720" />
+
+</div>
 
 ---
+
+## Why strut
+
+Most deploy tooling makes you choose between "too simple to trust in production" and "too much platform to run yourself." strut is the middle path: a single Bash entrypoint plus a handful of `lib/*.sh` modules that turn `docker compose` + SSH into a real deployment workflow, without asking you to adopt a platform.
+
+- 🚀 **Zero-downtime blue-green deploys** — dual-project swap, health-gated, automatic rollback on failure
+- 🩺 **Dynamic health checks** — discovered from `services.conf`, no hardcoded service names or ports
+- 🗄️ **Database lifecycle** — backup, restore, verify, and rehearse restores for Postgres, Neo4j, MySQL, and SQLite
+- 🔍 **Drift detection** — catches config drift *and* stale image digests on mutable tags, with optional auto-fix
+- 🔑 **Key rotation** — SSH, API, DB, and GitHub credentials, rotated and redeployed in one command
+- 🌐 **Domain & SSL** — Let's Encrypt via nginx or Caddy, manual or auto-provisioned on deploy
+- 🖥️ **Multi-host fleets** — one `strut.conf` maps stacks to hosts; `strut fleet status` reports drift across all of them
+- 🤖 **MCP server + webhooks** — expose strut as MCP tools for AI agents, or wire up push-to-deploy
+- 📦 **Config-driven engine** — the `~/.strut/` engine ships no service names, ports, or org names; everything lives in *your* `strut.conf`
+
+Everything is plain Bash (`set -euo pipefail`, no runtime deps beyond `docker`, `ssh`, and coreutils) and covered by a BATS test suite with property-based tests.
 
 ## Install
 
@@ -19,6 +50,8 @@ git clone https://github.com/gfargo/strut.git ~/.strut
 export PATH="$HOME/.strut:$PATH"
 ```
 
+Already installed? `strut upgrade` pulls the latest release in place.
+
 See [Installation](https://github.com/gfargo/strut/wiki/Installation) for upgrade, uninstall, and configuration options.
 
 ## Quick Start
@@ -30,7 +63,52 @@ nano stacks/my-app/.env.template               # Configure (copy to .prod.env)
 strut my-app release --env prod                # Deploy to VPS
 ```
 
+No arguments launches an interactive TUI (`fzf`-powered) for picking a stack and command:
+
+```bash
+strut
+```
+
 See [Quick Start](https://github.com/gfargo/strut/wiki/Quick-Start) for the full walkthrough.
+
+---
+
+## See it in action
+
+Real terminal recordings — the actual strut CLI, scripted output.
+
+<table>
+<tr>
+<td width="50%">
+
+**Ship** — commit, push, rebuild on remote in one shot
+<img src="https://strut.griffen.codes/demos/gif/ship.gif" alt="strut ship demo" width="360" />
+
+</td>
+<td width="50%">
+
+**Rollback** — instant recovery when a health check fails
+<img src="https://strut.griffen.codes/demos/gif/rollback.gif" alt="strut rollback demo" width="360" />
+
+</td>
+</tr>
+<tr>
+<td width="50%">
+
+**Drift** — detect and fix config drift automatically
+<img src="https://strut.griffen.codes/demos/gif/drift-detect.gif" alt="strut drift detect demo" width="360" />
+
+</td>
+<td width="50%">
+
+**Backup** — reliable backups with verification
+<img src="https://strut.griffen.codes/demos/gif/backup-restore.gif" alt="strut backup and restore demo" width="360" />
+
+</td>
+</tr>
+</table>
+
+More demos — including recordings against a real DigitalOcean droplet — on the [website](https://strut.griffen.codes/#demos).
 
 ---
 
@@ -57,6 +135,9 @@ strut <stack> <command> [--env <env>] [options]
 | `remote:init` | Bootstrap strut on a remote VPS |
 | `local` | Local development environment |
 | `debug` | Container debugging tools |
+| `fleet` | Multi-host status and sync |
+| `mcp` | Expose strut as an MCP server for AI agents |
+| `webhook` | Push-to-deploy via polling or an HTTP receiver |
 | `list` / `scaffold` / `init` | Stack and project management |
 
 See [CLI Reference](https://github.com/gfargo/strut/wiki/CLI-Reference) for the complete command list with flags and examples.
@@ -68,9 +149,12 @@ strut my-app release --env prod                              # Production releas
 strut my-app health --env prod --json                        # Health checks
 strut my-app logs api --follow --env prod                    # Follow logs
 strut my-app backup postgres --env prod                      # Backup database
-strut my-app db:pull --env prod                              # Pull DB locally
-strut my-app keys db:rotate postgres --env prod              # Rotate credentials
+strut my-app restore backups/postgres-20260701.sql --env prod --dry-run  # Rehearse a restore
+strut my-app db:pull --env prod                               # Pull DB locally
+strut my-app drift images --env prod                          # Check for stale image digests
+strut my-app keys db:rotate postgres --env prod               # Rotate credentials
 strut my-app domain api.example.com admin@example.com --env prod  # SSL setup
+strut fleet status                                             # Git sync state across all hosts
 ```
 
 ---
@@ -96,10 +180,14 @@ strut my-app domain api.example.com admin@example.com --env prod  # SSL setup
 | [Configuration](https://github.com/gfargo/strut/wiki/Configuration) | `strut.conf`, env files, per-stack config |
 | [CLI Reference](https://github.com/gfargo/strut/wiki/CLI-Reference) | Full command reference |
 | [Deployment](https://github.com/gfargo/strut/wiki/Deployment) | Deploy, release, stop workflows |
-| [Database Backups](https://github.com/gfargo/strut/wiki/Database-Backups) | Backup, restore, pull, push |
+| [Blue-Green Deploy](https://github.com/gfargo/strut/wiki/Blue-Green-Deploy) | Zero-downtime dual-project deploys |
+| [Database Backups](https://github.com/gfargo/strut/wiki/Database-Backups) | Backup, restore, restore rehearsal, pull, push |
 | [Key Rotation](https://github.com/gfargo/strut/wiki/Key-Rotation) | SSH, API, DB, GitHub credential rotation |
-| [Drift Detection](https://github.com/gfargo/strut/wiki/Drift-Detection) | Detect and fix config drift |
-| [Domain and SSL](https://github.com/gfargo/strut/wiki/Domain-and-SSL) | Custom domains, Let's Encrypt |
+| [Drift Detection](https://github.com/gfargo/strut/wiki/Drift-Detection) | Detect and fix config and image-digest drift |
+| [Domain and SSL](https://github.com/gfargo/strut/wiki/Domain-and-SSL) | Custom domains, Let's Encrypt, auto-provisioning |
+| [Multi-Host Topology](https://github.com/gfargo/strut/wiki/Multi-Host-Topology) | Map stacks to hosts, fleet status |
+| [MCP Server](https://github.com/gfargo/strut/wiki/MCP-Server) | Expose strut operations as MCP tools |
+| [Webhook Automation](https://github.com/gfargo/strut/wiki/Webhook-Automation) | Push-to-deploy via poll or receiver |
 | [Monitoring](https://github.com/gfargo/strut/wiki/Monitoring) | Prometheus, Grafana, Alertmanager |
 | [Volume Management](https://github.com/gfargo/strut/wiki/Volume-Management) | Dynamic volume management |
 | [VPS Audit & Migration](https://github.com/gfargo/strut/wiki/VPS-Audit-and-Migration) | Audit and migrate existing setups |
@@ -163,6 +251,10 @@ bats tests/test_config.bats    # Run specific file
 
 See [Contributing](https://github.com/gfargo/strut/wiki/Contributing) for the full development setup.
 
+## Contributing
+
+Issues and PRs welcome — see [Contributing](https://github.com/gfargo/strut/wiki/Contributing) and [Code Conventions](https://github.com/gfargo/strut/wiki/Code-Conventions) for setup, testing, and shell style guidelines.
+
 ## License
 
-See [LICENSE](LICENSE) file.
+MIT — see [LICENSE](LICENSE).
