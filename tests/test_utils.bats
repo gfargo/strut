@@ -448,3 +448,93 @@ EOF
   [ "$status" -ne 0 ]
   [[ "$output" == *"Install with: brew install xyz"* ]]
 }
+
+# ── resolve_npx_bin ────────────────────────────────────────────────────────────
+
+# _fake_nvm_npx <version> — creates a fake $NVM_DIR/versions/node/v<version>/bin/npx
+_fake_nvm_npx() {
+  local version="$1"
+  local dir="$TEST_TMP/nvm/versions/node/v$version/bin"
+  mkdir -p "$dir"
+  printf '#!/usr/bin/env bash\necho "fake-npx-%s"\n' "$version" > "$dir/npx"
+  chmod +x "$dir/npx"
+}
+
+@test "resolve_npx_bin: picks the highest installed nvm version, not the first found" {
+  _load_utils
+  _fake_nvm_npx "18.17.0"
+  _fake_nvm_npx "22.13.0"
+  _fake_nvm_npx "20.19.0"
+
+  NVM_DIR="$TEST_TMP/nvm" resolve_npx_bin
+  [ "$RESOLVED_NPX_BIN" = "$TEST_TMP/nvm/versions/node/v22.13.0/bin/npx" ]
+}
+
+@test "resolve_npx_bin: ignores nvm alias/default, still picks highest version" {
+  _load_utils
+  _fake_nvm_npx "16.13.1"
+  _fake_nvm_npx "22.13.0"
+  mkdir -p "$TEST_TMP/nvm/alias"
+  echo "16.13.1" > "$TEST_TMP/nvm/alias/default"
+
+  NVM_DIR="$TEST_TMP/nvm" resolve_npx_bin
+  [ "$RESOLVED_NPX_BIN" = "$TEST_TMP/nvm/versions/node/v22.13.0/bin/npx" ]
+}
+
+@test "resolve_npx_bin: prepends the resolved bin dir to PATH" {
+  _load_utils
+  _fake_nvm_npx "22.13.0"
+
+  local orig_path="$PATH"
+  NVM_DIR="$TEST_TMP/nvm" resolve_npx_bin
+  [[ "$PATH" == "$TEST_TMP/nvm/versions/node/v22.13.0/bin:$orig_path" ]]
+}
+
+@test "resolve_npx_bin: falls back to \$HOME/.nvm when NVM_DIR is unset" {
+  _load_utils
+  local fake_home="$TEST_TMP/home"
+  mkdir -p "$fake_home/.nvm/versions/node/v22.13.0/bin"
+  printf '#!/usr/bin/env bash\necho fake-npx\n' > "$fake_home/.nvm/versions/node/v22.13.0/bin/npx"
+  chmod +x "$fake_home/.nvm/versions/node/v22.13.0/bin/npx"
+
+  unset NVM_DIR
+  HOME="$fake_home" resolve_npx_bin
+  [ "$RESOLVED_NPX_BIN" = "$fake_home/.nvm/versions/node/v22.13.0/bin/npx" ]
+}
+
+@test "resolve_npx_bin: falls back to a real PATH npx when no nvm install exists" {
+  _load_utils
+  local fake_bin="$TEST_TMP/fakebin"
+  mkdir -p "$fake_bin"
+  printf '#!/usr/bin/env bash\necho fake-npx\n' > "$fake_bin/npx"
+  chmod +x "$fake_bin/npx"
+
+  NVM_DIR="$TEST_TMP/no-such-nvm-dir" PATH="$fake_bin:$PATH" resolve_npx_bin
+  [ "$RESOLVED_NPX_BIN" = "$fake_bin/npx" ]
+}
+
+@test "resolve_npx_bin: rejects a shell-function-shadowed npx, doesn't treat the bare name as a path" {
+  # A lazy-load nvm shell integration defines npx as a function; `command -v`
+  # then reports the bare word "npx" (no slash), not a real executable path.
+  # No nvm install and an isolated PATH — the only "npx" in scope is the
+  # shell function — so this exercises the command-v fallback in isolation.
+  run bash -c "
+    source '$CLI_ROOT/lib/utils.sh'
+    npx() { _nvm_lazy_load; npx \"\$@\"; }
+    NVM_DIR='$TEST_TMP/no-such-nvm-dir' PATH='/nonexistent-only'
+    resolve_npx_bin && rc=0 || rc=\$?
+    echo \"status=\$rc resolved=[\$RESOLVED_NPX_BIN]\"
+  "
+  [[ "$output" == *"status=1 resolved=[]"* ]]
+}
+
+@test "resolve_npx_bin: returns 1 and leaves RESOLVED_NPX_BIN empty when nothing is found" {
+  run bash -c "
+    source '$CLI_ROOT/lib/utils.sh'
+    RESOLVED_NPX_BIN='stale-value-from-a-previous-call'
+    NVM_DIR='$TEST_TMP/no-such-nvm-dir' PATH='/nonexistent-only'
+    resolve_npx_bin && rc=0 || rc=\$?
+    echo \"status=\$rc resolved=[\$RESOLVED_NPX_BIN]\"
+  "
+  [[ "$output" == *"status=1 resolved=[]"* ]]
+}
