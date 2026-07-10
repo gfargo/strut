@@ -819,6 +819,7 @@ _validate_no_spaces() {
   local path="$1" label="${2:-path}"
   if [[ "$path" == *" "* ]]; then
     fail "The $label path contains spaces: '$path'. strut requires paths without spaces."
+    # shellcheck disable=SC2317 # reachable in tests, where fail() is mocked to `return` instead of `exit`
     return 1
   fi
   return 0
