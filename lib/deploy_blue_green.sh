@@ -142,6 +142,28 @@ _bg_start_color() {
   $compose_cmd up -d --remove-orphans
 }
 
+# _bg_any_container_restarted <compose_cmd>
+#
+# True if any container in the project has a nonzero Docker RestartCount.
+# This is the authoritative, timing-independent signal that a container
+# crash-looped at some point — unlike polled `State`, it doesn't reset once
+# the container cycles back to "running", so it still catches a crash that
+# happened to fall between two polls.
+_bg_any_container_restarted() {
+  local compose_cmd="$1"
+  local _sudo
+  _sudo="$(vps_sudo_prefix 2>/dev/null || echo "")"
+
+  local cid
+  # shellcheck disable=SC2086
+  for cid in $($compose_cmd ps -q 2>/dev/null); do
+    local restarts
+    restarts=$(${_sudo}docker inspect "$cid" --format '{{.RestartCount}}' 2>/dev/null || echo 0)
+    [ "${restarts:-0}" -gt 0 ] && return 0
+  done
+  return 1
+}
+
 # _bg_wait_healthy <stack_dir> <compose_cmd> <compose_file> [timeout_seconds]
 #
 # Polls health_run_all (scoped to the green compose project) until it
@@ -172,8 +194,19 @@ _bg_wait_healthy() {
     if ( health_check_green "$(basename "$stack_dir")" "$compose_cmd" "$compose_file" >/dev/null 2>&1 ); then
       consecutive_ok=$((consecutive_ok + 1))
       if [ "$consecutive_ok" -ge "$required_consecutive" ]; then
-        ok "green healthy"
-        return 0
+        # Belt-and-suspenders on top of the consecutive-poll requirement:
+        # under enough scheduling delay (a loaded CI runner, for example),
+        # even two 3s-apart polls can both land while a crash-looping
+        # container is mid-"running" between restarts. RestartCount doesn't
+        # have that window — it's still nonzero long after the container
+        # cycles back to "running".
+        if _bg_any_container_restarted "$compose_cmd"; then
+          warn "green container(s) restarted during health checks — not trusting this as healthy"
+          consecutive_ok=0
+        else
+          ok "green healthy"
+          return 0
+        fi
       fi
     else
       consecutive_ok=0

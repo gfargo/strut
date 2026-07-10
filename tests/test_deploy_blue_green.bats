@@ -480,6 +480,48 @@ EOF
   ! grep -q "^cmd:down" "$CALLS_FILE"
 }
 
+# ── Restart-count guard (crash-loop can hide between polls) ─────────────────
+
+@test "_bg_any_container_restarted: false when every container has RestartCount 0" {
+  compose-fake() {
+    [ "$1" = "ps" ] && [ "$2" = "-q" ] && { echo "cid-a"; echo "cid-b"; }
+  }
+  export -f compose-fake
+  docker() {
+    [ "$1" = "inspect" ] && echo 0
+  }
+  export -f docker
+
+  run _bg_any_container_restarted "compose-fake"
+  [ "$status" -ne 0 ]
+}
+
+@test "_bg_any_container_restarted: true when any container has RestartCount > 0" {
+  compose-fake() {
+    [ "$1" = "ps" ] && [ "$2" = "-q" ] && { echo "cid-a"; echo "cid-b"; }
+  }
+  export -f compose-fake
+  docker() {
+    [ "$1" = "inspect" ] || return 0
+    [ "$2" = "cid-b" ] && { echo 3; return 0; }
+    echo 0
+  }
+  export -f docker
+
+  run _bg_any_container_restarted "compose-fake"
+  [ "$status" -eq 0 ]
+}
+
+@test "_bg_any_container_restarted: false when the project has no containers" {
+  compose-fake() {
+    [ "$1" = "ps" ] && [ "$2" = "-q" ] && return 0
+  }
+  export -f compose-fake
+
+  run _bg_any_container_restarted "compose-fake"
+  [ "$status" -ne 0 ]
+}
+
 
 @test "_bg_teardown_failed_color: uses 'down' without --volumes (data safety)" {
   compose-recorder() { _record "cmd:$*"; }
