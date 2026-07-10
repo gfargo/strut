@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.35.2](https://github.com/gfargo/strut/compare/v0.35.1...v0.35.2) (2026-07-10)
+
+
+### Bug Fixes
+
+* **tests:** close three DB/container readiness races behind flaky Integration Tests ([#354](https://github.com/gfargo/strut/issues/354)) ([e0c38e4](https://github.com/gfargo/strut/commit/e0c38e44abbae9e12f98c874b7ecc5ed5fd8440b))
+
 ## [0.35.1](https://github.com/gfargo/strut/compare/v0.35.0...v0.35.1) (2026-07-10)
 
 
