@@ -68,6 +68,7 @@ restore_rehearsal_postgres() {
 
   if [ "$restore_rc" -ne 0 ]; then
     error "Restore rehearsal FAILED — dump does not apply cleanly"
+    trap - RETURN
     _rehearsal_cleanup
     return 1
   fi
@@ -107,12 +108,20 @@ restore_rehearsal_postgres() {
 
   echo ""
 
-  # 4. Cleanup (triggered by RETURN trap)
   if $diff_found; then
     warn "Row count differences found between live and backup (expected if data changed since backup)"
   else
     ok "Rehearsal complete — dump restores cleanly, row counts match live"
   fi
+
+  # Disarm before returning: a `trap ... RETURN` set inside a function isn't
+  # scoped to that one call — left armed, it fires again on the *caller's*
+  # next return too, by which point $_cleanup_done no longer exists and
+  # `set -u` kills the whole call chain with "unbound variable". Cleanup
+  # itself still runs here explicitly; the trap stays as a safety net only
+  # for exit paths we didn't anticipate (e.g. an unexpected `set -e` abort).
+  trap - RETURN
+  _rehearsal_cleanup
 
   return 0
 }
