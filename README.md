@@ -1,5 +1,11 @@
 <div align="center">
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset=".github/assets/logo-mark-light.svg">
+  <source media="(prefers-color-scheme: light)" srcset=".github/assets/logo-mark-dark.svg">
+  <img alt="strut" src=".github/assets/logo-mark-dark.svg" width="120">
+</picture>
+
 # strut
 
 **A Bash CLI that deploys Docker Compose stacks to any VPS over SSH.**
