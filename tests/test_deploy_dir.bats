@@ -53,3 +53,11 @@ teardown() {
   [ "$status" -eq 0 ]
   [ "$output" = "/home/gfargo/strut" ]
 }
+
+@test "resolve_deploy_dir: rejects VPS_DEPLOY_DIR containing spaces" {
+  export VPS_DEPLOY_DIR="/opt/my stacks"
+  run resolve_deploy_dir
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"VPS_DEPLOY_DIR"* ]]
+  [[ "$output" == *"spaces"* ]]
+}
