@@ -127,11 +127,29 @@ teardown() {
   [[ "$output" == *"Unknown backup file type"* ]]
 }
 
-@test "cmd_restore: dry-run shows plan" {
+@test "cmd_restore: dry-run routes .sql to a non-destructive rehearsal, not a real restore" {
+  # restore_rehearsal_postgres can't be stubbed here: cmd_restore's dry-run
+  # branch sources lib/backup/rehearsal.sh at call time, which unconditionally
+  # redefines the function and clobbers any pre-set stub. So this exercises
+  # the real rehearsal function instead, relying on this file's
+  # resolve_compose_cmd stub ("echo COMPOSE") to keep every docker/psql call
+  # a harmless echo — never a real destructive restore_postgres call.
+  local sql_file="$TEST_TMP/fake-backup.sql"
+  echo "SELECT 1;" > "$sql_file"
+
   export DRY_RUN=true
-  run cmd_restore /tmp/backup.sql
+  run cmd_restore "$sql_file"
   [ "$status" -eq 0 ]
-  [[ "$output" == *"DRY-RUN"* ]]
+  [[ "$output" == *"Restore rehearsal:"* ]]
+  [[ "$output" != *"restore_postgres "* ]]
+}
+
+@test "cmd_restore: dry-run has no rehearsal support for non-Postgres types yet" {
+  export DRY_RUN=true
+  run cmd_restore /tmp/backup.dump
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"[DRY-RUN]"* ]]
+  [[ "$output" == *"only supported for Postgres"* ]]
 }
 
 @test "cmd_restore: --target-env flag recognized" {
