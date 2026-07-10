@@ -3,6 +3,20 @@ name: Update Homebrew Tap
 on:
   release:
     types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to sync (e.g. v0.35.0) — for manually catching up a release that didn't trigger this workflow (see note below)"
+        required: true
+
+# NOTE: releases published by release-please-action using the default
+# GITHUB_TOKEN do NOT trigger this workflow — GitHub suppresses
+# workflow-triggering for events created by the default GITHUB_TOKEN,
+# specifically to prevent runaway recursive triggering. That silently broke
+# this workflow for v0.31.0–v0.35.0 (5 releases) until release-please.yml was
+# given a real PAT/App token instead (see that workflow's comments). If it
+# ever regresses, use the workflow_dispatch `tag` input above to catch up
+# manually rather than editing the tap by hand.
 
 jobs:
   update-tap:
@@ -10,19 +24,22 @@ jobs:
     runs-on: ubuntu-latest
     # Only run for stable releases (not pre-releases / draft releases).
     # Pre-releases (rc, alpha, beta) should not advance the tap formula.
+    # github.event.release.* is empty (falsy) for workflow_dispatch, so this
+    # still evaluates true and the job runs normally in that case.
     if: ${{ !github.event.release.prerelease && !github.event.release.draft }}
     steps:
       - name: Get release info
         id: release
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
+          TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          VERSION="${TAG#v}"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "tag=$GITHUB_REF_NAME" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 
       - name: Download release tarball and compute SHA256
         id: sha
         run: |
-          URL="https://github.com/gfargo/strut/archive/refs/tags/${{ github.ref_name }}.tar.gz"
+          URL="https://github.com/gfargo/strut/archive/refs/tags/${{ steps.release.outputs.tag }}.tar.gz"
           SHA=$(curl -sL "$URL" | sha256sum | awk '{print $1}')
           echo "sha256=$SHA" >> "$GITHUB_OUTPUT"
           echo "url=$URL" >> "$GITHUB_OUTPUT"

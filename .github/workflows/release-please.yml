@@ -16,3 +16,22 @@ jobs:
         with:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
+          # A release created with the default GITHUB_TOKEN does NOT trigger
+          # other workflows (GitHub suppresses workflow-triggering for
+          # GITHUB_TOKEN-authored events, to prevent runaway recursive
+          # triggering) — this silently broke homebrew.yml's `on: release`
+          # trigger for every release from v0.31.0 through v0.35.0. A PAT or
+          # GitHub App token is a real actor, so its release events trigger
+          # downstream workflows normally.
+          #
+          # Falls back to the default GITHUB_TOKEN when the secret doesn't
+          # exist yet, so this is safe to merge before it's set up — release
+          # PRs/tags keep working exactly as before, just without waking
+          # homebrew.yml, until the secret is added.
+          #
+          # To fix: create a fine-grained PAT (Contents: write, Pull
+          # requests: write, scoped to this repo) or a GitHub App
+          # installation token, then add it as a repo secret named
+          # RELEASE_PLEASE_TOKEN (Settings → Secrets and variables →
+          # Actions → New repository secret).
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN || secrets.GITHUB_TOKEN }}
