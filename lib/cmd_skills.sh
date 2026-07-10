@@ -49,8 +49,8 @@ _skills_install() {
   case "$format" in
     kiro)     _install_kiro "$strut_home" "$project_root" ;;
     claude)   _install_claude "$strut_home" "$project_root" ;;
-    cursor)   _install_rules_file "$strut_home" "$project_root" ".cursorrules" "Cursor" ;;
-    windsurf) _install_rules_file "$strut_home" "$project_root" ".windsurfrules" "Windsurf" ;;
+    cursor)   _install_rules_file "$strut_home" "$project_root" ".cursorrules" "Cursor" "cursor" ;;
+    windsurf) _install_rules_file "$strut_home" "$project_root" ".windsurfrules" "Windsurf" "windsurf" ;;
     zed)      _install_rules_file "$strut_home" "$project_root" ".rules" "Zed" ;;
     cline)    _install_rules_file "$strut_home" "$project_root" ".clinerules" "Cline" ;;
     copilot)  _install_copilot "$strut_home" "$project_root" ;;
@@ -152,33 +152,88 @@ _backup_if_exists() {
   warn "Backed up existing $label → $(basename "$backup")"
 }
 
+# ── agent-add: multi-editor skill installer ───────────────────────────────────
+# agent-add (https://github.com/pea3nut/agent-add) natively understands the
+# Agent Skills directory spec (a SKILL.md-rooted folder) and knows the right
+# skills location per editor. Only a subset of strut's formats map to a real
+# agent-add host — zed and cline aren't in its host list — so this is used
+# where available and every caller falls back to strut's own directory copy
+# when it isn't (no npx, no network, or the call itself fails).
+
+# _agent_add_install_skills <strut_home> <host_id> <label>
+#
+# Installs every strut skill directory (anything under .kiro/skills/ with a
+# SKILL.md) to the given agent-add host in one invocation. Echoes the number
+# of skills installed and returns 0 on success; returns 1 (no output on
+# stdout) if npx can't be resolved, there are no skills to install, or
+# agent-add itself fails — callers should fall back to their own install
+# path in that case.
+#
+# Callers capture this via `skill_count=$(... _agent_add_install_skills ...)`,
+# so every log/warn call here must go to stderr explicitly — log()/warn()
+# both write to stdout by default, and command substitution captures ALL of
+# a subshell's stdout, not just the final echo. Left as plain stdout calls,
+# the progress message corrupts the captured count on success, and the
+# fallback warning is silently swallowed (never reaches the user) on failure.
+_agent_add_install_skills() {
+  local strut_home="$1"
+  local host_id="$2"
+  local label="$3"
+
+  local npx_bin=""
+  resolve_npx_bin && npx_bin="$RESOLVED_NPX_BIN" || return 1
+
+  local -a skill_args=()
+  local skill_dir
+  for skill_dir in "$strut_home/.kiro/skills"/*/; do
+    [ -f "$skill_dir/SKILL.md" ] || continue
+    skill_args+=(--skill "$skill_dir")
+  done
+  [ "${#skill_args[@]}" -gt 0 ] || return 1
+
+  log "$label: installing $(( ${#skill_args[@]} / 2 )) skill(s) via agent-add..." >&2
+  if ! "$npx_bin" -y agent-add --host "$host_id" "${skill_args[@]}" >/dev/null 2>&1; then
+    warn "$label: agent-add install failed; falling back to direct copy" >&2
+    return 1
+  fi
+
+  echo "$(( ${#skill_args[@]} / 2 ))"
+  return 0
+}
+
 # ── Kiro: native format ───────────────────────────────────────────────────────
 # Steering → .kiro/steering/
 # Skills   → .kiro/skills/<skill-name>/ (one folder per skill, per Agent Skills spec)
+#            via agent-add when npx is available, else direct copy
 _install_kiro() {
   local strut_home="$1"
   local project_root="$2"
 
-  # Install skills — each skill folder goes directly under .kiro/skills/
-  # per the Agent Skills spec (name must match parent directory name).
-  local skills_target="$project_root/.kiro/skills"
-  mkdir -p "$skills_target"
-
   local skill_count=0
-  for skill_dir in "$strut_home/.kiro/skills"/*/; do
-    [ -d "$skill_dir" ] || continue
-    local skill_name
-    skill_name=$(basename "$skill_dir")
-    [ -f "$skill_dir/SKILL.md" ] || continue
+  skill_count=$(cd "$project_root" && _agent_add_install_skills "$strut_home" "kiro" "Kiro") || skill_count=""
 
-    # Remove existing copy if present
-    if [ -d "$skills_target/$skill_name" ]; then
-      rm -rf "${skills_target:?}/${skill_name:?}"
-    fi
-    cp -r "$skill_dir" "$skills_target/$skill_name"
-    rm -f "$skills_target/$skill_name/.DS_Store" 2>/dev/null || true
-    skill_count=$((skill_count + 1))
-  done
+  if [ -z "$skill_count" ]; then
+    # Install skills — each skill folder goes directly under .kiro/skills/
+    # per the Agent Skills spec (name must match parent directory name).
+    local skills_target="$project_root/.kiro/skills"
+    mkdir -p "$skills_target"
+
+    skill_count=0
+    for skill_dir in "$strut_home/.kiro/skills"/*/; do
+      [ -d "$skill_dir" ] || continue
+      local skill_name
+      skill_name=$(basename "$skill_dir")
+      [ -f "$skill_dir/SKILL.md" ] || continue
+
+      # Remove existing copy if present
+      if [ -d "$skills_target/$skill_name" ]; then
+        rm -rf "${skills_target:?}/${skill_name:?}"
+      fi
+      cp -r "$skill_dir" "$skills_target/$skill_name"
+      rm -f "$skills_target/$skill_name/.DS_Store" 2>/dev/null || true
+      skill_count=$((skill_count + 1))
+    done
+  fi
 
   # Install steering
   local steering_count=0
@@ -202,6 +257,7 @@ _install_kiro() {
 # ── Claude Code: CLAUDE.md + .claude/skills/ ──────────────────────────────────
 # Steering → CLAUDE.md (always loaded)
 # Skills   → .claude/skills/<name>/ (Agent Skills spec — progressive disclosure)
+#            via agent-add when npx is available, else direct copy
 _install_claude() {
   local strut_home="$1"
   local project_root="$2"
@@ -212,30 +268,37 @@ _install_claude() {
   _build_steering_content "$strut_home" > "$claude_file"
   ok "Claude: steering → CLAUDE.md"
 
-  # Skills → .claude/skills/<name>/ (native Agent Skills support)
-  local skills_target="$project_root/.claude/skills"
-  mkdir -p "$skills_target"
-
   local skill_count=0
-  for skill_dir in "$strut_home/.kiro/skills"/*/; do
-    [ -d "$skill_dir" ] || continue
-    [ -f "$skill_dir/SKILL.md" ] || continue
-    local name
-    name=$(basename "$skill_dir")
-    if [ -d "$skills_target/$name" ]; then
-      rm -rf "${skills_target:?}/${name:?}"
-    fi
-    cp -r "$skill_dir" "$skills_target/$name"
-    rm -f "$skills_target/$name/.DS_Store" 2>/dev/null || true
-    skill_count=$((skill_count + 1))
-  done
+  skill_count=$(cd "$project_root" && _agent_add_install_skills "$strut_home" "claude-code" "Claude") || skill_count=""
+
+  if [ -z "$skill_count" ]; then
+    # Skills → .claude/skills/<name>/ (native Agent Skills support)
+    local skills_target="$project_root/.claude/skills"
+    mkdir -p "$skills_target"
+
+    skill_count=0
+    for skill_dir in "$strut_home/.kiro/skills"/*/; do
+      [ -d "$skill_dir" ] || continue
+      [ -f "$skill_dir/SKILL.md" ] || continue
+      local name
+      name=$(basename "$skill_dir")
+      if [ -d "$skills_target/$name" ]; then
+        rm -rf "${skills_target:?}/${name:?}"
+      fi
+      cp -r "$skill_dir" "$skills_target/$name"
+      rm -f "$skills_target/$name/.DS_Store" 2>/dev/null || true
+      skill_count=$((skill_count + 1))
+    done
+  fi
 
   ok "Claude: $skill_count skill → .claude/skills/ (Agent Skills spec)"
 }
 
 # ── Copilot: .github/copilot-instructions.md ──────────────────────────────────
 # Steering → .github/copilot-instructions.md (always loaded)
-# Skills   → appended to same file (no separate invocation mechanism)
+# Skills   → .github/skills/<name>/ via agent-add (Agent Skills spec) when npx
+#            is available; otherwise appended into the same file (Copilot has
+#            no separate invocation mechanism to fall back on without it)
 _install_copilot() {
   local strut_home="$1"
   local project_root="$2"
@@ -243,38 +306,61 @@ _install_copilot() {
   local target="$project_root/.github/copilot-instructions.md"
   mkdir -p "$(dirname "$target")"
 
-  {
-    _build_steering_content "$strut_home"
-    echo ""
-    echo "---"
-    echo ""
-    _build_skills_content "$strut_home"
-  } > "$target"
+  local skill_count=""
+  skill_count=$(cd "$project_root" && _agent_add_install_skills "$strut_home" "github-copilot" "Copilot") || skill_count=""
 
-  ok "Copilot: steering + skills → .github/copilot-instructions.md"
+  if [ -n "$skill_count" ]; then
+    _build_steering_content "$strut_home" > "$target"
+    ok "Copilot: steering → .github/copilot-instructions.md"
+    ok "Copilot: $skill_count skill(s) → .github/skills/ (Agent Skills spec)"
+  else
+    {
+      _build_steering_content "$strut_home"
+      echo ""
+      echo "---"
+      echo ""
+      _build_skills_content "$strut_home"
+    } > "$target"
+    ok "Copilot: steering + skills → .github/copilot-instructions.md"
+  fi
 }
 
 # ── Single rules file (Cursor, Windsurf, Zed, Cline, AGENTS.md) ──────────────
 # Steering → top of file (always loaded)
-# Skills   → appended below (always available as reference)
+# Skills   → via agent-add (Agent Skills spec) when an agent_add_host is given
+#            and npx is available; otherwise appended below the steering
+#            content in the same flat file (always available as reference).
+#            agent_add_host is empty for zed/cline/agents — agent-add has no
+#            host entry for them, so they always use the flat-file path.
 _install_rules_file() {
   local strut_home="$1"
   local project_root="$2"
   local filename="$3"
   local tool_name="$4"
+  local agent_add_host="${5:-}"
 
   local target="$project_root/$filename"
   _backup_if_exists "$target" "$filename"
 
-  {
-    _build_steering_content "$strut_home"
-    echo ""
-    echo "---"
-    echo ""
-    _build_skills_content "$strut_home"
-  } > "$target"
+  local skill_count=""
+  if [ -n "$agent_add_host" ]; then
+    skill_count=$(cd "$project_root" && _agent_add_install_skills "$strut_home" "$agent_add_host" "$tool_name") || skill_count=""
+  fi
 
-  ok "$tool_name: steering + skills → $filename"
+  if [ -n "$skill_count" ]; then
+    _build_steering_content "$strut_home" > "$target"
+    ok "$tool_name: steering → $filename"
+    ok "$tool_name: $skill_count skill(s) → Agent Skills spec (via agent-add)"
+  else
+    {
+      _build_steering_content "$strut_home"
+      echo ""
+      echo "---"
+      echo ""
+      _build_skills_content "$strut_home"
+    } > "$target"
+    ok "$tool_name: steering + skills → $filename"
+  fi
 }
 
 # ── Generic: docs/ directory ──────────────────────────────────────────────────
@@ -308,8 +394,8 @@ _install_all() {
 
   _install_kiro "$strut_home" "$project_root"
   _install_claude "$strut_home" "$project_root"
-  _install_rules_file "$strut_home" "$project_root" ".cursorrules" "Cursor"
-  _install_rules_file "$strut_home" "$project_root" ".windsurfrules" "Windsurf"
+  _install_rules_file "$strut_home" "$project_root" ".cursorrules" "Cursor" "cursor"
+  _install_rules_file "$strut_home" "$project_root" ".windsurfrules" "Windsurf" "windsurf"
   _install_rules_file "$strut_home" "$project_root" ".rules" "Zed"
   _install_rules_file "$strut_home" "$project_root" ".clinerules" "Cline"
   _install_copilot "$strut_home" "$project_root"
@@ -392,18 +478,21 @@ _skills_usage() {
   echo "Formats:"
   echo "  kiro      Kiro IDE [default]"
   echo "              steering → .kiro/steering/strut-*.md"
-  echo "              skills   → .kiro/skills/strut/"
+  echo "              skills   → via agent-add (Agent Skills spec), falls back to .kiro/skills/"
   echo "  claude    Claude Code / Claude Desktop"
   echo "              steering → CLAUDE.md"
-  echo "              skills   → .claude/skills/strut/ (Agent Skills spec)"
+  echo "              skills   → via agent-add (Agent Skills spec), falls back to .claude/skills/"
   echo "  cursor    Cursor"
-  echo "              steering + skills → .cursorrules"
+  echo "              steering → .cursorrules"
+  echo "              skills   → via agent-add (Agent Skills spec), falls back to inline .cursorrules"
   echo "  windsurf  Windsurf"
-  echo "              steering + skills → .windsurfrules"
+  echo "              steering → .windsurfrules"
+  echo "              skills   → via agent-add (Agent Skills spec), falls back to inline .windsurfrules"
+  echo "  copilot   GitHub Copilot"
+  echo "              steering → .github/copilot-instructions.md"
+  echo "              skills   → via agent-add (Agent Skills spec), falls back to inline copilot-instructions.md"
   echo "  zed       Zed (also reads .cursorrules, CLAUDE.md)"
   echo "              steering + skills → .rules"
-  echo "  copilot   GitHub Copilot"
-  echo "              steering + skills → .github/copilot-instructions.md"
   echo "  cline     Cline"
   echo "              steering + skills → .clinerules"
   echo "  agents    Generic agent convention"
@@ -412,6 +501,12 @@ _skills_usage() {
   echo "              steering → docs/strut-context.md"
   echo "              skills   → docs/strut-skills.md"
   echo "  all       Generate all formats at once"
+  echo ""
+  echo "kiro/claude/cursor/windsurf/copilot install skills via agent-add"
+  echo "(https://github.com/pea3nut/agent-add) when npx is available, so skills"
+  echo "land as real Agent Skills — loaded on demand, not always inlined into"
+  echo "context. zed/cline/agents/generic have no agent-add host and always get"
+  echo "everything flattened into one file."
   echo ""
   echo "Examples:"
   echo "  strut skills list"

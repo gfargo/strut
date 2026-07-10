@@ -381,6 +381,64 @@ require_cmd() {
   command -v "$cmd" &>/dev/null || fail "$cmd not found${hint:+. $hint}"
 }
 
+# resolve_npx_bin
+#
+# Resolves a working npx binary, sets RESOLVED_NPX_BIN to its path, and
+# returns 0 — or returns 1 with RESOLVED_NPX_BIN unset if none can be found.
+#
+# Deliberately NOT called as `x=$(resolve_npx_bin)`: npx itself internally
+# re-spawns the actually-downloaded package as a child process, which does
+# its own PATH lookup for `node` — so the fix has to be a real PATH change
+# in the CALLER's shell that's still in effect when the caller later runs
+# npx, not just a captured path string. `export PATH=...` inside a command
+# substitution only affects that subshell and is discarded the moment it
+# returns, silently making the whole fix a no-op. Call this directly —
+# `resolve_npx_bin && npx_bin="$RESOLVED_NPX_BIN"` — so PATH changes happen
+# in place.
+#
+# Prefers an nvm-managed Node over whatever `npx` a lazy-load shell exposes
+# (or doesn't): lazy-loaded nvm shells often define `npx`/`node` as wrapper
+# FUNCTIONS that call a `_nvm_lazy_load` helper and re-exec themselves — and
+# NVM_DIR itself may not be exported yet until that wrapper actually fires
+# once. So this doesn't gate nvm resolution on NVM_DIR being set; it also
+# tries the conventional $HOME/.nvm location. Resolving a real binary path
+# directly from .../versions/node sidesteps the wrapper entirely.
+#
+# Deliberately picks the HIGHEST installed nvm version, not the user's
+# `nvm alias default` — this npx call is a one-off tool invocation
+# (agent-add, etc.), not a build step for the user's own project, so their
+# pinned project-default Node has no bearing here and may be an old LTS
+# that's simply too old to run current npm-published tooling (reproduced:
+# agent-add's dist bundle uses node:util's `styleText`, added in Node
+# 21.7/22.13 — it hard-crashes on a Node 16 default alias).
+resolve_npx_bin() {
+  RESOLVED_NPX_BIN=""
+  local npx_bin=""
+  local nvm_dir="${NVM_DIR:-$HOME/.nvm}"
+  if [ -d "$nvm_dir/versions/node" ]; then
+    local nvm_node_dir
+    nvm_node_dir=$(ls -d "$nvm_dir/versions/node/"v* 2>/dev/null | sort -V | tail -1)
+    if [ -n "$nvm_node_dir" ] && [ -x "$nvm_node_dir/bin/npx" ]; then
+      npx_bin="$nvm_node_dir/bin/npx"
+      # In effect for the rest of the CALLER's shell, not just this
+      # function — see the comment above on why that matters here.
+      export PATH="$nvm_node_dir/bin:$PATH"
+    fi
+  fi
+  if [ -z "$npx_bin" ]; then
+    local candidate
+    candidate="$(command -v npx 2>/dev/null)"
+    # A lazy-load nvm shell integration can shadow npx with a wrapper
+    # function; `command -v` then reports it as the bare word "npx" with
+    # no path component, not a real executable. Only trust an actual file.
+    if [[ "$candidate" == */* ]] && [ -x "$candidate" ]; then
+      npx_bin="$candidate"
+    fi
+  fi
+  [ -n "$npx_bin" ] || return 1
+  RESOLVED_NPX_BIN="$npx_bin"
+}
+
 # confirm <prompt> — returns 0 if user types y/yes, 1 otherwise
 #
 # Auto-yes paths (never blocks the caller):
