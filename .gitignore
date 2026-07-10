@@ -5,6 +5,9 @@
 config/.vps.env
 secrets/
 
+# Local Kiro IDE MCP config snapshots (may contain live API keys/tokens)
+.kiro/mcp-*.json
+
 # OS
 .DS_Store
 
