@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.35.1](https://github.com/gfargo/strut/compare/v0.35.0...v0.35.1) (2026-07-10)
+
+
+### Bug Fixes
+
+* **release:** give release-please a real token so downstream workflows fire ([#348](https://github.com/gfargo/strut/issues/348)) ([44fcbbc](https://github.com/gfargo/strut/commit/44fcbbcbfa1775fd35e0b38d842e9021599f173b))
+* **utils:** validate VPS_DEPLOY_DIR for spaces; update Known Limitations ([#352](https://github.com/gfargo/strut/issues/352)) ([6eaccec](https://github.com/gfargo/strut/commit/6eaccec62a71f9c77ff0547d019e3def6f168e98))
+
 ## [0.35.0](https://github.com/gfargo/strut/compare/v0.34.0...v0.35.0) (2026-07-10)
 
 
