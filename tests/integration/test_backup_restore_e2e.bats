@@ -21,6 +21,36 @@ _skip_without_docker() {
   docker info >/dev/null 2>&1 || skip "docker daemon not running"
 }
 
+# _wait_ready <label> <max_attempts> <interval> <check_cmd...>
+#
+# Polls <check_cmd> until it succeeds twice in a row before trusting
+# readiness. A single success isn't proof: Postgres and MySQL both run a
+# temporary bootstrap server during initialization (init scripts, root
+# password/grant setup) that can answer a liveness probe successfully
+# moments before shutting down to hand off to the real server — a
+# false-positive "ready" window that a bare pg_isready/mysqladmin-ping poll
+# will happily report as success. Requiring two consecutive successes
+# closes that window, mirroring the belt-and-suspenders pattern the
+# blue-green health gate uses against the analogous crash-loop race
+# (lib/deploy_blue_green.sh's _bg_wait_healthy + _bg_any_container_restarted).
+_wait_ready() {
+  local label="$1" max_attempts="$2" interval="$3"
+  shift 3
+  local consecutive_ok=0
+  local attempt
+  for attempt in $(seq 1 "$max_attempts"); do
+    if "$@" >/dev/null 2>&1; then
+      consecutive_ok=$((consecutive_ok + 1))
+      [ "$consecutive_ok" -ge 2 ] && return 0
+    else
+      consecutive_ok=0
+    fi
+    sleep "$interval"
+  done
+  echo "timed out waiting for $label to be ready" >&2
+  return 1
+}
+
 setup_file() {
   CLI_ROOT="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)"
   export CLI_ROOT
@@ -97,16 +127,11 @@ setup() {
 # ── Postgres round trip ────────────────────────────────────────────────────────
 
 @test "postgres backup/restore: marker row survives a full backup -> destroy -> restore cycle" {
-  # Wait for Postgres to accept connections.
-  local ready=1
-  for _ in $(seq 1 30); do
-    if $PG_COMPOSE_CMD exec -T postgres pg_isready -U postgres >/dev/null 2>&1; then
-      ready=0
-      break
-    fi
-    sleep 2
-  done
-  [ "$ready" -eq 0 ]
+  # Wait for Postgres to accept real queries (not just answer pg_isready —
+  # see _wait_ready above).
+  run _wait_ready "postgres" 30 2 \
+    $PG_COMPOSE_CMD exec -T postgres psql -U postgres -d app_db -c "SELECT 1;"
+  [ "$status" -eq 0 ]
 
   run $PG_COMPOSE_CMD exec -T postgres psql -U postgres -d app_db \
     -c "CREATE TABLE marker (val text); INSERT INTO marker VALUES ('backup-restore-e2e');"
@@ -135,15 +160,15 @@ setup() {
 # ── MySQL round trip ───────────────────────────────────────────────────────────
 
 @test "mysql backup/restore: marker row survives a full backup -> destroy -> restore cycle" {
-  local ready=1
-  for _ in $(seq 1 30); do
-    if docker exec "$MYSQL_CONTAINER_NAME" mysqladmin ping -uroot -ptestpass --silent >/dev/null 2>&1; then
-      ready=0
-      break
-    fi
-    sleep 3
-  done
-  [ "$ready" -eq 0 ]
+  # `mysqladmin ping` answers successfully against MySQL's temporary
+  # bootstrap server (used while docker-entrypoint runs init scripts) before
+  # the real server — with the configured database and credentials — is up.
+  # Confirmed locally: ping can report ready ~1-2s before an authenticated
+  # query actually succeeds. Poll with a real query instead (see _wait_ready
+  # above).
+  run _wait_ready "mysql" 30 3 \
+    docker exec "$MYSQL_CONTAINER_NAME" mysql -uroot -ptestpass -e "SELECT 1;"
+  [ "$status" -eq 0 ]
 
   export MYSQL_DATABASE="app_db"
   export MYSQL_ROOT_PASSWORD="testpass"

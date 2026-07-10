@@ -174,15 +174,21 @@ _bg_any_container_restarted() {
 _bg_wait_healthy() {
   local stack_dir="$1" compose_cmd="$2" compose_file="$3"
   local timeout="${4:-${BLUE_GREEN_HEALTH_TIMEOUT:-30}}"
-  local interval=3
+  # Overridable only for tests — production callers always get the real 3s
+  # poll cadence.
+  local interval="${BLUE_GREEN_HEALTH_POLL_INTERVAL:-3}"
   local elapsed=0
   # A single healthy snapshot isn't enough: `up -d` returns as soon as the
   # container reaches "running", which can be a split second before a
   # crash-looping entrypoint actually exits — the very first poll can land
   # in that window and see "running" with no restart yet recorded. Require
   # back-to-back healthy polls so a crash gets at least one interval to
-  # reveal itself before we trust it.
-  local required_consecutive=2
+  # reveal itself before we trust it. Widened from 2 to 3: under enough CI
+  # runner contention, even RestartCount can still read 0 a full interval
+  # after the container first started — the crash hasn't been scheduled and
+  # detected by dockerd yet, not just hidden between polls. A wider window
+  # gives that detection more real time to happen before we ever accept.
+  local required_consecutive=3
   local consecutive_ok=0
 
   log "Waiting for green health (timeout: ${timeout}s)"
@@ -192,18 +198,18 @@ _bg_wait_healthy() {
     # dead green would pass) and host-global resources (a load spike during
     # pull would fail a healthy deploy). Subshell keeps its counters local.
     if ( health_check_green "$(basename "$stack_dir")" "$compose_cmd" "$compose_file" >/dev/null 2>&1 ); then
-      consecutive_ok=$((consecutive_ok + 1))
-      if [ "$consecutive_ok" -ge "$required_consecutive" ]; then
-        # Belt-and-suspenders on top of the consecutive-poll requirement:
-        # under enough scheduling delay (a loaded CI runner, for example),
-        # even two 3s-apart polls can both land while a crash-looping
-        # container is mid-"running" between restarts. RestartCount doesn't
-        # have that window — it's still nonzero long after the container
-        # cycles back to "running".
-        if _bg_any_container_restarted "$compose_cmd"; then
-          warn "green container(s) restarted during health checks — not trusting this as healthy"
-          consecutive_ok=0
-        else
+      # Check RestartCount on every passing poll, not just once we've hit
+      # the consecutive threshold: a restart spotted on poll 2 should reset
+      # progress immediately instead of waiting to be re-derived at the end.
+      # RestartCount doesn't have the "mid-'running' between restarts"
+      # window a single State snapshot does — it's still nonzero long after
+      # the container cycles back to "running".
+      if _bg_any_container_restarted "$compose_cmd"; then
+        warn "green container(s) restarted during health checks — not trusting this as healthy"
+        consecutive_ok=0
+      else
+        consecutive_ok=$((consecutive_ok + 1))
+        if [ "$consecutive_ok" -ge "$required_consecutive" ]; then
           ok "green healthy"
           return 0
         fi
