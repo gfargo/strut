@@ -371,7 +371,12 @@ is_running_on_vps() {
 # The caller must source the env file BEFORE calling this so VPS_USER and
 # VPS_DEPLOY_DIR are populated.
 resolve_deploy_dir() {
-  echo "${VPS_DEPLOY_DIR:-/home/${VPS_USER:-ubuntu}/strut}"
+  local dir="${VPS_DEPLOY_DIR:-/home/${VPS_USER:-ubuntu}/strut}"
+  # Remote command strings built from this path (e.g. "cd $deploy_dir && ...")
+  # are word-split on both the local and remote shell, so a space here breaks
+  # silently rather than raising the guard at the top of the strut entrypoint.
+  _validate_no_spaces "$dir" "VPS_DEPLOY_DIR" || return 1
+  echo "$dir"
 }
 
 # require_cmd <cmd> [install-hint]
@@ -814,6 +819,8 @@ _validate_no_spaces() {
   local path="$1" label="${2:-path}"
   if [[ "$path" == *" "* ]]; then
     fail "The $label path contains spaces: '$path'. strut requires paths without spaces."
+    # shellcheck disable=SC2317 # reachable in tests, where fail() is mocked to `return` instead of `exit`
+    return 1
   fi
   return 0
 }
