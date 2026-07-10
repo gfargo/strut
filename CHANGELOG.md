@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.35.0](https://github.com/gfargo/strut/compare/v0.34.0...v0.35.0) (2026-07-10)
+
+
+### Features
+
+* **skills:** install skills via agent-add for real Agent Skills support ([#346](https://github.com/gfargo/strut/issues/346)) ([f46eae8](https://github.com/gfargo/strut/commit/f46eae8ce44d21b3c4e3166a4f916740bc6024e6))
+
+
+### Bug Fixes
+
+* **blue-green:** guard the health gate with Docker's RestartCount too ([#347](https://github.com/gfargo/strut/issues/347)) ([2ae0bd7](https://github.com/gfargo/strut/commit/2ae0bd715fad7bd855c3ada7d42ecdf96a74d493))
+* **mcp:** advertise tools capability and read version from VERSION ([2c4e7b8](https://github.com/gfargo/strut/commit/2c4e7b85cfd7444d9a4b7cfe1eaf05310ea40875))
+* **mcp:** prepend nvm bin to PATH so npx shebang resolves correctly ([2ec9df7](https://github.com/gfargo/strut/commit/2ec9df79df9e0275eda9b5a1c127af86cd62fce4))
+* **mcp:** resolve npx from nvm when lazy-loaded shells mask it ([86e0be1](https://github.com/gfargo/strut/commit/86e0be131c2dfd253cacaaface0bc821f1dc5ad2))
+* **mcp:** use bare 'strut' command in MCP config when on PATH ([047aa2e](https://github.com/gfargo/strut/commit/047aa2e7a128249b7a097e2cad6722022cab2fc4))
+* two real bugs behind main's red Tests workflow ([#344](https://github.com/gfargo/strut/issues/344)) ([5041327](https://github.com/gfargo/strut/commit/5041327836a2b54c8253867a71e499e753b74f9b))
+
 ## [0.34.0](https://github.com/gfargo/strut/compare/v0.33.0...v0.34.0) (2026-07-09)
 
 
