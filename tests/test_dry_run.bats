@@ -146,7 +146,7 @@ _load_utils() {
 
 # ── cmd_restore dry-run ───────────────────────────────────────────────────────
 
-@test "cmd_restore: shows dry-run plan when DRY_RUN=true" {
+@test "cmd_restore: dry-run routes to a non-destructive rehearsal, never a real restore" {
   _load_utils
   source "$CLI_ROOT/lib/docker.sh"
   source "$CLI_ROOT/lib/backup.sh" 2>/dev/null || true
@@ -165,11 +165,22 @@ EOF
   export CMD_SERVICES=""
   export CMD_JSON=""
 
-  run cmd_restore "fake-backup.sql"
+  # restore_rehearsal_postgres can't be stubbed: cmd_restore's dry-run branch
+  # sources lib/backup/rehearsal.sh at call time, which unconditionally
+  # redefines the function and clobbers any pre-set stub. So this exercises
+  # the real rehearsal function instead — stubbing resolve_compose_cmd to a
+  # harmless echo keeps every docker/psql call inert, never a real restore.
+  resolve_compose_cmd() { echo "echo COMPOSE"; }
+  restore_postgres() { echo "restore_postgres $*"; }
+  export -f resolve_compose_cmd restore_postgres
+
+  local sql_file="$TEST_TMP/fake-backup.sql"
+  echo "SELECT 1;" > "$sql_file"
+
+  run cmd_restore "$sql_file"
   [ "$status" -eq 0 ]
-  [[ "$output" == *"[DRY-RUN]"* ]]
-  [[ "$output" == *"Restore from backup file"* ]]
-  [[ "$output" == *"No changes made"* ]]
+  [[ "$output" == *"Restore rehearsal:"* ]]
+  [[ "$output" != *"restore_postgres "* ]]
 }
 
 # ── cmd_db_push dry-run ───────────────────────────────────────────────────────
@@ -210,6 +221,7 @@ _capture_deploy_dryrun() {
   _load_utils
   source "$CLI_ROOT/lib/config.sh"
   source "$CLI_ROOT/lib/docker.sh"
+  source "$CLI_ROOT/lib/hooks.sh"
   source "$CLI_ROOT/lib/deploy.sh"
 
   export REGISTRY_TYPE="$registry_type"
