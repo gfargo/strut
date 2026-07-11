@@ -437,8 +437,14 @@ _secrets_pull() {
   local remote_path
   remote_path=$(_secrets_resolve_remote_path "$deploy_dir" "$env_name")
 
-  # Output path: project-level
-  local local_env="$CLI_ROOT/.${env_name}.env"
+  # Output path: reuse whichever local file already exists (stack-level takes
+  # priority — same order push/diff/etc. read from), defaulting to stack-level
+  # for a brand new file so a multi-stack project's pull for stack A can't
+  # collide with stack B, and push -> edit -> pull round-trips the same file.
+  local local_env
+  if ! local_env=$(_secrets_resolve_local_env "$stack_dir" "$env_name" 2>/dev/null); then
+    local_env="$stack_dir/.${env_name}.env"
+  fi
 
   local ssh_opts
   ssh_opts=$(build_ssh_opts -p "$vps_port" -k "$vps_ssh_key" --batch)
@@ -490,6 +496,7 @@ _secrets_pull() {
   scp $scp_opts "$vps_user@$vps_host:$remote_path" "$tmp_pull" || { rm -f "$tmp_pull"; fail "Download failed"; }
   mv "$tmp_pull" "$local_env"
   chmod 600 "$local_env"
+  trap - RETURN
   ok "Env file downloaded: $local_env"
 }
 
@@ -569,6 +576,7 @@ _secrets_diff() {
   _secrets_render_env_diff "$local_env" "$tmp_remote"
 
   rm -f "$tmp_remote"
+  trap - RETURN
 }
 
 # _secrets_check_content <env_file>
