@@ -96,6 +96,7 @@ EOF
 
 @test "--skip-validation: parsed correctly by cmd_deploy" {
   source "$CLI_ROOT/lib/cmd_deploy.sh"
+  export LIB="$CLI_ROOT/lib"
 
   export CMD_STACK="test-stack"
   export CMD_STACK_DIR="$TEST_TMP"

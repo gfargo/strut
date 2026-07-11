@@ -359,14 +359,25 @@ cmd_deploy() {
   _deploy_volguard "$stack" "$env_file" "$confirm_data_move" || return 1
   diff_warn_env_divergence "$stack" "$env_file" "${CMD_STACK_DIR:-$CLI_ROOT/stacks/$stack}"
 
+  declare -F history_record >/dev/null || source "$LIB/history.sh"
+  local _deploy_stack_dir="${CMD_STACK_DIR:-$CLI_ROOT/stacks/$stack}"
+  local _deploy_rc=0
+
   case "$deploy_mode" in
     blue-green)
-      bg_deploy_stack "$stack" "$env_file" "$services"
+      bg_deploy_stack "$stack" "$env_file" "$services" || _deploy_rc=$?
       ;;
     standard|*)
-      deploy_stack "$stack" "$env_file" "$services"
+      deploy_stack "$stack" "$env_file" "$services" || _deploy_rc=$?
       ;;
   esac
+
+  if [ "$_deploy_rc" -eq 0 ]; then
+    history_record "$_deploy_stack_dir" "deploy" "success" "env=${env_name:-}" "mode=$deploy_mode"
+  else
+    history_record "$_deploy_stack_dir" "deploy" "failed" "env=${env_name:-}" "mode=$deploy_mode"
+  fi
+  return "$_deploy_rc"
 }
 
 # cmd_health (no args — reads CMD_*)

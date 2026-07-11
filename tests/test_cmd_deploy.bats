@@ -50,10 +50,37 @@ EOF
   export CMD_JSON=""
   export DRY_RUN=false
   export CLI_ROOT="$CLI_ROOT"
+  export LIB="$CLI_ROOT/lib"
 }
 
 teardown() {
   common_teardown
+}
+
+@test "cmd_deploy: records a success history entry after deploy_stack succeeds" {
+  run cmd_deploy
+  [ "$status" -eq 0 ]
+
+  local hist_file="$TEST_TMP/stacks/test-stack/.deploy-history.jsonl"
+  [ -f "$hist_file" ]
+  run cat "$hist_file"
+  [[ "$output" == *'"action":"deploy"'* ]]
+  [[ "$output" == *'"outcome":"success"'* ]]
+  [[ "$output" == *'"mode":"standard"'* ]]
+}
+
+@test "cmd_deploy: records a failed history entry when deploy_stack fails, and propagates the exit code" {
+  deploy_stack() { echo "deploy_stack $*"; return 1; }
+  export -f deploy_stack
+
+  run cmd_deploy
+  [ "$status" -ne 0 ]
+
+  local hist_file="$TEST_TMP/stacks/test-stack/.deploy-history.jsonl"
+  [ -f "$hist_file" ]
+  run cat "$hist_file"
+  [[ "$output" == *'"action":"deploy"'* ]]
+  [[ "$output" == *'"outcome":"failed"'* ]]
 }
 
 @test "_usage_deploy: prints usage with flags" {
