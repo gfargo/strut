@@ -128,7 +128,7 @@ teardown() {
 
 # ── Dry run ────────────────────────────────────────────────────────────────────
 
-@test "vps_release: dry-run prints the execution plan and makes no SSH mutation calls" {
+@test "vps_release: dry-run prints the execution plan and makes no mutating SSH calls" {
   export DRY_RUN=true
 
   run vps_release "test-stack" "$TEST_TMP/.test.env" ""
@@ -137,9 +137,13 @@ teardown() {
   [[ "$output" == *"Execution plan for release"* ]]
   [[ "$output" == *"No changes made"* ]]
 
-  # Dry-run uses run_cmd for display only — the recording ssh() stub must
-  # never actually be invoked.
-  [ ! -s "$SSH_CALL_LOG" ]
+  # Dry-run uses run_cmd for display only, EXCEPT the git-clean preview,
+  # which is deliberately real (git clean -nd is non-destructive) — assert
+  # that's the only call recorded, not that zero calls happened.
+  run cat "$SSH_CALL_LOG"
+  [[ "$output" == *"git clean -nd"* ]]
+  [[ "$output" != *"reset --hard"* ]]
+  [[ "$output" != *"migrate"* ]]
 }
 
 # ── Health-gated auto-rollback ────────────────────────────────────────────────
@@ -206,6 +210,27 @@ teardown() {
   run vps_release "test-stack" "$TEST_TMP/.test.env" ""
   [ "$status" -eq 0 ]
   [[ "$output" == *"Roll back on health failure"* ]]
+}
+
+@test "vps_release: dry-run shows real untracked paths git clean -fd would remove" {
+  export DRY_RUN=true
+  SSH_CALL_LOG="$TEST_TMP/ssh_calls.log"
+  : > "$SSH_CALL_LOG"
+  export SSH_CALL_LOG
+  ssh() {
+    echo "$*" >> "$SSH_CALL_LOG"
+    case "$*" in
+      *"git clean -nd"*) echo "data/uploads/"; echo "orphan.tmp" ;;
+    esac
+    return 0
+  }
+  export -f ssh
+
+  run vps_release "test-stack" "$TEST_TMP/.test.env" ""
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"would remove the following untracked paths"* ]]
+  [[ "$output" == *"data/uploads/"* ]]
+  [[ "$output" == *"orphan.tmp"* ]]
 }
 
 @test "vps_release: a passing health check never invokes rollback" {

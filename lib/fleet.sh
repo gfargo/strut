@@ -155,13 +155,25 @@ fleet_sync() {
     esac
   done
 
-  if $fleet_dry_run; then
-    log "[DRY-RUN] fleet sync: $vps_user@$vps_host:$deploy_dir → origin/$branch (no changes made)"
-    return 0
-  fi
-
   local ssh_opts
   ssh_opts=$(build_ssh_opts -p "$vps_port" -k "$vps_ssh_key" --batch)
+
+  if $fleet_dry_run; then
+    log "[DRY-RUN] fleet sync: $vps_user@$vps_host:$deploy_dir → origin/$branch (no changes made)"
+    # git clean -nd is itself non-destructive, so dry-run can show a real
+    # preview of what the guarded clean step would remove, not just a
+    # description — the one destructive step in an otherwise reversible sync.
+    local _clean_preview
+    # shellcheck disable=SC2029
+    _clean_preview=$(ssh $ssh_opts "$vps_user@$vps_host" "cd '$deploy_dir' 2>/dev/null && git clean -nd 2>/dev/null") || _clean_preview=""
+    if [ -n "$_clean_preview" ]; then
+      warn "git clean -fd would remove the following untracked paths (skipped unless --force-clean):"
+      echo "$_clean_preview"
+    else
+      log "git clean -fd would remove nothing (no untracked paths, or host unreachable)"
+    fi
+    return 0
+  fi
 
   # Intentional: variables expand locally before SSH
   # shellcheck disable=SC2029
