@@ -241,3 +241,65 @@ EOF
   [ "$status" -eq 0 ]
   [[ "$output" == *"main"* ]]
 }
+
+# ── "Already initialized" branch (real, non-dry-run SSH flow) ─────────────────
+
+@test "cmd_remote_init: already-initialized directory with working strut reports success" {
+  export DRY_RUN=false
+  export CMD_STACK="my-stack"
+  cat > "$TEST_TMP/.prod.env" <<'EOF'
+VPS_HOST=existing.example.com
+VPS_USER=deploy
+EOF
+  export CMD_ENV_FILE="$TEST_TMP/.prod.env"
+
+  ssh() {
+    local cmd="$*"
+    case "$cmd" in
+      *"echo ok"*) echo "ok" ;;
+      *"test -d"*".git"*) return 0 ;;
+      *"chmod +x"*) return 0 ;;
+      *"--version"*) echo "0.35.2" ;;
+      *"rev-parse --abbrev-ref HEAD"*) echo "main" ;;
+      *) return 0 ;;
+    esac
+  }
+  export -f ssh
+
+  run cmd_remote_init
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"already initialized"* ]]
+  [[ "$output" == *"0.35.2"* ]]
+}
+
+@test "cmd_remote_init: already-initialized directory with broken strut binary fails clearly" {
+  export DRY_RUN=false
+  export CMD_STACK="my-stack"
+  cat > "$TEST_TMP/.prod.env" <<'EOF'
+VPS_HOST=existing.example.com
+VPS_USER=deploy
+EOF
+  export CMD_ENV_FILE="$TEST_TMP/.prod.env"
+
+  # Use exit-based fail so the run subshell actually stops here, matching
+  # the "fails without host" test above.
+  fail() { echo "FAIL: $1" >&2; exit 1; }
+  export -f fail
+
+  ssh() {
+    local cmd="$*"
+    case "$cmd" in
+      *"echo ok"*) echo "ok" ;;
+      *"test -d"*".git"*) return 0 ;;
+      *"chmod +x"*) return 1 ;;
+      *"--version"*) return 1 ;;
+      *) return 0 ;;
+    esac
+  }
+  export -f ssh
+
+  run cmd_remote_init
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"missing or broken"* ]]
+  [[ "$output" != *"already initialized on"* ]]
+}
