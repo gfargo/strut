@@ -242,7 +242,7 @@ _usage_rebuild() {
   echo ""
 }
 
-# cmd_release [--strict] [--confirm-data-move] [--no-rollback] (reads CMD_*)
+# cmd_release [--strict] [--confirm-data-move] [--no-rollback] [--backup-first] (reads CMD_*)
 cmd_release() {
   local stack="$CMD_STACK"
   local env_file="$CMD_ENV_FILE"
@@ -251,12 +251,14 @@ cmd_release() {
   # Parse release-specific flags
   local confirm_data_move=false
   local auto_rollback=true
+  local backup_first=false
   local args=("${CMD_ARGS[@]+"${CMD_ARGS[@]}"}")
   for arg in "${args[@]+"${args[@]}"}"; do
     case "$arg" in
       --strict) export MIGRATION_FAILURE_MODE="halt" ;;
       --confirm-data-move) confirm_data_move=true ;;
       --no-rollback) auto_rollback=false ;;
+      --backup-first) backup_first=true ;;
     esac
   done
 
@@ -266,7 +268,7 @@ cmd_release() {
   _deploy_volguard "$stack" "$env_file" "$confirm_data_move" || return 1
   diff_warn_env_divergence "$stack" "$env_file" "${CMD_STACK_DIR:-$CLI_ROOT/stacks/$stack}"
 
-  vps_release "$stack" "$env_file" "$services" "$auto_rollback"
+  vps_release "$stack" "$env_file" "$services" "$auto_rollback" "$backup_first"
 }
 
 # cmd_deploy [--pull-only] [--skip-validation] [positional...] (reads CMD_*)
