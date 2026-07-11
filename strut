@@ -158,6 +158,7 @@ source "$LIB/cmd_volumes.sh"
 source "$LIB/cmd_keys.sh"
 source "$LIB/cmd_remote.sh"
 source "$LIB/cmd_remote_init.sh"
+source "$LIB/cmd_adopt.sh"
 source "$LIB/cmd_provision.sh"
 
 source "$LIB/cmd_cert.sh"
@@ -287,6 +288,7 @@ usage() {
   echo "  shell    [--env <name>]                                        SSH to VPS"
   echo "  exec     [--env <name>] <command>                              Execute command on VPS"
   echo "  remote:init [--env <name>] [--host <h>] [--user <u>]          Bootstrap strut on VPS"
+  echo "  adopt    --host <h> [--env <name>] [--remote-dir <path>]       Adopt a hand-deployed stack"
   echo "  status   [--env <name>]                                        Stack status"
   echo "  volumes  [--env <name>] [status|init|config]                   Volume management"
   echo "  local    start [--services <profile>]                          Start stack locally"
@@ -814,10 +816,10 @@ if [ "$FLAGS_FORCE_CLEAN" = "true" ]; then
 fi
 CMD_ARGS=("${FLAGS_POSITIONAL[@]+"${FLAGS_POSITIONAL[@]}"}")
 
-# parse_common_flags consumes --host into FLAGS_HOST. The gateway handler reads
-# --host from its own args, so re-inject it (otherwise gateway deploy/status/
-# reload can never see the target host — issue #214).
-if [ "$STACK" = "gateway" ] && [ -n "$FLAGS_HOST" ]; then
+# parse_common_flags consumes --host into FLAGS_HOST. The gateway and adopt
+# handlers read --host from their own args, so re-inject it (otherwise they
+# can never see the target host — issue #214).
+if { [ "$STACK" = "gateway" ] || [ "$COMMAND" = "adopt" ]; } && [ -n "$FLAGS_HOST" ]; then
   CMD_ARGS+=(--host "$FLAGS_HOST")
 fi
 
@@ -893,6 +895,7 @@ if [ "$FLAGS_HELP" = "true" ]; then
     rollback) _usage_rollback ;;
     diff)     _usage_diff ;;
     remote:init) _usage_remote_init ;;
+    adopt)    _usage_adopt ;;
     provision) _usage_provision ;;
     ssh:keygen) _usage_ssh_keygen ;;
     ci:init) _usage_ci_init ;;
@@ -928,6 +931,7 @@ case "$COMMAND" in
   shell)               cmd_shell ;;
   exec)                cmd_exec "${CMD_ARGS[@]+"${CMD_ARGS[@]}"}" ;;
   remote:init)         cmd_remote_init "${CMD_ARGS[@]+"${CMD_ARGS[@]}"}" ;;
+  adopt)               cmd_adopt "${CMD_ARGS[@]+"${CMD_ARGS[@]}"}" ;;
   provision)           cmd_provision "${CMD_ARGS[@]+"${CMD_ARGS[@]}"}" ;;
   ssh:keygen)          cmd_ssh_keygen "${CMD_ARGS[@]+"${CMD_ARGS[@]}"}" ;;
   ci:init)             cmd_ci_init "${CMD_ARGS[@]+"${CMD_ARGS[@]}"}" ;;
