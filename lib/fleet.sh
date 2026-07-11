@@ -171,6 +171,12 @@ fleet_sync() {
       echo 'ERROR: $deploy_dir not found on VPS' >&2
       exit 1
     fi
+    if [ ! -d '$deploy_dir/.git' ]; then
+      echo 'ERROR: $deploy_dir exists but is not a git checkout (no .git found)' >&2
+      echo 'This host was likely provisioned by rsync or another non-strut path.' >&2
+      echo 'Run: strut <stack> remote:init --env <env> to clone a proper checkout here.' >&2
+      exit 1
+    fi
     cd '$deploy_dir'
 
     echo '--- Before sync ---'
