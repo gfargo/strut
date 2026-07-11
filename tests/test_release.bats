@@ -142,15 +142,76 @@ teardown() {
   [ ! -s "$SSH_CALL_LOG" ]
 }
 
-# ── Health check failure is non-fatal ──────────────────────────────────────────
+# ── Health-gated auto-rollback ────────────────────────────────────────────────
 
-@test "vps_release: a failing final health check warns but still returns 0" {
+@test "vps_release: a failing final health check triggers rollback and returns non-zero" {
   export SSH_FAIL_PATTERN="health --env"
 
   run vps_release "test-stack" "$TEST_TMP/.test.env" ""
-  [ "$status" -eq 0 ]
+  [ "$status" -ne 0 ]
   [[ "$output" == *"Health check failed"* ]]
+  [[ "$output" == *"rolling back"* ]]
+  [[ "$output" == *"Rolled back to the previous release"* ]]
 
   run cat "$SSH_CALL_LOG"
   [[ "$output" == *"health --env test"* ]]
+  [[ "$output" == *"rollback --env test"* ]]
+}
+
+@test "vps_release: still returns non-zero even when the rollback itself succeeds" {
+  # A recovered rollback still means the requested release did not happen —
+  # callers (CI, scripts) must see this as a failure, not a silent success.
+  export SSH_FAIL_PATTERN="health --env"
+
+  run vps_release "test-stack" "$TEST_TMP/.test.env" ""
+  [ "$status" -ne 0 ]
+}
+
+@test "vps_release: --no-rollback (auto_rollback=false) skips rollback but still fails" {
+  export SSH_FAIL_PATTERN="health --env"
+
+  run vps_release "test-stack" "$TEST_TMP/.test.env" "" "false"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"auto-rollback disabled"* ]]
+
+  run cat "$SSH_CALL_LOG"
+  [[ "$output" != *"rollback --env"* ]]
+}
+
+@test "vps_release: warns but doesn't mask the original failure when rollback itself fails" {
+  # stub_ssh_conditional only supports one glob pattern — need both the
+  # health check AND the rollback call to fail here, so stub ssh() directly.
+  SSH_CALL_LOG="$TEST_TMP/ssh_calls.log"
+  : > "$SSH_CALL_LOG"
+  export SSH_CALL_LOG
+  ssh() {
+    local remote_cmd
+    remote_cmd="$(echo "${@: -1}" | tr '\n' ' ')"
+    echo "$remote_cmd" >> "$SSH_CALL_LOG"
+    case "$remote_cmd" in
+      *"health --env"*|*"rollback --env"*) return 1 ;;
+      *) return 0 ;;
+    esac
+  }
+  export -f ssh
+
+  run vps_release "test-stack" "$TEST_TMP/.test.env" ""
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"Automatic rollback also failed"* ]]
+}
+
+@test "vps_release: dry-run plan includes the rollback-on-failure step" {
+  export DRY_RUN=true
+
+  run vps_release "test-stack" "$TEST_TMP/.test.env" ""
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Roll back on health failure"* ]]
+}
+
+@test "vps_release: a passing health check never invokes rollback" {
+  run vps_release "test-stack" "$TEST_TMP/.test.env" ""
+  [ "$status" -eq 0 ]
+
+  run cat "$SSH_CALL_LOG"
+  [[ "$output" != *"rollback --env"* ]]
 }
