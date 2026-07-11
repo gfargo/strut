@@ -155,6 +155,22 @@ teardown() {
   [ "$status" -ne 0 ]
 }
 
+@test "fleet_sync: remote script checks for .git before running git commands" {
+  run fleet_sync ubuntu host.example 22 "" /opt/stacks/myapp main ""
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"/opt/stacks/myapp/.git"* ]]
+  [[ "$output" == *"remote:init"* ]]
+}
+
+@test "fleet_sync: fails when deploy_dir exists but is not a git checkout" {
+  # Stub ssh to simulate a real rsync-deployed (non-git) directory
+  ssh() { echo "ERROR: /opt/stacks/myapp exists but is not a git checkout (no .git found)" >&2; return 1; }
+  export -f ssh
+
+  run fleet_sync ubuntu host.example 22 "" /opt/stacks/myapp main ""
+  [ "$status" -ne 0 ]
+}
+
 # ── fleet_working_dir_check ───────────────────────────────────────────────────
 
 @test "fleet_working_dir_check: returns 0 when dirs match" {
