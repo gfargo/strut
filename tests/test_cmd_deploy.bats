@@ -132,6 +132,19 @@ EOF
   [[ "$output" == *"vps_release"* ]]
 }
 
+@test "cmd_release: auto_rollback defaults to true" {
+  run cmd_release
+  [ "$status" -eq 0 ]
+  [[ "$output" == *" true"* ]]
+}
+
+@test "cmd_release: --no-rollback passes auto_rollback=false to vps_release" {
+  export CMD_ARGS=(--no-rollback)
+  run cmd_release
+  [ "$status" -eq 0 ]
+  [[ "$output" == *" false"* ]]
+}
+
 @test "cmd_health: dispatches to health_run_all" {
   run cmd_health
   [ "$status" -eq 0 ]

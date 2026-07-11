@@ -410,6 +410,7 @@ vps_release() {
   local stack="$1"
   local env_file="$2"
   local services_profile="${3:-}"
+  local auto_rollback="${4:-true}"
 
   validate_env_file "$env_file" VPS_HOST
 
@@ -449,6 +450,9 @@ vps_release() {
     run_cmd "Pull latest images" ssh "$vps_user@$vps_host" "cd $deploy_dir && ./strut $stack deploy --env $env_name --pull-only"
     run_cmd "Restart services" ssh "$vps_user@$vps_host" "cd $deploy_dir && ./strut $stack deploy --env $env_name"
     run_cmd "Verify deployment" ssh "$vps_user@$vps_host" "cd $deploy_dir && ./strut $stack health --env $env_name"
+    if [ "$auto_rollback" = "true" ]; then
+      run_cmd "Roll back on health failure (auto)" ssh "$vps_user@$vps_host" "cd $deploy_dir && ./strut $stack rollback --env $env_name"
+    fi
     echo ""
     echo -e "${YELLOW}[DRY-RUN] No changes made.${NC}"
     return 0
@@ -508,11 +512,30 @@ vps_release() {
   # Step 6: Verify deployment
   log "[6/6] Verifying deployment..."
   sleep 10  # Give services time to start
+  local health_ok=true
   # shellcheck disable=SC2029
   ssh $ssh_opts "$vps_user@$vps_host" "
     cd '$deploy_dir'
     ./strut $stack health --env $env_name $profile_flag
-  " || warn "Health check failed — check logs with: strut $stack logs --env $env_name"
+  " || health_ok=false
+
+  if [ "$health_ok" = "false" ]; then
+    if [ "$auto_rollback" = "true" ]; then
+      warn "Health check failed — rolling back to the previous release..."
+      # shellcheck disable=SC2029
+      if ssh $ssh_opts "$vps_user@$vps_host" "
+        cd '$deploy_dir'
+        ./strut $stack rollback --env $env_name
+      "; then
+        ok "Rolled back to the previous release"
+      else
+        warn "Automatic rollback also failed — manual intervention required."
+      fi
+    else
+      warn "Health check failed (auto-rollback disabled with --no-rollback)"
+    fi
+    fail "Release failed health checks after deploy — check logs with: strut $stack logs --env $env_name"
+  fi
 
   # Auto-SSL: provision certs for detected domains (if configured)
   local strut_home="${STRUT_HOME:-${CLI_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}}"
