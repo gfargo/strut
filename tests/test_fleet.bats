@@ -112,12 +112,33 @@ teardown() {
 
 # ── fleet_sync (ssh stubbed) ──────────────────────────────────────────────────
 
-@test "fleet_sync: --dry-run skips ssh call" {
+@test "fleet_sync: --dry-run makes no mutating changes, but does preview git clean" {
   run fleet_sync ubuntu host.example 22 "" /home/ubuntu/strut main "" --dry-run
   [ "$status" -eq 0 ]
   [[ "$output" == *"DRY-RUN"* ]]
-  # The ssh stub would print "ssh ..." but dry-run should not invoke ssh
-  [[ "$output" != *"ssh ubuntu@host.example"* ]]
+  # git clean -nd is non-destructive, so dry-run DOES ssh in to preview it —
+  # only the mutating fetch/reset/clean sequence is skipped.
+  [[ "$output" == *"git clean -nd"* ]]
+}
+
+@test "fleet_sync: --dry-run shows untracked paths git clean -fd would remove" {
+  ssh() { echo "Would remove data/cache/"; echo "Would remove tmp.log"; return 0; }
+  export -f ssh
+
+  run fleet_sync ubuntu host.example 22 "" /home/ubuntu/strut main "" --dry-run
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"would remove the following untracked paths"* ]]
+  [[ "$output" == *"Would remove data/cache/"* ]]
+  [[ "$output" == *"Would remove tmp.log"* ]]
+}
+
+@test "fleet_sync: --dry-run reports nothing to clean when there are no untracked paths" {
+  ssh() { return 0; }
+  export -f ssh
+
+  run fleet_sync ubuntu host.example 22 "" /home/ubuntu/strut main "" --dry-run
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"would remove nothing"* ]]
 }
 
 @test "fleet_sync: without --dry-run invokes ssh" {

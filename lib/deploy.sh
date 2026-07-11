@@ -452,6 +452,18 @@ vps_release() {
       run_cmd "Back up databases before release (--backup-first)" ssh "$vps_user@$vps_host" "cd $deploy_dir && ./strut $stack backup all --env $env_name"
     fi
     run_cmd "Update strut repo on VPS" ssh "$vps_user@$vps_host" "cd $deploy_dir && git fetch && git reset --hard origin/$branch"
+    # git clean -nd is itself non-destructive, so show a real preview of what
+    # the guarded clean step would remove, not just descriptive text — the
+    # one destructive step in an otherwise reversible release.
+    local _clean_preview
+    # shellcheck disable=SC2029
+    _clean_preview=$(ssh $ssh_opts "$vps_user@$vps_host" "cd '$deploy_dir' 2>/dev/null && git clean -nd 2>/dev/null") || _clean_preview=""
+    if [ -n "$_clean_preview" ]; then
+      warn "  git clean -fd would remove the following untracked paths (skipped unless --force-clean):"
+      echo "$_clean_preview" | sed 's/^/    /'
+    else
+      log "  git clean -fd would remove nothing (no untracked paths, or host unreachable)"
+    fi
     run_cmd "Run Postgres migrations" ssh "$vps_user@$vps_host" "cd $deploy_dir && ./strut $stack migrate postgres --env $env_name"
     run_cmd "Run Neo4j migrations" ssh "$vps_user@$vps_host" "cd $deploy_dir && ./strut $stack migrate neo4j --env $env_name"
     run_cmd "Pull latest images" ssh "$vps_user@$vps_host" "cd $deploy_dir && ./strut $stack deploy --env $env_name --pull-only"
