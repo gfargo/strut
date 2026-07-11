@@ -130,11 +130,30 @@ cmd_remote_init() {
   log "[2/4] Checking remote deploy directory..."
   # shellcheck disable=SC2029
   if ssh $ssh_opts "$user@$host" "test -d '$deploy_dir/.git'"; then
-    # Already exists — verify and report
+    # Already exists — verify the strut binary actually works before
+    # reporting success. A .git checkout with no working strut binary (e.g.
+    # cloned by some other means, or left behind by a partial prior run)
+    # would otherwise report "already initialized" and send the operator
+    # into a release/update loop that fails with an unrelated error later.
     log "Deploy directory already exists at $deploy_dir"
+
+    # Ensure the exec bit is set before checking — mirrors the fresh-clone
+    # path below. Harmless no-op if the binary doesn't exist.
+    # shellcheck disable=SC2029
+    ssh $ssh_opts "$user@$host" "chmod +x '$deploy_dir/strut'" 2>/dev/null || true
+
     local remote_version
     # shellcheck disable=SC2029
-    remote_version=$(ssh $ssh_opts "$user@$host" "cd '$deploy_dir' && ./strut --version 2>/dev/null" || echo "unknown")
+    remote_version=$(ssh $ssh_opts "$user@$host" "cd '$deploy_dir' && ./strut --version 2>/dev/null" || echo "")
+
+    if [ -z "$remote_version" ]; then
+      fail "Deploy directory exists at $deploy_dir, but the strut binary is missing or broken (./strut --version failed).
+This usually means the repo was cloned some other way and never vendored a working strut executable.
+Next step: remove the directory and re-run remote:init for a clean checkout:
+  ssh $user@$host \"rm -rf '$deploy_dir'\"
+  strut ${stack:-<stack>} remote:init --env ${CMD_ENV_NAME:-prod}"
+    fi
+
     local remote_branch
     # shellcheck disable=SC2029
     remote_branch=$(ssh $ssh_opts "$user@$host" "cd '$deploy_dir' && git rev-parse --abbrev-ref HEAD 2>/dev/null" || echo "unknown")
