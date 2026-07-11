@@ -239,3 +239,54 @@ teardown() {
   run cat "$SSH_CALL_LOG"
   [[ "$output" == *"history_record 'stacks/test-stack' release 'failed'"* ]]
 }
+
+# ── --backup-first ─────────────────────────────────────────────────────────────
+
+@test "vps_release: backup_first defaults to false — no backup call" {
+  run vps_release "test-stack" "$TEST_TMP/.test.env" ""
+  [ "$status" -eq 0 ]
+
+  run cat "$SSH_CALL_LOG"
+  [[ "$output" != *"backup all"* ]]
+}
+
+@test "vps_release: --backup-first (backup_first=true) backs up before updating the repo" {
+  run vps_release "test-stack" "$TEST_TMP/.test.env" "" "true" "true"
+  [ "$status" -eq 0 ]
+
+  local line1
+  line1=$(sed -n '1p' "$SSH_CALL_LOG")
+  [[ "$line1" == *"backup all --env test"* ]]
+
+  local line2
+  line2=$(sed -n '2p' "$SSH_CALL_LOG")
+  [[ "$line2" == *"vps_update_repo"* ]]
+}
+
+@test "vps_release: dry-run plan includes the backup step when --backup-first" {
+  export DRY_RUN=true
+
+  run vps_release "test-stack" "$TEST_TMP/.test.env" "" "true" "true"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Back up databases before release"* ]]
+}
+
+@test "vps_release: dry-run plan omits the backup step by default" {
+  export DRY_RUN=true
+
+  run vps_release "test-stack" "$TEST_TMP/.test.env" ""
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"Back up databases before release"* ]]
+}
+
+@test "vps_release: aborts the release when the pre-deploy backup fails" {
+  export SSH_FAIL_PATTERN="backup all"
+
+  run vps_release "test-stack" "$TEST_TMP/.test.env" "" "true" "true"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"Pre-deploy backup failed"* ]]
+
+  # Nothing past the backup step should have run.
+  run cat "$SSH_CALL_LOG"
+  [[ "$output" != *"vps_update_repo"* ]]
+}

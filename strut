@@ -264,7 +264,7 @@ usage() {
   echo ""
   echo "Commands:"
   echo "  update   [--env <name>]                                        Pull latest strut on VPS"
-  echo "  release  [--env <name>] [--services <profile>] [--strict] [--no-rollback]  Full VPS release (update + migrate + deploy)"
+  echo "  release  [--env <name>] [--services <profile>] [--strict] [--no-rollback] [--backup-first]  Full VPS release (update + migrate + deploy)"
   echo "  deploy   [--env <name>] [--services <profile>] [--pull-only]  Deploy stack"
   echo "  rebuild  [--env <name>] [--no-cache] [--pull]                  Build images + deploy"
   echo "  ship     [--env <name>] [-m <msg>] [--no-commit]               Commit, push, rebuild on remote"
