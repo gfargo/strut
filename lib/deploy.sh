@@ -434,6 +434,9 @@ vps_release() {
   local ssh_opts
   ssh_opts=$(build_ssh_opts -p "$vps_port" -k "$vps_ssh_key" --batch)
 
+  local _release_start_epoch
+  _release_start_epoch=$(date +%s 2>/dev/null || echo 0)
+
   print_banner "VPS Release Deploy"
   log "Target: $vps_user@$vps_host"
   log "Stack: $stack | Env: $env_name | Services: ${services_profile:-core}"
@@ -518,7 +521,6 @@ vps_release() {
     cd '$deploy_dir'
     ./strut $stack health --env $env_name $profile_flag
   " || health_ok=false
-
   if [ "$health_ok" = "false" ]; then
     if [ "$auto_rollback" = "true" ]; then
       warn "Health check failed — rolling back to the previous release..."
@@ -534,6 +536,25 @@ vps_release() {
     else
       warn "Health check failed (auto-rollback disabled with --no-rollback)"
     fi
+  fi
+
+  # Record release history on the remote host — same disk-durability
+  # reasoning as every other release step: it lives with the deploy dir,
+  # so `strut <stack> history` (remote-dispatched) finds it after reboots.
+  # Recorded before the fail() below so a failed release still gets an
+  # outcome=failed entry instead of history recording being skipped by exit.
+  local release_outcome="success"
+  [ "$health_ok" = "false" ] && release_outcome="failed"
+  local _release_end_epoch
+  _release_end_epoch=$(date +%s 2>/dev/null || echo "$_release_start_epoch")
+  local release_duration=$(( _release_end_epoch - _release_start_epoch ))
+  # shellcheck disable=SC2029
+  ssh $ssh_opts "$vps_user@$vps_host" "
+    cd '$deploy_dir'
+    source lib/utils.sh 2>/dev/null && source lib/history.sh 2>/dev/null && history_record 'stacks/$stack' release '$release_outcome' env=$env_name duration_s:=$release_duration
+  " >/dev/null 2>&1 || true
+
+  if [ "$health_ok" = "false" ]; then
     fail "Release failed health checks after deploy — check logs with: strut $stack logs --env $env_name"
   fi
 

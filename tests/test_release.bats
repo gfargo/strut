@@ -215,3 +215,27 @@ teardown() {
   run cat "$SSH_CALL_LOG"
   [[ "$output" != *"rollback --env"* ]]
 }
+
+# ── Release history recording ─────────────────────────────────────────────────
+
+@test "vps_release: records a release history entry with outcome=success on the remote host" {
+  run vps_release "test-stack" "$TEST_TMP/.test.env" ""
+  [ "$status" -eq 0 ]
+
+  run cat "$SSH_CALL_LOG"
+  [[ "$output" == *"history_record 'stacks/test-stack' release 'success'"* ]]
+  [[ "$output" == *"env=test"* ]]
+  [[ "$output" == *"duration_s:="* ]]
+}
+
+@test "vps_release: records outcome=failed when the final health check fails" {
+  export SSH_FAIL_PATTERN="health --env"
+
+  run vps_release "test-stack" "$TEST_TMP/.test.env" ""
+  # Health failure is fatal (auto-rollback) — history must still be
+  # recorded before that exit, not skipped by it.
+  [ "$status" -ne 0 ]
+
+  run cat "$SSH_CALL_LOG"
+  [[ "$output" == *"history_record 'stacks/test-stack' release 'failed'"* ]]
+}

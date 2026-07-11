@@ -132,3 +132,24 @@ EOF
   [ "$status" -ne 0 ]
   [[ "$output" == *"No rollback snapshots found for stack: test-stack, env: test"* ]]
 }
+
+@test "cmd_rollback: records a history entry on a successful restore" {
+  echo '{"timestamp":"2026-07-05T00:00:00Z","service_count":1,"services":{"web":{"image":"nginx:latest"}}}' > "$TEST_TMP/snapshot.json"
+
+  should_dispatch_remote() { return 1; }
+  rollback_get_latest_snapshot() { echo "$TEST_TMP/snapshot.json"; }
+  resolve_compose_cmd() { echo "echo COMPOSE"; }
+  rollback_restore_snapshot() { echo "rollback_restore_snapshot $*"; }
+  export -f should_dispatch_remote rollback_get_latest_snapshot resolve_compose_cmd rollback_restore_snapshot
+
+  _set_rollback_ctx ""
+
+  run cmd_rollback
+  [ "$status" -eq 0 ]
+
+  local hist_file="$TEST_TMP/stacks/test-stack/.deploy-history.jsonl"
+  [ -f "$hist_file" ]
+  run cat "$hist_file"
+  [[ "$output" == *'"action":"rollback"'* ]]
+  [[ "$output" == *'"outcome":"success"'* ]]
+}

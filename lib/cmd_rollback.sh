@@ -213,6 +213,8 @@ cmd_rollback() {
 
   rollback_restore_snapshot "$stack" "$compose_cmd" "$rb_snapshot_file"
 
+  declare -F history_record >/dev/null || source "$LIB/history.sh"
+
   # Post-restore health gate — without this, a rollback that restores a
   # broken image (or fails to restart cleanly) still prints "Rollback
   # complete" and the operator has no signal that they need to intervene.
@@ -222,7 +224,9 @@ cmd_rollback() {
   health_check_containers "$compose_cmd" "$compose_file" || true
   if [ "$HEALTH_FAILED" -gt 0 ]; then
     warn "Rollback restored the snapshot images, but $HEALTH_FAILED container(s) are unhealthy — investigate before trusting this rollback"
+    history_record "$stack_dir" "rollback" "failed" "env=$env_name" "snapshot=$(basename "$rb_snapshot_file" .json)"
     return 1
   fi
   ok "Post-restore health check passed"
+  history_record "$stack_dir" "rollback" "success" "env=$env_name" "snapshot=$(basename "$rb_snapshot_file" .json)"
 }
