@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.37.0](https://github.com/gfargo/strut/compare/v0.36.0...v0.37.0) (2026-07-11)
+
+
+### Features
+
+* **release:** add --backup-first for a pre-deploy database snapshot ([#365](https://github.com/gfargo/strut/issues/365)) ([7309585](https://github.com/gfargo/strut/commit/7309585c3c629c347ddbae89aa480790b285413d))
+
+
+### Bug Fixes
+
+* **release:** preview git clean -fd in dry-run instead of just describing it ([#367](https://github.com/gfargo/strut/issues/367)) ([0cb32ed](https://github.com/gfargo/strut/commit/0cb32edb9cd78f39ea8a13955cae5a05cf2e59b9))
+
 ## [0.36.0](https://github.com/gfargo/strut/compare/v0.35.2...v0.36.0) (2026-07-11)
 
 
