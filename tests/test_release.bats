@@ -232,7 +232,9 @@ teardown() {
   export SSH_FAIL_PATTERN="health --env"
 
   run vps_release "test-stack" "$TEST_TMP/.test.env" ""
-  [ "$status" -eq 0 ]
+  # Health failure is fatal (auto-rollback) — history must still be
+  # recorded before that exit, not skipped by it.
+  [ "$status" -ne 0 ]
 
   run cat "$SSH_CALL_LOG"
   [[ "$output" == *"history_record 'stacks/test-stack' release 'failed'"* ]]
