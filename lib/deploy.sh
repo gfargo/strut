@@ -411,6 +411,7 @@ vps_release() {
   local env_file="$2"
   local services_profile="${3:-}"
   local auto_rollback="${4:-true}"
+  local backup_first="${5:-false}"
 
   validate_env_file "$env_file" VPS_HOST
 
@@ -447,6 +448,9 @@ vps_release() {
     local branch="${DEFAULT_BRANCH:-main}"
     echo ""
     echo -e "${YELLOW}[DRY-RUN] Execution plan for release:${NC}"
+    if [ "$backup_first" = "true" ]; then
+      run_cmd "Back up databases before release (--backup-first)" ssh "$vps_user@$vps_host" "cd $deploy_dir && ./strut $stack backup all --env $env_name"
+    fi
     run_cmd "Update strut repo on VPS" ssh "$vps_user@$vps_host" "cd $deploy_dir && git fetch && git reset --hard origin/$branch"
     run_cmd "Run Postgres migrations" ssh "$vps_user@$vps_host" "cd $deploy_dir && ./strut $stack migrate postgres --env $env_name"
     run_cmd "Run Neo4j migrations" ssh "$vps_user@$vps_host" "cd $deploy_dir && ./strut $stack migrate neo4j --env $env_name"
@@ -459,6 +463,19 @@ vps_release() {
     echo ""
     echo -e "${YELLOW}[DRY-RUN] No changes made.${NC}"
     return 0
+  fi
+
+  # Pre-deploy backup (opt-in — Neo4j backups require ~10-30s of downtime,
+  # so this is never silently default-on). Runs before anything else changes
+  # so the snapshot reflects truly pre-release state, not post-migration.
+  if [ "$backup_first" = "true" ]; then
+    log "Backing up databases before release (--backup-first)..."
+    # shellcheck disable=SC2029
+    ssh $ssh_opts "$vps_user@$vps_host" "
+      cd '$deploy_dir'
+      ./strut $stack backup all --env $env_name
+    " || fail "Pre-deploy backup failed — aborting release. Check backup config/logs, or omit --backup-first to skip."
+    ok "Pre-deploy backup complete"
   fi
 
   # Step 1: Update repo

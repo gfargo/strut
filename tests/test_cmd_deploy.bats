@@ -172,6 +172,19 @@ EOF
   [[ "$output" == *" false"* ]]
 }
 
+@test "cmd_release: backup_first defaults to false" {
+  run cmd_release
+  [ "$status" -eq 0 ]
+  [[ "$output" == *" true false"* ]]
+}
+
+@test "cmd_release: --backup-first passes backup_first=true to vps_release" {
+  export CMD_ARGS=(--backup-first)
+  run cmd_release
+  [ "$status" -eq 0 ]
+  [[ "$output" == *" true true"* ]]
+}
+
 @test "cmd_health: dispatches to health_run_all" {
   run cmd_health
   [ "$status" -eq 0 ]
