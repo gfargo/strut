@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.36.0](https://github.com/gfargo/strut/compare/v0.35.2...v0.36.0) (2026-07-11)
+
+
+### Features
+
+* **history:** deploy/release/rollback audit trail ([#363](https://github.com/gfargo/strut/issues/363)) ([9efa3ab](https://github.com/gfargo/strut/commit/9efa3abb77a566c1ce9103c188c1d6d85f9c529f))
+* **release:** health-gated auto-rollback on the release command ([#362](https://github.com/gfargo/strut/issues/362)) ([60ebe7b](https://github.com/gfargo/strut/commit/60ebe7ba9c9d3237243b6bc300a29296680c8581))
+
+
+### Bug Fixes
+
+* **fleet:** fail clearly when deploy_dir has no .git checkout ([#358](https://github.com/gfargo/strut/issues/358)) ([e00f142](https://github.com/gfargo/strut/commit/e00f142d15d837fbe47e1e15d8f64089cebbb8ea)), closes [#330](https://github.com/gfargo/strut/issues/330)
+* **remote-init:** verify the strut binary actually works before reporting success ([#359](https://github.com/gfargo/strut/issues/359)) ([06130c9](https://github.com/gfargo/strut/commit/06130c9fd7d19e438f058916c9014e476c98e599)), closes [#356](https://github.com/gfargo/strut/issues/356)
+* **secrets:** pull writes to the stack-level path, not always project root ([#360](https://github.com/gfargo/strut/issues/360)) ([735c572](https://github.com/gfargo/strut/commit/735c5727da14b30dbf7575e465e86edf1922c42e)), closes [#357](https://github.com/gfargo/strut/issues/357)
+
 ## [0.35.2](https://github.com/gfargo/strut/compare/v0.35.1...v0.35.2) (2026-07-10)
 
 
