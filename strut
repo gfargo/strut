@@ -313,6 +313,7 @@ usage() {
   echo "  list                                                           List stacks"
   echo "  list plugins [--json]                                          List discovered project plugins"
   echo "  status-all [--env <name>] [--json]                             Dashboard across all stacks"
+  echo "  dashboard  [--port <N>] [--bind <addr>] [--json]               Read-only HTTP fleet status page"
   echo "  sync       [<host>|--all] [--env <name>] [--dry-run]          Bring host checkout in sync with origin"
   echo "  fleet      status|history [--json] [--limit N]                  Git sync state or deploy history across all hosts"
   echo "  webhook    poll|serve|install                                  Push-to-deploy automation"
@@ -567,6 +568,12 @@ case "${1:-}" in
     shift
     source "$LIB/cmd_status_all.sh"
     cmd_status_all "$@"
+    exit $?
+    ;;
+  dashboard)
+    shift
+    source "$LIB/cmd_dashboard.sh"
+    cmd_dashboard "$@"
     exit $?
     ;;
   sync)
