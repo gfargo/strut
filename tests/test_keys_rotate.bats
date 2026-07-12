@@ -189,31 +189,44 @@ teardown() {
   grep -q "^ADD:.*--dry-run" "$TEST_TMP/calls"
 }
 
-@test "keys_ssh_rotate: forwards --force to revoke and add, adding before revoking" {
+@test "keys_ssh_rotate: forwards --force to add, and revokes the OLD key by fingerprint after adding" {
+  # keys_ssh_rotate must NOT clean up the old key by calling the public
+  # keys_ssh_revoke command: that command reads the CURRENT metadata entry
+  # for the username, which by the time cleanup runs already describes the
+  # NEW key (keys_ssh_add overwrote it) — routing through it here would
+  # revoke the key rotation just added instead of the one being replaced
+  # (strut#372). Rotation captures the OLD fingerprint before calling add,
+  # then revokes it directly via the low-level primitive.
   local stack="test-keys-rotate-sshforce-$$"
   mkdir -p "$CLI_ROOT/stacks/$stack"
   ensure_keys_dir "$stack" >/dev/null 2>&1
   local env_file="$TEST_TMP/fake.env"
   echo "VPS_HOST=fakehost" > "$env_file"
 
+  # Seed a pre-existing key for alice so this is a real rotation, not a
+  # first-time add (old_fingerprint must be non-empty for cleanup to run).
+  local keys_dir
+  keys_dir=$(get_keys_dir "$stack")
+  echo '{"ssh_keys":[{"username":"alice","fingerprint":"fp-old","key_file":"'"$TEST_TMP"'/fake-alice-old.pub"}],"last_updated":"x"}' > "$keys_dir/ssh-keys.json"
+
   keys_ssh_add() {
     echo "ADD:$*" >> "$TEST_TMP/calls"
-    local keys_dir
-    keys_dir=$(get_keys_dir "$1")
-    echo '{"ssh_keys":[{"username":"alice","fingerprint":"fp-new","key_file":"'"$TEST_TMP"'/fake-alice.pub"}],"last_updated":"x"}' > "$keys_dir/ssh-keys.json"
+    echo '{"ssh_keys":[{"username":"alice","fingerprint":"fp-new","key_file":"'"$TEST_TMP"'/fake-alice-new.pub"}],"last_updated":"x"}' > "$keys_dir/ssh-keys.json"
   }
+  _keys_ssh_revoke_fingerprint() { echo "REVOKE_FP:$*" >> "$TEST_TMP/calls"; echo 1; }
   keys_ssh_revoke() { echo "REVOKE:$*" >> "$TEST_TMP/calls"; }
   validate_vps_connection() { return 0; }
 
   run keys_ssh_rotate "$stack" "$env_file" alice --force
   [ "$status" -eq 0 ]
 
-  grep -q "^REVOKE:.*--force" "$TEST_TMP/calls"
   grep -q "^ADD:.*--force" "$TEST_TMP/calls"
+  grep -q "^REVOKE_FP:$stack $env_file fp-old$" "$TEST_TMP/calls"
+  ! grep -q "^REVOKE:" "$TEST_TMP/calls"
 
   local add_line revoke_line
   add_line=$(grep -n "^ADD:" "$TEST_TMP/calls" | head -1 | cut -d: -f1)
-  revoke_line=$(grep -n "^REVOKE:" "$TEST_TMP/calls" | head -1 | cut -d: -f1)
+  revoke_line=$(grep -n "^REVOKE_FP:" "$TEST_TMP/calls" | head -1 | cut -d: -f1)
   [ "$add_line" -lt "$revoke_line" ]
 }
 
