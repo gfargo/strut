@@ -61,6 +61,20 @@ _usage_adopt() {
   echo "  6. Marks the stack as strut-managed and confirms the new checkout is clean"
 }
 
+# _adopt_shell_quote <string>
+#
+# Safely single-quotes an arbitrary string for embedding in a remote command
+# string sent over ssh — closes the quote, escapes any embedded single quote
+# as '\'', reopens it. Required for every value that isn't a static literal,
+# especially host paths parsed out of a remote/committed docker-compose.yml:
+# an attacker-controlled compose file is otherwise a command-injection vector
+# (a bind-mount path like "./data'; rm -rf /; '" breaks naive '$var'
+# interpolation).
+_adopt_shell_quote() {
+  local s="$1"
+  printf "'%s'" "${s//\'/\'\\\'\'}"
+}
+
 # ── Discovery ────────────────────────────────────────────────────────────────
 
 ADOPT_DISCOVERED_WORKING_DIR=""
@@ -79,11 +93,12 @@ _adopt_discover() {
   ADOPT_DISCOVERED_WORKING_DIR=""
   ADOPT_DISCOVERED_PROJECT_NAME=""
 
-  local cand found_ids=""
+  local cand cand_q found_ids=""
   for cand in "$stack" "${stack}-${env_name}"; do
+    cand_q=$(_adopt_shell_quote "$cand")
     # shellcheck disable=SC2029
     local ids
-    ids=$(ssh $ssh_opts "$user@$host" "docker ps -q --filter 'label=com.docker.compose.project=$cand'" 2>/dev/null) || ids=""
+    ids=$(ssh $ssh_opts "$user@$host" "docker ps -q --filter label=com.docker.compose.project=$cand_q" 2>/dev/null) || ids=""
     if [ -n "$ids" ]; then
       found_ids="$ids"
       ADOPT_DISCOVERED_PROJECT_NAME="$cand"
@@ -93,10 +108,11 @@ _adopt_discover() {
 
   [ -n "$found_ids" ] || return 1
 
-  local first_id
+  local first_id first_id_q
   first_id=$(echo "$found_ids" | head -1)
+  first_id_q=$(_adopt_shell_quote "$first_id")
   # shellcheck disable=SC2029
-  ADOPT_DISCOVERED_WORKING_DIR=$(ssh $ssh_opts "$user@$host" "docker inspect '$first_id' --format '{{ index .Config.Labels \"com.docker.compose.project.working_dir\" }}'" 2>/dev/null) || ADOPT_DISCOVERED_WORKING_DIR=""
+  ADOPT_DISCOVERED_WORKING_DIR=$(ssh $ssh_opts "$user@$host" "docker inspect $first_id_q --format '{{ index .Config.Labels \"com.docker.compose.project.working_dir\" }}'" 2>/dev/null) || ADOPT_DISCOVERED_WORKING_DIR=""
 
   [ -n "$ADOPT_DISCOVERED_WORKING_DIR" ] || return 1
   return 0
@@ -109,8 +125,10 @@ _adopt_discover() {
 # text when --remote-dir was given explicitly (discovery is skipped).
 _adopt_project_name_at() {
   local ssh_opts="$1" user="$2" host="$3" remote_dir="$4"
+  local remote_dir_q
+  remote_dir_q=$(_adopt_shell_quote "$remote_dir")
   # shellcheck disable=SC2029
-  ssh $ssh_opts "$user@$host" "docker ps -q --filter 'label=com.docker.compose.project.working_dir=$remote_dir' | head -1 | xargs -r docker inspect --format '{{ index .Config.Labels \"com.docker.compose.project\" }}'" 2>/dev/null || echo ""
+  ssh $ssh_opts "$user@$host" "docker ps -q --filter label=com.docker.compose.project.working_dir=$remote_dir_q | head -1 | xargs -r docker inspect --format '{{ index .Config.Labels \"com.docker.compose.project\" }}'" 2>/dev/null || echo ""
 }
 
 # _adopt_fetch_remote_file <ssh_opts> <user> <host> <path>
@@ -120,8 +138,10 @@ _adopt_project_name_at() {
 # (if anything) is currently exported.
 _adopt_fetch_remote_file() {
   local ssh_opts="$1" user="$2" host="$3" path="$4"
+  local path_q
+  path_q=$(_adopt_shell_quote "$path")
   # shellcheck disable=SC2029
-  ssh $ssh_opts "$user@$host" "cat '$path' 2>/dev/null" 2>/dev/null || echo ""
+  ssh $ssh_opts "$user@$host" "cat $path_q 2>/dev/null" 2>/dev/null || echo ""
 }
 
 # ── Phase 2: verify compose matches ─────────────────────────────────────────
@@ -168,6 +188,13 @@ _adopt_verify_compose() {
 # volumes via diff_extract_named_volumes (lib/diff.sh) — a bare "name:" match
 # against a top-level volumes: key is Docker-managed, not filesystem data
 # living inside the checkout. Never touches the filesystem itself.
+#
+# The volumes: sub-block is located by indentation RELATIVE to wherever
+# "volumes:" itself is found (not a hardcoded column), so this tolerates
+# both 2-space and 4-space compose files. Long-form/mapping-style volume
+# entries (e.g. "- type: bind") can't be reduced to a host path by this
+# parser — rather than silently missing them, each one prints "__UNPARSED__"
+# so the caller surfaces a manual-review warning instead of a false "clean."
 _adopt_detect_data() {
   local ssh_opts="$1" user="$2" host="$3" live_dir="$4" compose_file="$5" stack="$6" deploy_dir="$7"
 
@@ -179,14 +206,37 @@ _adopt_detect_data() {
 
   local candidates
   candidates=$(echo "$content" | awk '
+    BEGIN { in_services = 0; in_vol_block = 0; vol_indent = -1 }
     /^services:[[:space:]]*$/ { in_services = 1; next }
-    /^[A-Za-z_][A-Za-z0-9_-]*:[[:space:]]*$/ { if ($0 !~ /^services:/) in_services = 0 }
-    in_services && /^      - / {
-      line = $0
-      sub(/^[[:space:]]*- /, "", line)
-      n = split(line, parts, ":")
-      if (n < 2) next
-      print parts[1]
+    /^[A-Za-z_][A-Za-z0-9_-]*:[[:space:]]*$/ {
+      if ($0 !~ /^services:/) { in_services = 0; in_vol_block = 0 }
+    }
+    in_services && /^[[:space:]]+volumes:[[:space:]]*$/ {
+      match($0, /^[[:space:]]*/)
+      vol_indent = RLENGTH
+      in_vol_block = 1
+      next
+    }
+    in_services && in_vol_block {
+      match($0, /^[[:space:]]*/)
+      cur_indent = RLENGTH
+      if (cur_indent <= vol_indent) {
+        in_vol_block = 0
+      } else if ($0 ~ /^[[:space:]]*-[[:space:]]/) {
+        line = $0
+        sub(/^[[:space:]]*-[[:space:]]*/, "", line)
+        if (line ~ /^\$\{[^}]*\}/) {
+          match(line, /^\$\{[^}]*\}/)
+          print substr(line, RSTART, RLENGTH)
+        } else if (line ~ /^[^[:space:]]+:[[:space:]]/ || line !~ /:/) {
+          # "key: value" mapping form (long-form volume) or no colon at all —
+          # not a short-form HOST:CONTAINER pair we can extract a path from.
+          print "__UNPARSED__"
+        } else {
+          n = split(line, parts, ":")
+          print parts[1]
+        }
+      }
     }
   ')
 
@@ -196,9 +246,15 @@ _adopt_detect_data() {
   fi
 
   local found_any=false
-  local host_part resolved is_named nv abs_path
+  local host_part resolved is_named nv abs_path abs_path_q dest_q
   while IFS= read -r host_part; do
     [ -n "$host_part" ] || continue
+
+    if [ "$host_part" = "__UNPARSED__" ]; then
+      found_any=true
+      warn "  Found a volume entry this parser couldn't fully interpret (long-form/mapping syntax, or unrecognized structure) — inspect docker-compose.yml manually before considering this stack clean to adopt."
+      continue
+    fi
 
     resolved="$host_part"
     if [[ "$host_part" =~ ^\$\{[A-Za-z_][A-Za-z0-9_]*:-(.*)\}$ ]]; then
@@ -222,13 +278,15 @@ _adopt_detect_data() {
     resolved="${resolved#./}"
     abs_path="$resolved"
     [[ "$resolved" == /* ]] || abs_path="$live_dir/$resolved"
+    abs_path_q=$(_adopt_shell_quote "$abs_path")
 
     # shellcheck disable=SC2029
-    if ssh $ssh_opts "$user@$host" "test -d '$abs_path'" 2>/dev/null; then
+    if ssh $ssh_opts "$user@$host" "test -d $abs_path_q" 2>/dev/null; then
       found_any=true
       warn "  Data directory lives inside the checkout: $abs_path"
       echo "    Once the fresh checkout exists, relocate it there manually:"
-      echo "      ssh $user@$host \"mv '$abs_path' '$deploy_dir/stacks/$stack/$resolved'\""
+      dest_q=$(_adopt_shell_quote "$deploy_dir/stacks/$stack/$resolved")
+      echo "      ssh $user@$host \"mv $abs_path_q $dest_q\""
     fi
   done <<< "$candidates"
 
@@ -246,36 +304,41 @@ _adopt_detect_data() {
 _adopt_bootstrap_checkout() {
   local ssh_opts="$1" user="$2" host="$3" port="$4" ssh_key="$5" repo_url="$6" branch="$7" deploy_dir="$8"
 
+  local deploy_dir_q branch_q
+  deploy_dir_q=$(_adopt_shell_quote "$deploy_dir")
+  branch_q=$(_adopt_shell_quote "$branch")
+
   # shellcheck disable=SC2029
-  if ssh $ssh_opts "$user@$host" "test -d '$deploy_dir/.git'" 2>/dev/null; then
+  if ssh $ssh_opts "$user@$host" "test -d ${deploy_dir_q}/.git" 2>/dev/null; then
     ok "Strut checkout already exists at $deploy_dir (from a previous adopt attempt) — reusing it"
   else
     local gh_pat="${GH_PAT:-}"
     if [ -n "$gh_pat" ]; then
-      local clone_url="$repo_url"
+      local clone_url="$repo_url" clone_url_q
       if echo "$clone_url" | grep -q "^git@"; then
         clone_url=$(echo "$clone_url" | sed 's|git@github.com:|https://github.com/|' | sed 's|\.git$||')
       fi
       [[ "$clone_url" == *.git ]] || clone_url="${clone_url}.git"
+      clone_url_q=$(_adopt_shell_quote "$clone_url")
       # shellcheck disable=SC2029
       ssh $ssh_opts "$user@$host" "
         set -e
         git clone \
           -c 'url.https://oauth2:$gh_pat@github.com/.insteadOf=https://github.com/' \
           -c 'url.https://oauth2:$gh_pat@github.com/.insteadOf=git@github.com:' \
-          --branch '$branch' \
-          '$clone_url' '$deploy_dir'
+          --branch $branch_q \
+          $clone_url_q $deploy_dir_q
       " || fail "Failed to clone repository. Check GH_PAT and repository access."
     else
       setup_strut_repo "$user" "$host" "$port" "$ssh_key" "$repo_url" "$deploy_dir"
       # shellcheck disable=SC2029
-      ssh $ssh_opts "$user@$host" "cd '$deploy_dir' && git checkout '$branch'" 2>/dev/null || true
+      ssh $ssh_opts "$user@$host" "cd $deploy_dir_q && git checkout $branch_q" 2>/dev/null || true
     fi
     ok "Fresh strut checkout cloned to $deploy_dir"
   fi
 
   # shellcheck disable=SC2029
-  ssh $ssh_opts "$user@$host" "chmod +x '$deploy_dir/strut'" 2>/dev/null || true
+  ssh $ssh_opts "$user@$host" "chmod +x ${deploy_dir_q}/strut" 2>/dev/null || true
 }
 
 # ── Phase 5: pull, merge, and encrypt env ───────────────────────────────────
@@ -299,8 +362,10 @@ _adopt_pull_env() {
     fail "Local env file already exists: $local_env. Use --force to overwrite."
   fi
 
+  local remote_env_path_q
+  remote_env_path_q=$(_adopt_shell_quote "$remote_env_path")
   # shellcheck disable=SC2029
-  if ! ssh $ssh_opts "$user@$host" "test -f '$remote_env_path'" 2>/dev/null; then
+  if ! ssh $ssh_opts "$user@$host" "test -f $remote_env_path_q" 2>/dev/null; then
     warn "No live env file found at $remote_env_path — writing connection settings only. Add application secrets manually before deploying."
   fi
 
@@ -482,7 +547,7 @@ cmd_adopt() {
 
   # ── Step 4: bootstrap a fresh, separate strut checkout ───────────────────
   log "[5/6] Cloning a fresh strut checkout (never touches the live directory)..."
-  if [ "$deploy_dir" = "$live_working_dir" ]; then
+  if [ "${deploy_dir%/}" = "${live_working_dir%/}" ]; then
     fail "Resolved deploy dir ($deploy_dir) is the same as the live project's directory — refusing to proceed, since adopt must never run git operations against a directory holding live data. Pass --deploy-dir <different path>."
   fi
   _adopt_bootstrap_checkout "$ssh_opts" "$user" "$host" "$port" "$ssh_key" "$repo_url" "$branch" "$deploy_dir"

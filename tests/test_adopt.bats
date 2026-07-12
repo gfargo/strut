@@ -264,7 +264,7 @@ EOF
   ssh() {
     local cmd="$*"
     case "$cmd" in
-      *"filter 'label=com.docker.compose.project=myapp'"*) echo "abc123" ;;
+      *"filter label=com.docker.compose.project='myapp'"*) echo "abc123" ;;
       *"docker inspect 'abc123'"*) echo "/opt/myapp" ;;
       *) echo "" ;;
     esac
@@ -281,8 +281,8 @@ EOF
   ssh() {
     local cmd="$*"
     case "$cmd" in
-      *"filter 'label=com.docker.compose.project=myapp'"*) echo "" ;;
-      *"filter 'label=com.docker.compose.project=myapp-prod'"*) echo "def456" ;;
+      *"filter label=com.docker.compose.project='myapp'"*) echo "" ;;
+      *"filter label=com.docker.compose.project='myapp-prod'"*) echo "def456" ;;
       *"docker inspect 'def456'"*) echo "/opt/myapp-prod" ;;
       *) echo "" ;;
     esac
@@ -401,6 +401,102 @@ EOF
   run _adopt_detect_data "-o x" "ubuntu" "host.example" "/opt/myapp" "$compose" "myapp" "/home/ubuntu/strut"
   [ "$status" -eq 0 ]
   [[ "$output" == *"depends on an env var with no default"* ]]
+}
+
+@test "_adopt_detect_data: resolves \${VAR:-default} to its default path" {
+  local compose="$TEST_TMP/default-var-compose.yml"
+  cat > "$compose" <<'EOF'
+services:
+  db:
+    image: postgres
+    volumes:
+      - ${DATA_DIR:-./data/pg}:/var/lib/postgresql/data
+EOF
+
+  ssh() {
+    local cmd="$*"
+    case "$cmd" in
+      *"test -d '/opt/myapp/data/pg'"*) return 0 ;;
+      *) return 1 ;;
+    esac
+  }
+  export -f ssh
+
+  run _adopt_detect_data "-o x" "ubuntu" "host.example" "/opt/myapp" "$compose" "myapp" "/home/ubuntu/strut"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Data directory lives inside the checkout: /opt/myapp/data/pg"* ]]
+  [[ "$output" != *"depends on an env var with no default"* ]]
+}
+
+@test "_adopt_detect_data: flags a long-form volume entry as unparseable instead of silently missing it" {
+  local compose="$TEST_TMP/longform-compose.yml"
+  cat > "$compose" <<'EOF'
+services:
+  db:
+    image: postgres
+    volumes:
+      - type: bind
+        source: ./data/pg
+        target: /var/lib/postgresql/data
+EOF
+
+  ssh() { return 1; }
+  export -f ssh
+
+  run _adopt_detect_data "-o x" "ubuntu" "host.example" "/opt/myapp" "$compose" "myapp" "/home/ubuntu/strut"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"couldn't fully interpret"* ]]
+  [[ "$output" != *"No live data directories found"* ]]
+}
+
+@test "_adopt_detect_data: parses volumes correctly in a 4-space-indented compose file" {
+  local compose="$TEST_TMP/four-space-compose.yml"
+  cat > "$compose" <<'EOF'
+services:
+    db:
+        image: postgres
+        volumes:
+            - ./data/pg:/var/lib/postgresql/data
+EOF
+
+  ssh() {
+    local cmd="$*"
+    case "$cmd" in
+      *"test -d '/opt/myapp/data/pg'"*) return 0 ;;
+      *) return 1 ;;
+    esac
+  }
+  export -f ssh
+
+  run _adopt_detect_data "-o x" "ubuntu" "host.example" "/opt/myapp" "$compose" "myapp" "/home/ubuntu/strut"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Data directory lives inside the checkout: /opt/myapp/data/pg"* ]]
+}
+
+@test "_adopt_detect_data: safely quotes a bind-mount path containing shell metacharacters (no injection)" {
+  local compose="$TEST_TMP/evil-compose.yml"
+  local marker="$TEST_TMP/pwned"
+  rm -f "$marker"
+  cat > "$compose" <<EOF
+services:
+  db:
+    image: postgres
+    volumes:
+      - ./data'; touch $marker; ':/var/lib/postgresql/data
+EOF
+
+  # Simulate a real remote shell actually executing the command string adopt
+  # builds, to prove a malicious compose-parsed path can't break out of the
+  # quoting and run arbitrary commands on the "remote" host.
+  ssh() {
+    local remote_cmd="${@: -1}"
+    bash -c "$remote_cmd" >/dev/null 2>&1
+    return 1
+  }
+  export -f ssh
+
+  run _adopt_detect_data "-o x" "ubuntu" "host.example" "/opt/myapp" "$compose" "myapp" "/home/ubuntu/strut"
+  [ ! -f "$marker" ]
 }
 
 # ── _adopt_mark ───────────────────────────────────────────────────────────────
