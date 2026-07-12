@@ -69,6 +69,46 @@ _stub_socat_recorder() {
   [[ "$output" == *"socat"* ]]
 }
 
+@test "cmd_dashboard: uses EXEC (not SYSTEM) so the handler always runs under bash" {
+  _stub_socat_recorder
+  run cmd_dashboard --port 9999
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"EXEC:"* ]]
+  [[ "$output" != *"SYSTEM:"* ]]
+}
+
+@test "cmd_dashboard: writes an executable handler file with a bash shebang" {
+  local captured_path=""
+  # shellcheck disable=SC2317
+  socat() {
+    for arg in "$@"; do
+      [[ "$arg" == EXEC:* ]] && captured_path="${arg#EXEC:}"
+    done
+    printf '%s' "$captured_path" > "$BATS_TEST_TMPDIR/handler_path"
+    return 0
+  }
+  export -f socat
+  run cmd_dashboard --port 9999
+  [ "$status" -eq 0 ]
+  local handler_path
+  handler_path=$(cat "$BATS_TEST_TMPDIR/handler_path")
+  [ -x "$handler_path" ]
+  [ "$(head -n1 "$handler_path")" = "#!/usr/bin/env bash" ]
+}
+
+@test "cmd_dashboard: registers INT and TERM traps that remove the cache dir" {
+  _stub_socat_recorder
+  # `run` captures output via a subshell, which would swallow the trap along
+  # with it — call directly (output redirected) so the trap lands in this shell.
+  cmd_dashboard --port 9999 >/dev/null
+  local int_trap term_trap
+  int_trap=$(trap -p INT)
+  term_trap=$(trap -p TERM)
+  trap - INT TERM
+  [[ "$int_trap" == *"rm -rf"*"strut-dashboard."* ]]
+  [[ "$term_trap" == *"rm -rf"*"strut-dashboard."* ]]
+}
+
 # ── _dashboard_cache_fetch ───────────────────────────────────────────────────
 
 @test "_dashboard_cache_fetch: runs the command and caches the result" {
@@ -176,6 +216,22 @@ _stub_socat_recorder() {
 _fleet_fixture='{"hosts":[{"host":"compass","status":"ok","branch":"main","behind":"0","ahead":"0","dirty":0,"head_sha":"abc1234"},{"host":"harbor","status":"ok","branch":"main","behind":"3","ahead":"0","dirty":1,"head_sha":"def5678"}],"branch":"main"}'
 _stacks_fixture='{"timestamp":"2026-07-12T00:00:00Z","stacks":[{"name":"my-app","health":"healthy","last_deploy":"2h ago","backup_age":"4h ago"}],"summary":{"total":1,"healthy":1,"degraded":0,"down":0,"unknown":0}}'
 
+@test "_dashboard_cache_age: reports seconds since the cache file was written" {
+  export _DASH_CACHE_DIR="$BATS_TEST_TMPDIR"
+  echo '{}' > "$BATS_TEST_TMPDIR/agekey.json"
+  touch -d "@$(($(date +%s) - 15))" "$BATS_TEST_TMPDIR/agekey.json"
+
+  run _dashboard_cache_age agekey
+  [[ "$output" =~ ^[0-9]+$ ]]
+  [ "$output" -ge 14 ]
+}
+
+@test "_dashboard_cache_age: empty when the cache file doesn't exist" {
+  export _DASH_CACHE_DIR="$BATS_TEST_TMPDIR"
+  run _dashboard_cache_age missingkey
+  [ -z "$output" ]
+}
+
 @test "_dashboard_render_html: includes a 30s meta-refresh tag" {
   run _dashboard_render_html "$_fleet_fixture" "$_stacks_fixture"
   [[ "$output" == *'<meta http-equiv="refresh" content="30">'* ]]
@@ -196,6 +252,17 @@ _stacks_fixture='{"timestamp":"2026-07-12T00:00:00Z","stacks":[{"name":"my-app",
 @test "_dashboard_render_html: degrades to a <pre> dump when jq is unavailable" {
   PATH="" run _dashboard_render_html "$_fleet_fixture" "$_stacks_fixture"
   [[ "$output" == *"<pre>"* ]]
+}
+
+@test "_dashboard_render_html: shows relative cache freshness when an age is given" {
+  run _dashboard_render_html "$_fleet_fixture" "$_stacks_fixture" 12
+  [[ "$output" == *"Last refresh: 12s ago"* ]]
+}
+
+@test "_dashboard_render_html: falls back to an absolute timestamp without an age" {
+  run _dashboard_render_html "$_fleet_fixture" "$_stacks_fixture"
+  [[ "$output" == *"Last refresh: "*"Z"* ]]
+  [[ "$output" != *"Last refresh: "*"s ago"* ]]
 }
 
 @test "_dashboard_render_html: escapes HTML-significant characters" {

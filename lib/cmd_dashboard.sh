@@ -71,6 +71,13 @@ cmd_dashboard() {
   if declare -F strut_register_cleanup >/dev/null; then
     strut_register_cleanup "rm -rf '$cache_dir'"
   fi
+  # socat blocks in the foreground until Ctrl+C; the entrypoint's EXIT trap
+  # (STRUT_CLEANUPS chain, registered above) does not fire on SIGINT/SIGTERM
+  # by itself, so this needs its own handlers — same pattern as cmd_group.sh.
+  # shellcheck disable=SC2064 # cache_dir is fixed at registration time, not signal time
+  trap "rm -rf '$cache_dir'; exit 130" INT
+  # shellcheck disable=SC2064
+  trap "rm -rf '$cache_dir'; exit 143" TERM
 
   # Exported for the handler subprocess spawned per-connection by socat's
   # `fork` — each connection gets a fresh shell, so state (cache dir, target
@@ -86,10 +93,19 @@ cmd_dashboard() {
   log "Dashboard on http://$bind:$port (Ctrl+C to stop)"
   echo ""
 
-  local handler_script
-  handler_script=$(_dashboard_handler_script)
+  # Written to a file and run via EXEC (fork+exec), not SYSTEM (fork+`/bin/sh
+  # -c`): SYSTEM's shell is whatever /bin/sh is on the host (dash on
+  # Debian/Ubuntu), which chokes on this script's `source` and `pipefail`
+  # usage. EXEC execs the file directly, so its own `#!/usr/bin/env bash`
+  # shebang decides the interpreter regardless of the system's /bin/sh.
+  local handler_file="$cache_dir/handler.sh"
+  {
+    echo '#!/usr/bin/env bash'
+    _dashboard_handler_script
+  } > "$handler_file"
+  chmod +x "$handler_file"
 
-  socat "TCP-LISTEN:$port,bind=$bind,fork,reuseaddr" "SYSTEM:$handler_script"
+  socat "TCP-LISTEN:$port,bind=$bind,fork,reuseaddr" "EXEC:$handler_file"
 }
 
 # ── Per-connection HTTP handler (spawned by socat) ─────────────────────────────
@@ -121,7 +137,7 @@ case "$path" in
     if [ "${_DASH_JSON_ONLY:-false}" = "true" ]; then
       _dashboard_respond "200 OK" "application/json" "{\"fleet\":$fleet_body,\"stacks\":$stacks_body}"
     else
-      _dashboard_respond "200 OK" "text/html; charset=utf-8" "$(_dashboard_render_html "$fleet_body" "$stacks_body")"
+      _dashboard_respond "200 OK" "text/html; charset=utf-8" "$(_dashboard_render_html "$fleet_body" "$stacks_body" "$(_dashboard_cache_age fleet)")"
     fi
     ;;
   *)
@@ -144,6 +160,11 @@ _dashboard_respond() {
 # cache wouldn't survive between requests — results are cached to files
 # keyed by name, keyed on mtime age against _DASH_CACHE_TTL.
 
+# _dashboard_file_mtime <file> — last-modified time as a unix timestamp, or 0
+_dashboard_file_mtime() {
+  stat -c %Y "$1" 2>/dev/null || stat -f %m "$1" 2>/dev/null || echo 0
+}
+
 # _dashboard_cache_fetch <key> <cmd> [args...]
 _dashboard_cache_fetch() {
   local key="$1"; shift
@@ -158,7 +179,7 @@ _dashboard_cache_fetch() {
   local file="$dir/$key.json"
   if [ -f "$file" ]; then
     local mtime now age
-    mtime=$(stat -c %Y "$file" 2>/dev/null || stat -f %m "$file" 2>/dev/null || echo 0)
+    mtime=$(_dashboard_file_mtime "$file")
     now=$(date +%s)
     age=$((now - mtime))
     if [ "$age" -lt "$ttl" ]; then
@@ -172,6 +193,22 @@ _dashboard_cache_fetch() {
   [ -n "$out" ] || out='{"error":"command failed"}'
   printf '%s' "$out" > "$file.tmp" && mv "$file.tmp" "$file"
   printf '%s' "$out"
+}
+
+# _dashboard_cache_age <key> — seconds since <key>.json was last (re)written,
+# for display only; empty if the cache dir/file isn't available.
+_dashboard_cache_age() {
+  local key="$1"
+  local dir="${_DASH_CACHE_DIR:-}"
+  [ -n "$dir" ] || return 0
+
+  local file="$dir/$key.json"
+  [ -f "$file" ] || return 0
+
+  local mtime now
+  mtime=$(_dashboard_file_mtime "$file")
+  now=$(date +%s)
+  printf '%s' "$((now - mtime))"
 }
 
 _dashboard_fleet_json() {
@@ -217,15 +254,20 @@ _dashboard_html_escape() {
   printf '%s' "$s"
 }
 
-# _dashboard_render_html <fleet-json> <stacks-json>
+# _dashboard_render_html <fleet-json> <stacks-json> [cache-age-seconds]
 #
 # Pure function — degrades to a raw <pre> dump per section when jq is
 # unavailable or the JSON blob is invalid/empty.
 _dashboard_render_html() {
   local fleet_json="$1"
   local stacks_json="$2"
-  local now_str
-  printf -v now_str '%(%Y-%m-%dT%H:%M:%SZ)T' -1
+  local age="${3:-}"
+  local refresh_label
+  if [[ "$age" =~ ^[0-9]+$ ]]; then
+    refresh_label="${age}s ago"
+  else
+    printf -v refresh_label '%(%Y-%m-%dT%H:%M:%SZ)T' -1
+  fi
 
   echo "<!DOCTYPE html>"
   echo "<html><head><meta charset=\"utf-8\">"
@@ -239,8 +281,12 @@ _dashboard_render_html() {
   echo ".ok{color:#4caf50}.warn{color:#e0a030}.err{color:#e05050}"
   echo "</style></head><body>"
   echo "<h2>strut fleet dashboard</h2>"
-  echo "<p>Last refresh: $now_str</p>"
+  echo "<p>Last refresh: $refresh_label</p>"
 
+  # The issue mock's host table has a LAST DEPLOY column, but `fleet status
+  # --json` (lib/cmd_fleet.sh) has no per-host deploy timestamp to show there
+  # — only branch/behind/ahead/dirty/head_sha. Branch is shown instead;
+  # last-deploy is surfaced per-stack in the table below, from status-all.
   if command -v jq >/dev/null 2>&1 && printf '%s' "$fleet_json" | jq -e . >/dev/null 2>&1; then
     echo "<table><tr><th>Host</th><th>Status</th><th>Branch</th><th>Behind</th><th>Dirty</th></tr>"
     printf '%s' "$fleet_json" | jq -r '.hosts[]? | [.host, (.status//"-"), (.branch//"-"), ((.behind//"-")|tostring), ((.dirty//"-")|tostring)] | @tsv' |
