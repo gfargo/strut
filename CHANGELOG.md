@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.38.0](https://github.com/gfargo/strut/compare/v0.37.0...v0.38.0) (2026-07-12)
+
+
+### Features
+
+* **adopt:** non-destructive adoption of hand-deployed stacks ([#368](https://github.com/gfargo/strut/issues/368)) ([46b9cb5](https://github.com/gfargo/strut/commit/46b9cb565d21896e7addf93f5595278061c3b50c))
+
+
+### Bug Fixes
+
+* **backup:** validate Neo4j .dump before restore wipes the live database ([#412](https://github.com/gfargo/strut/issues/412)) ([b361a01](https://github.com/gfargo/strut/commit/b361a0182ad58a9da23b2baff9d5a7fad6198595)), closes [#373](https://github.com/gfargo/strut/issues/373)
+* **cli:** safely parse the env file instead of sourcing it ([#408](https://github.com/gfargo/strut/issues/408)) ([dd36e49](https://github.com/gfargo/strut/commit/dd36e494aa3b7674b7c2516b738dbad03b754cef)), closes [#370](https://github.com/gfargo/strut/issues/370)
+* **keys:** revoke SSH keys by fingerprint, not comment field ([#411](https://github.com/gfargo/strut/issues/411)) ([dcc463b](https://github.com/gfargo/strut/commit/dcc463b2471e4d98e93be85eaa9d44dcd221f6ee)), closes [#372](https://github.com/gfargo/strut/issues/372)
+* **mcp:** validate tool-call arguments before invoking strut ([#409](https://github.com/gfargo/strut/issues/409)) ([5244db9](https://github.com/gfargo/strut/commit/5244db9ff89676fcf78beb9b46bbe0bb8b44cc7f)), closes [#371](https://github.com/gfargo/strut/issues/371)
+
 ## [0.37.0](https://github.com/gfargo/strut/compare/v0.36.0...v0.37.0) (2026-07-11)
 
 
