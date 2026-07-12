@@ -26,6 +26,46 @@ _mcp_tools_list() {
 EOF
 }
 
+# _mcp_reject <message>
+#
+# Emits an MCP isError result for a rejected tool call. Callers `return 0`
+# right after so _mcp_tools_call exits cleanly without invoking strut.
+_mcp_reject() {
+  local msg="$1" escaped
+  escaped=$(jq -n --arg text "$msg" '$text')
+  printf '{"content":[{"type":"text","text":%s}],"isError":true}' "$escaped"
+}
+
+# _mcp_arg <args_json> <field> [default]
+#
+# Extracts a string field from the MCP tool-call args JSON and validates it
+# against strut's identifier charset (letters, digits, dot, underscore,
+# dash). Tool-call arguments are model-controlled and, for host-scoped
+# stacks, ultimately reach a remote shell string built by run_remote_strut
+# (lib/utils.sh) — a value containing shell metacharacters could break out
+# of that string and execute on the VPS. Echoes the value and returns 0 on
+# success; on invalid input, prints nothing and returns 1 so the caller
+# rejects the call instead of passing it through.
+_mcp_arg() {
+  local args="$1" field="$2" default="${3:-}"
+  local val
+  val=$(printf '%s' "$args" | jq -r --arg f "$field" --arg d "$default" '.[$f] // $d')
+  [[ "$val" =~ ^[A-Za-z0-9_.-]*$ ]] || return 1
+  printf '%s' "$val"
+}
+
+# _mcp_arg_lines <args_json> [default]
+#
+# Same contract as _mcp_arg, restricted to non-negative integers (the
+# --tail line count for strut_logs).
+_mcp_arg_lines() {
+  local args="$1" default="${2:-50}"
+  local val
+  val=$(printf '%s' "$args" | jq -r --arg d "$default" '.lines // $d')
+  [[ "$val" =~ ^[0-9]+$ ]] || return 1
+  printf '%s' "$val"
+}
+
 # _mcp_tools_call <tool_name> <args_json>
 _mcp_tools_call() {
   local tool="$1"
@@ -39,20 +79,21 @@ _mcp_tools_call() {
       output=$("$strut_bin" list --json 2>&1) || rc=$?
       ;;
     strut_status)
-      local stack; stack=$(printf '%s' "$args" | jq -r '.stack')
-      output=$("$strut_bin" "$stack" status --env "${env:-prod}" --json 2>&1) || rc=$?
+      local stack
+      stack=$(_mcp_arg "$args" stack) || { _mcp_reject "invalid 'stack' argument"; return 0; }
+      output=$("$strut_bin" "$stack" status --env prod --json 2>&1) || rc=$?
       ;;
     strut_health)
       local stack env
-      stack=$(printf '%s' "$args" | jq -r '.stack')
-      env=$(printf '%s' "$args" | jq -r '.env // "prod"')
+      stack=$(_mcp_arg "$args" stack) || { _mcp_reject "invalid 'stack' argument"; return 0; }
+      env=$(_mcp_arg "$args" env prod) || { _mcp_reject "invalid 'env' argument"; return 0; }
       output=$("$strut_bin" "$stack" health --env "$env" --json 2>&1) || rc=$?
       ;;
     strut_logs)
       local stack service lines
-      stack=$(printf '%s' "$args" | jq -r '.stack')
-      service=$(printf '%s' "$args" | jq -r '.service // ""')
-      lines=$(printf '%s' "$args" | jq -r '.lines // 50')
+      stack=$(_mcp_arg "$args" stack) || { _mcp_reject "invalid 'stack' argument"; return 0; }
+      service=$(_mcp_arg "$args" service "") || { _mcp_reject "invalid 'service' argument"; return 0; }
+      lines=$(_mcp_arg_lines "$args") || { _mcp_reject "invalid 'lines' argument"; return 0; }
       if [ -n "$service" ]; then
         output=$("$strut_bin" "$stack" logs "$service" --tail "$lines" --env prod 2>&1) || rc=$?
       else
@@ -63,39 +104,45 @@ _mcp_tools_call() {
       output=$("$strut_bin" fleet status --json 2>&1) || rc=$?
       ;;
     strut_drift_detect)
-      local stack; stack=$(printf '%s' "$args" | jq -r '.stack')
+      local stack
+      stack=$(_mcp_arg "$args" stack) || { _mcp_reject "invalid 'stack' argument"; return 0; }
       output=$("$strut_bin" "$stack" drift detect --env prod 2>&1) || rc=$?
       ;;
     strut_drift_images)
-      local stack; stack=$(printf '%s' "$args" | jq -r '.stack')
+      local stack
+      stack=$(_mcp_arg "$args" stack) || { _mcp_reject "invalid 'stack' argument"; return 0; }
       output=$("$strut_bin" "$stack" drift images --json --env prod 2>&1) || rc=$?
       ;;
     strut_diff)
-      local stack; stack=$(printf '%s' "$args" | jq -r '.stack')
+      local stack
+      stack=$(_mcp_arg "$args" stack) || { _mcp_reject "invalid 'stack' argument"; return 0; }
       output=$("$strut_bin" "$stack" diff --json --env prod 2>&1) || rc=$?
       ;;
     strut_backup_health)
-      local stack; stack=$(printf '%s' "$args" | jq -r '.stack')
+      local stack
+      stack=$(_mcp_arg "$args" stack) || { _mcp_reject "invalid 'stack' argument"; return 0; }
       output=$("$strut_bin" "$stack" backup health --env prod --json 2>&1) || rc=$?
       ;;
     strut_deploy)
       local stack env
-      stack=$(printf '%s' "$args" | jq -r '.stack')
-      env=$(printf '%s' "$args" | jq -r '.env // "prod"')
+      stack=$(_mcp_arg "$args" stack) || { _mcp_reject "invalid 'stack' argument"; return 0; }
+      env=$(_mcp_arg "$args" env prod) || { _mcp_reject "invalid 'env' argument"; return 0; }
       output=$("$strut_bin" "$stack" release --env "$env" 2>&1) || rc=$?
       ;;
     strut_sync)
-      local host; host=$(printf '%s' "$args" | jq -r '.host')
+      local host
+      host=$(_mcp_arg "$args" host) || { _mcp_reject "invalid 'host' argument"; return 0; }
       output=$("$strut_bin" sync "$host" 2>&1) || rc=$?
       ;;
     strut_backup)
       local stack target
-      stack=$(printf '%s' "$args" | jq -r '.stack')
-      target=$(printf '%s' "$args" | jq -r '.target // "all"')
+      stack=$(_mcp_arg "$args" stack) || { _mcp_reject "invalid 'stack' argument"; return 0; }
+      target=$(_mcp_arg "$args" target all) || { _mcp_reject "invalid 'target' argument"; return 0; }
       output=$("$strut_bin" "$stack" backup "$target" --env prod 2>&1) || rc=$?
       ;;
     strut_stop)
-      local stack; stack=$(printf '%s' "$args" | jq -r '.stack')
+      local stack
+      stack=$(_mcp_arg "$args" stack) || { _mcp_reject "invalid 'stack' argument"; return 0; }
       output=$("$strut_bin" "$stack" stop --env prod 2>&1) || rc=$?
       ;;
     *)
