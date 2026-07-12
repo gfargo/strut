@@ -44,14 +44,25 @@ setup() {
   DOCKER_CALL_LOG="$TEST_TMP/docker_calls.log"
   : > "$DOCKER_CALL_LOG"
 
-  # fake docker for restore_neo4j_from_targz — no real Docker in CI.
+  # fake docker for restore_neo4j_from_targz / restore_neo4j — no real
+  # Docker in CI.
   # FAKE_TAR_OK controls whether the pre-wipe `tar -tzf` integrity check
-  # (run inside the fake container) passes.
+  # (run inside the fake container) passes (restore_neo4j_from_targz).
+  # FAKE_NEO4J_LOAD_OK controls whether the neo4j-admin structural-load
+  # check (both the scratch-volume verification in restore_neo4j and its
+  # live restore step) reports success.
   docker() {
     echo "$*" >> "$DOCKER_CALL_LOG"
     case "$1" in
       ps)
-        echo "test-stack-neo4j-1"
+        # The post-restart "wait for healthy" loop polls `{{.Status}}`;
+        # answer it immediately instead of letting the poll run its full
+        # ~60s timeout on every happy-path test.
+        if [[ "$*" == *"{{.Status}}"* ]]; then
+          echo "Up 2 seconds (healthy)"
+        else
+          echo "test-stack-neo4j-1"
+        fi
         ;;
       stop|start)
         return 0
@@ -61,11 +72,20 @@ setup() {
           echo "exited"
         elif [[ "$*" == *"Mounts"* ]]; then
           echo "fake-data-volume"
+        elif [[ "$*" == *"Config.Image"* ]]; then
+          echo "fake-neo4j-image:5.15"
         fi
         ;;
       run)
         if [[ "$*" == *"tar -tzf"* ]]; then
           [ "${FAKE_TAR_OK:-1}" = "1" ]
+        elif [[ "$*" == *"neo4j-admin"* && "$*" == *"database load"* ]]; then
+          if [ "${FAKE_NEO4J_LOAD_OK:-1}" = "1" ]; then
+            echo "Load completed successfully"
+            return 0
+          else
+            return 1
+          fi
         else
           return 0
         fi
@@ -222,4 +242,65 @@ teardown() {
   [ "$status" -eq 0 ]
   [[ "$output" == *"restore from tar.gz complete"* ]]
   grep -q "rm -rf /data" "$DOCKER_CALL_LOG"
+}
+
+# ── restore_neo4j (strut#373) ───────────────────────────────────────────────
+# The modern .dump restore path previously validated only `[ -f ]` before
+# `--overwrite-destination=true`, so a zero-byte or truncated dump wiped the
+# live database and then failed to load — data destroyed, nothing restored.
+
+@test "restore_neo4j: refuses an empty dump without touching the live container" {
+  local dump_file="$TEST_TMP/empty.dump"
+  : > "$dump_file"
+
+  run restore_neo4j "test-stack" "fake_compose" "$dump_file"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"empty"* ]]
+  [ ! -s "$DOCKER_CALL_LOG" ]
+}
+
+@test "restore_neo4j: refuses a missing dump file without touching the live container" {
+  run restore_neo4j "test-stack" "fake_compose" "$TEST_TMP/does-not-exist.dump"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"not found"* ]]
+  [ ! -s "$DOCKER_CALL_LOG" ]
+}
+
+@test "restore_neo4j: refuses a dump that fails structural validation, without stopping or overwriting the live database" {
+  local dump_file="$TEST_TMP/corrupt.dump"
+  echo "not actually a neo4j dump" > "$dump_file"
+
+  FAKE_NEO4J_LOAD_OK=0 run restore_neo4j "test-stack" "fake_compose" "$dump_file"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"structural validation"* ]]
+
+  # The live container must never be touched: no stop, and no live
+  # overwrite-destination load against /var/lib/neo4j/import/restore.dump.
+  ! grep -q "^stop " "$DOCKER_CALL_LOG"
+  ! grep -q "restore.dump /var/lib/neo4j/import/neo4j.dump" "$DOCKER_CALL_LOG"
+}
+
+@test "restore_neo4j: validates via a disposable scratch volume, not the live data volume" {
+  local dump_file="$TEST_TMP/valid.dump"
+  echo "valid dump contents" > "$dump_file"
+
+  run restore_neo4j "test-stack" "fake_compose" "$dump_file"
+  [ "$status" -eq 0 ]
+
+  # Verification's scratch volume is created and cleaned up (docker volume
+  # create/rm), independently of the live restore's data volume mounts.
+  grep -q "^volume create" "$DOCKER_CALL_LOG"
+  grep -q "^volume rm" "$DOCKER_CALL_LOG"
+}
+
+@test "restore_neo4j: restores the live database once the dump passes structural validation" {
+  local dump_file="$TEST_TMP/valid.dump"
+  echo "valid dump contents" > "$dump_file"
+
+  run restore_neo4j "test-stack" "fake_compose" "$dump_file"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"restore complete"* ]]
+
+  grep -q "^stop " "$DOCKER_CALL_LOG"
+  grep -q "restore.dump /var/lib/neo4j/import/neo4j.dump" "$DOCKER_CALL_LOG"
 }

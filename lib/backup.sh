@@ -239,6 +239,23 @@ restore_neo4j() {
   warn "This will STOP Neo4j, restore from dump, then restart it."
   confirm "Continue?" || { ok "Restore cancelled"; return 0; }
 
+  # Validate the dump BEFORE any destructive action, so a zero-byte or
+  # truncated dump (e.g. left by a failed backup or a partial rsync) can't
+  # wipe the live database with --overwrite-destination=true and then fail
+  # the load mid-stream, leaving nothing restored. Loads into a disposable
+  # scratch volume via neo4j-admin — the live container is never touched by
+  # this step.
+  [ -s "$dump_file" ] || fail "Refusing to restore: dump file is empty: $dump_file"
+
+  log "Validating dump before touching the live database..."
+  local verify_result
+  verify_result=$(_neo4j_verify_load_dump "$stack" "$dump_file") ||
+    fail "Refusing to restore: dump failed structural validation (corrupt or truncated): $dump_file"
+  local _verify_scratch_vol
+  read -r _ _verify_scratch_vol <<<"$verify_result"
+  docker volume rm "$_verify_scratch_vol" >/dev/null 2>&1 || true
+  ok "Dump validated — proceeding with restore"
+
   local neo4j_service="${BACKUP_NEO4J_SERVICE:-neo4j}"
 
   # Get container name for direct docker operations
