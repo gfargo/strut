@@ -75,3 +75,29 @@ teardown() {
   [ "$status" -ne 0 ]
   [[ "$output" == *"not found"* ]]
 }
+
+# ── Regression: env file must be safely parsed, not `source`d (P0 audit finding) ──
+
+@test "strut: env value with a bare space does not crash the dispatcher (exit 127)" {
+  echo 'MSG=hello world' > "$CLI_ROOT/.prod.env"
+  echo 'VPS_HOST=example.invalid' >> "$CLI_ROOT/.prod.env"
+  run bash "$CLI" $TEST_STACK status --env prod
+  rm -f "$CLI_ROOT/.prod.env"
+  # A `source`d file would die with exit 127 ("world: command not found")
+  # before any of strut's own logic runs. It must instead proceed into
+  # strut's normal (SSH-failure) error path.
+  [ "$status" -ne 127 ]
+}
+
+@test "strut: env value with command substitution is not executed" {
+  local marker="$CLI_ROOT/.pwned-marker"
+  rm -f "$marker"
+  {
+    echo "VPS_HOST=example.invalid"
+    echo "EVIL=\$(touch $marker)"
+  } > "$CLI_ROOT/.prod.env"
+  run bash "$CLI" $TEST_STACK status --env prod
+  rm -f "$CLI_ROOT/.prod.env"
+  [ ! -f "$marker" ]
+  rm -f "$marker"
+}
