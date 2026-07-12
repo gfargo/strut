@@ -839,7 +839,7 @@ export CMD_JSON="$JSON_FLAG"
 # fill in VPS_HOST/VPS_USER/VPS_PORT/VPS_SSH_KEY from the topology map
 # (env file values take precedence when set).
 if [ -f "$ENV_FILE" ]; then
-  set -a; source "$ENV_FILE" 2>/dev/null; set +a
+  safe_load_env "$ENV_FILE"
 fi
 if [ "$IS_HOST_SCOPED" = true ]; then
   : # host-scoped commands resolve their own host from the alias/--host
