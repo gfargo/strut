@@ -142,6 +142,7 @@ strut <stack> <command> [--env <env>] [options]
 | `local` | Local development environment |
 | `debug` | Container debugging tools |
 | `fleet` | Multi-host status and sync |
+| `dashboard` | Read-only HTTP fleet status page (HTML + JSON) |
 | `mcp` | Expose strut as an MCP server for AI agents |
 | `webhook` | Push-to-deploy via polling or an HTTP receiver |
 | `list` / `scaffold` / `init` | Stack and project management |
@@ -161,6 +162,7 @@ strut my-app drift images --env prod                          # Check for stale 
 strut my-app keys db:rotate postgres --env prod               # Rotate credentials
 strut my-app domain api.example.com admin@example.com --env prod  # SSL setup
 strut fleet status                                             # Git sync state across all hosts
+strut dashboard --port 8484                                    # Read-only HTTP fleet status page
 ```
 
 ---
