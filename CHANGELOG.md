@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.39.0](https://github.com/gfargo/strut/compare/v0.38.0...v0.39.0) (2026-07-12)
+
+
+### Features
+
+* **dashboard:** add read-only fleet status HTTP dashboard ([#410](https://github.com/gfargo/strut/issues/410)) ([20d358b](https://github.com/gfargo/strut/commit/20d358be5bc6b24741126db130007b6f0d95bd43))
+
 ## [0.38.0](https://github.com/gfargo/strut/compare/v0.37.0...v0.38.0) (2026-07-12)
 
 
