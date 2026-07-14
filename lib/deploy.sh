@@ -72,6 +72,68 @@ _deploy_reclaim_named_containers() {
   done
 }
 
+# _deploy_guard_project_collision <compose_file> <project_name>
+#
+# Detects a distinct footgun from the one above: two entirely different
+# stacks resolving to the SAME Compose project name (most commonly because
+# they share one env file with a hardcoded COMPOSE_PROJECT_NAME — env files
+# are per-environment, not per-stack). Compose's orphan detection is
+# project-scoped, not compose-file-scoped: `down --remove-orphans` / `up -d
+# --remove-orphans` will delete ANY container labeled with that project that
+# isn't a service in the compose file about to be deployed — including a
+# completely unrelated sibling stack's live containers (strut#418).
+#
+# Every container Compose starts is labeled with the working directory of
+# the compose file that created it (com.docker.compose.project.working_dir).
+# Two unrelated stacks sharing a project name will have DIFFERENT working
+# directories; a stack's own prior deploy will always match. That's the
+# signal this checks: any running container under <project_name> whose
+# working_dir doesn't match <compose_file>'s directory means the resolved
+# project name is shared with another stack, and continuing would let
+# --remove-orphans delete it.
+_deploy_guard_project_collision() {
+  local compose_file="$1"
+  local project_name="$2"
+  local expected_working_dir
+  expected_working_dir="$(cd "$(dirname "$compose_file")" && pwd)"
+
+  local rows
+  rows=$(docker ps -a \
+    --filter "label=com.docker.compose.project=$project_name" \
+    --format '{{.Names}}|{{.Label "com.docker.compose.project.working_dir"}}' 2>/dev/null) || return 0
+  [ -n "$rows" ] || return 0
+
+  local -a collisions=()
+  local name working_dir
+  while IFS='|' read -r name working_dir; do
+    [ -n "$name" ] || continue
+    if [ -n "$working_dir" ] && [ "$working_dir" != "$expected_working_dir" ]; then
+      collisions+=("$name (from $working_dir)")
+    fi
+  done <<<"$rows"
+
+  [ "${#collisions[@]}" -eq 0 ] && return 0
+
+  error "Compose project '$project_name' already has containers from a DIFFERENT stack:"
+  local c
+  for c in "${collisions[@]}"; do
+    echo "    - $c" >&2
+  done
+  echo "" >&2
+  echo "  This stack's compose file is at: $expected_working_dir" >&2
+  echo "" >&2
+  echo "  The resolved project name is shared by more than one stack — usually" >&2
+  echo "  because COMPOSE_PROJECT_NAME is set in an env file used by multiple" >&2
+  echo "  stacks (env files are per-environment, not per-stack). Continuing" >&2
+  echo "  would let 'docker compose down/up --remove-orphans' delete the" >&2
+  echo "  containers listed above." >&2
+  echo "" >&2
+  echo "  Fix: give this stack its own env file (.<stack>-<env>.env, deployed" >&2
+  echo "  with --env <stack>-<env>) so it resolves to a distinct project name," >&2
+  echo "  or remove COMPOSE_PROJECT_NAME from the shared env file." >&2
+  return 1
+}
+
 # deploy_stack <stack> <env_file> [services_profile]
 #
 # Brings up the stack at stacks/<stack>/docker-compose.yml using the given
@@ -137,6 +199,15 @@ deploy_stack() {
       run_cmd "Skip image pull/build (BUILD_MODE=$dry_build_mode)" echo "skipped"
     fi
     run_cmd "Create data directories" mkdir -p "$stack_dir/data/..."
+
+    # Read-only, so it runs for real even in dry-run — surfaces strut#418's
+    # cross-stack COMPOSE_PROJECT_NAME collision before an operator ever
+    # risks a live deploy.
+    local dry_project_name
+    dry_project_name=$(echo "$compose_cmd" | grep -oE '\-\-project\-name [^ ]+' | awk '{print $2}') || true
+    _deploy_guard_project_collision "$compose_file" "${dry_project_name:-$stack}" \
+      || { fail "[DRY-RUN] Would abort here — see above."; return 1; }
+
     run_cmd "Stop existing containers" $compose_cmd down --remove-orphans
     run_cmd "Start services" $compose_cmd up -d --remove-orphans
     local proxy="${REVERSE_PROXY:-nginx}"
@@ -221,6 +292,15 @@ deploy_stack() {
   done
   ok "Data directories ready"
 
+  local project_name
+  project_name=$(echo "$compose_cmd" | grep -oE '\-\-project\-name [^ ]+' | awk '{print $2}') || true
+
+  # Refuse to proceed if the resolved project name is shared with a
+  # different, unrelated stack (strut#418) — down/up --remove-orphans below
+  # would delete that stack's live containers.
+  _deploy_guard_project_collision "$compose_file" "${project_name:-$stack}" \
+    || { fail "Aborting deploy: the running stack was left untouched (see above)."; return 1; }
+
   # Stop any existing containers to free up ports
   log "[5/6] Stopping existing containers..."
   $compose_cmd down --remove-orphans 2>/dev/null || true  # may not be running yet
@@ -229,8 +309,6 @@ deploy_stack() {
   # docker compose down may have missed (e.g. from a previously failed deploy),
   # scoped to containers actually owned by this project — see
   # _deploy_reclaim_named_containers.
-  local project_name
-  project_name=$(echo "$compose_cmd" | grep -oE '\-\-project\-name [^ ]+' | awk '{print $2}') || true
   _deploy_reclaim_named_containers "$compose_file" "${project_name:-$stack}"
 
   ok "Existing containers stopped"
