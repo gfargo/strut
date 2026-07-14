@@ -14,13 +14,13 @@ set -euo pipefail
 # Never use bare || return 1 without a message
 
 # ── Colors ────────────────────────────────────────────────────────────────────
-# Gate: emit ANSI only when NO_COLOR (https://no-color.org) is unset AND a real
-# terminal is attached. stdout (-t 1) OR stderr (-t 2) — fail()/error() write
-# to stderr while log/ok/warn write to stdout, so either being a TTY justifies
-# color; redirecting stdout to a file/CI (neither a TTY) yields empty strings,
-# so no raw escape sequences land in logs. See lib/output.sh's output_use_color
-# for the equivalent independent gate used by table rendering.
-if [ -z "${NO_COLOR:-}" ] && { [ -t 1 ] || [ -t 2 ]; }; then
+# Gate: emit ANSI only when NO_COLOR (https://no-color.org) is unset AND stdout
+# is a real terminal (-t 1). These vars back both stdout writers (log/ok/warn)
+# and stderr writers (fail/error) — gating on stdout alone means `strut ... >
+# deploy.log` from an interactive shell (stdout redirected, stderr still a
+# tty) stays escape-free, matching lib/output.sh's output_use_color, which
+# gates table rendering the same way (-t 1 only, not -t 1 || -t 2).
+if [ -z "${NO_COLOR:-}" ] && [ -t 1 ]; then
   RED='\033[0;31m'
   GREEN='\033[0;32m'
   YELLOW='\033[1;33m'

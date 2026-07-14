@@ -83,3 +83,20 @@ _load_utils() {
   [[ "$result" == *"RED=[]"* ]]
   [[ "$result" == *"BRAND=[]"* ]]
 }
+
+@test "color vars are empty when stdout is redirected even though stderr is a TTY" {
+  # Regression test: `strut ... > deploy.log` from an interactive shell leaves
+  # stderr attached to the tty while stdout goes to a real file. The gate must
+  # key off stdout (-t 1) alone, or log()/ok()/warn() leak escape sequences
+  # into the redirected file.
+  if ! command -v script >/dev/null 2>&1; then
+    skip "script(1) not available to simulate a TTY"
+  fi
+
+  out_file="$BATS_TEST_TMPDIR/deploy.log"
+  script -qec "bash -c 'source \"$CLI_ROOT/lib/utils.sh\"; printf \"RED=[%s] BRAND=[%s]\" \"\$RED\" \"\$BRAND\"' > \"$out_file\"" /dev/null
+
+  result="$(cat "$out_file")"
+  [[ "$result" == *"RED=[]"* ]]
+  [[ "$result" == *"BRAND=[]"* ]]
+}
