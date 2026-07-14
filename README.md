@@ -173,6 +173,7 @@ strut dashboard --port 8484                                    # Read-only HTTP 
 - **Config-driven** — no hardcoded service names, ports, or orgs in the engine ([Configuration](https://github.com/gfargo/strut/wiki/Configuration))
 - **`release` vs `deploy`** — `release` runs on VPS via SSH, `deploy` runs locally
 - **`--env prod`** reads `.prod.env` for secrets and VPS connection info
+- **Per-stack env isolation** — `.prod.env` is shared by every stack deployed with `--env prod` on a host. If it sets `COMPOSE_PROJECT_NAME`, *all* those stacks resolve to the same Compose project, so a deploy's orphan cleanup can delete a sibling stack's containers. To isolate a stack, give it its own env file (`.<stack>-prod.env`) and deploy with `--env <stack>-prod`; run `strut posture` to catch this footgun before it bites
 - **`--dry-run`** previews destructive operations without executing
 - **Dynamic health checks** driven by `services.conf`
 
