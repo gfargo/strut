@@ -162,6 +162,11 @@ YAML
       echo "Docker Compose version v2.20.0"
       return 0
     fi
+    # No running containers in this scenario — needed so
+    # _deploy_guard_project_collision's `docker ps ...` sees nothing rather
+    # than the generic echo-back below, which it would otherwise misparse
+    # as a colliding container.
+    [ "$1" = "ps" ] && return 0
     echo "docker $*"
     return 0
   }
