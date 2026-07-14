@@ -285,6 +285,11 @@ _secrets_push() {
   local conn_env="$CLI_ROOT/.${env_name}.env"
   [ -f "$conn_env" ] || conn_env="$local_env"
   local _vh="${VPS_HOST:-}" _vu="${VPS_USER:-}" _vp="${VPS_PORT:-}" _vk="${VPS_SSH_KEY:-}" _vd="${VPS_DEPLOY_DIR:-}"
+  # Load per-stack services.conf so VPS_DEPLOY_DIR (and other stack-level
+  # config) is populated before resolve_deploy_dir is called. Placed after
+  # the _v* capture so topology/--host-resolved connection vars still win
+  # via the re-apply block below. (OSS-933 / strut#414)
+  load_services_conf "$stack_dir"
   safe_load_env "$conn_env"
   [ -n "$_vh" ] && export VPS_HOST="$_vh"
   [ -n "$_vu" ] && export VPS_USER="$_vu"
@@ -297,6 +302,7 @@ _secrets_push() {
   local vps_port="${VPS_PORT:-22}"
   local vps_ssh_key="${VPS_SSH_KEY:-}"
   local deploy_dir; deploy_dir=$(resolve_deploy_dir)
+  [ -n "${VPS_DEPLOY_DIR:-}" ] || warn "VPS_DEPLOY_DIR not set (services.conf/env) — using default deploy dir: $deploy_dir"
 
   [ -n "$vps_host" ] || fail "VPS_HOST not set. Cannot determine target host."
 
@@ -418,12 +424,18 @@ _secrets_pull() {
   local conn_env="$CLI_ROOT/.${env_name}.env"
   if [ -f "$conn_env" ]; then
     local _vh="${VPS_HOST:-}" _vu="${VPS_USER:-}" _vp="${VPS_PORT:-}" _vk="${VPS_SSH_KEY:-}" _vd="${VPS_DEPLOY_DIR:-}"
+    # Load per-stack services.conf so VPS_DEPLOY_DIR is populated before
+    # resolve_deploy_dir is called. (OSS-933 / strut#414)
+    load_services_conf "$stack_dir"
     safe_load_env "$conn_env"
     [ -n "$_vh" ] && export VPS_HOST="$_vh"
     [ -n "$_vu" ] && export VPS_USER="$_vu"
     [ -n "$_vp" ] && export VPS_PORT="$_vp"
     [ -n "$_vk" ] && export VPS_SSH_KEY="$_vk"
     [ -n "$_vd" ] && export VPS_DEPLOY_DIR="$_vd"
+  else
+    # No env file to source, but still load services.conf for VPS_DEPLOY_DIR
+    load_services_conf "$stack_dir"
   fi
 
   local vps_host="${VPS_HOST:-}"
@@ -431,6 +443,7 @@ _secrets_pull() {
   local vps_port="${VPS_PORT:-22}"
   local vps_ssh_key="${VPS_SSH_KEY:-}"
   local deploy_dir; deploy_dir=$(resolve_deploy_dir)
+  [ -n "${VPS_DEPLOY_DIR:-}" ] || warn "VPS_DEPLOY_DIR not set (services.conf/env) — using default deploy dir: $deploy_dir"
 
   [ -n "$vps_host" ] || fail "VPS_HOST not set. Cannot determine source host."
 
@@ -518,12 +531,17 @@ _secrets_diff() {
   local conn_env="$CLI_ROOT/.${env_name}.env"
   if [ -f "$conn_env" ]; then
     local _vh="${VPS_HOST:-}" _vu="${VPS_USER:-}" _vp="${VPS_PORT:-}" _vk="${VPS_SSH_KEY:-}" _vd="${VPS_DEPLOY_DIR:-}"
+    # Load per-stack services.conf so VPS_DEPLOY_DIR is populated before
+    # resolve_deploy_dir is called. (OSS-933 / strut#414)
+    load_services_conf "$stack_dir"
     safe_load_env "$conn_env"
     [ -n "$_vh" ] && export VPS_HOST="$_vh"
     [ -n "$_vu" ] && export VPS_USER="$_vu"
     [ -n "$_vp" ] && export VPS_PORT="$_vp"
     [ -n "$_vk" ] && export VPS_SSH_KEY="$_vk"
     [ -n "$_vd" ] && export VPS_DEPLOY_DIR="$_vd"
+  else
+    load_services_conf "$stack_dir"
   fi
 
   local vps_host="${VPS_HOST:-}"
@@ -531,6 +549,7 @@ _secrets_diff() {
   local vps_port="${VPS_PORT:-22}"
   local vps_ssh_key="${VPS_SSH_KEY:-}"
   local deploy_dir; deploy_dir=$(resolve_deploy_dir)
+  [ -n "${VPS_DEPLOY_DIR:-}" ] || warn "VPS_DEPLOY_DIR not set (services.conf/env) — using default deploy dir: $deploy_dir"
 
   [ -n "$vps_host" ] || fail "VPS_HOST not set."
 
@@ -909,6 +928,9 @@ _secrets_status() {
   if [ -n "$local_env" ] && [ -f "$local_env" ] && [ "$local_env" != "$conn_env" ]; then
     safe_load_env "$local_env"
   fi
+  # Load per-stack services.conf so VPS_DEPLOY_DIR is populated before
+  # resolve_deploy_dir is called. (OSS-933 / strut#414)
+  load_services_conf "$stack_dir"
 
   local vps_host="${VPS_HOST:-}"
   if [ -n "$vps_host" ]; then
@@ -1093,12 +1115,17 @@ _secrets_rotate() {
     [ -f "$conn_env" ] || conn_env=$(_secrets_resolve_local_env "$stack_dir" "$env_name" 2>/dev/null || echo "")
     if [ -n "$conn_env" ] && [ -f "$conn_env" ]; then
       local _vh="${VPS_HOST:-}" _vu="${VPS_USER:-}" _vp="${VPS_PORT:-}" _vk="${VPS_SSH_KEY:-}" _vd="${VPS_DEPLOY_DIR:-}"
+      # Load per-stack services.conf so VPS_DEPLOY_DIR is populated before
+      # resolve_deploy_dir is called. (OSS-933 / strut#414)
+      load_services_conf "$stack_dir"
       safe_load_env "$conn_env"
       [ -n "$_vh" ] && export VPS_HOST="$_vh"
       [ -n "$_vu" ] && export VPS_USER="$_vu"
       [ -n "$_vp" ] && export VPS_PORT="$_vp"
       [ -n "$_vk" ] && export VPS_SSH_KEY="$_vk"
       [ -n "$_vd" ] && export VPS_DEPLOY_DIR="$_vd"
+    else
+      load_services_conf "$stack_dir"
     fi
 
     local vps_host="${VPS_HOST:-}"
