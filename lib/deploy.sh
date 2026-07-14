@@ -195,13 +195,25 @@ deploy_stack() {
   # Data directories — explicit STACK_DATA_DIRS wins; otherwise derive from
   # the same DB_* flags in services.conf that health.sh reads, falling back
   # to a single generic "data" dir when none are set.
+  #
+  # Setting STACK_DATA_DIRS="" (empty string) suppresses all directory creation
+  # entirely — use this for stacks whose data dirs are managed externally or
+  # are root-owned by the container.  The no-colon ${var+x} test distinguishes
+  # "explicitly set to empty" from "never set".
   log "[4/5] Creating data directories..."
-  local data_dirs="${STACK_DATA_DIRS:-}"
-  if [ -z "$data_dirs" ]; then
+  local data_dirs
+  if [ -n "${STACK_DATA_DIRS+x}" ]; then
+    # Explicitly set (even to empty string) — honour it verbatim.
+    # Empty STACK_DATA_DIRS → no directories created → loop is a no-op.
+    data_dirs="$STACK_DATA_DIRS"
+  else
+    # Not set at all — derive from the DB_* flags loaded from services.conf,
+    # falling back to a single "data" dir when no databases are declared.
+    data_dirs=""
     [ "${DB_POSTGRES:-false}" = "true" ] && data_dirs="$data_dirs data/postgres"
-    [ "${DB_REDIS:-false}" = "true" ] && data_dirs="$data_dirs data/redis"
-    [ "${DB_NEO4J:-false}" = "true" ] && data_dirs="$data_dirs data/neo4j"
-    [ "${DB_MYSQL:-false}" = "true" ] && data_dirs="$data_dirs data/mysql"
+    [ "${DB_REDIS:-false}" = "true" ]   && data_dirs="$data_dirs data/redis"
+    [ "${DB_NEO4J:-false}" = "true" ]   && data_dirs="$data_dirs data/neo4j"
+    [ "${DB_MYSQL:-false}" = "true" ]   && data_dirs="$data_dirs data/mysql"
     data_dirs="${data_dirs:-data}"
   fi
   for dir in $data_dirs; do
