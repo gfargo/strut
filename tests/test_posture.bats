@@ -138,6 +138,47 @@ EOF
   [ "$_POSTURE_PASS" -eq 1 ]
 }
 
+# ── check_shared_compose_project_name ─────────────────────────────────────────
+
+@test "check_shared_compose_project_name: warns when shared env file sets COMPOSE_PROJECT_NAME and >1 stack" {
+  _make_stack octoprint
+  _make_stack octoprint-ender5
+  _clean_env
+  echo "COMPOSE_PROJECT_NAME=observability" > "$CLI_ROOT/.prod.env"
+  check_shared_compose_project_name octoprint
+  [ "$_POSTURE_WARN" -eq 1 ]
+  [[ "${_POSTURE_RESULTS[0]}" == *"COMPOSE_PROJECT_NAME"* ]]
+}
+
+@test "check_shared_compose_project_name: passes for a per-stack env file" {
+  _make_stack octoprint
+  _make_stack octoprint-ender5
+  _clean_env
+  echo "COMPOSE_PROJECT_NAME=octoprint-only" > "$CLI_ROOT/.octoprint-prod.env"
+  check_shared_compose_project_name octoprint
+  [ "$_POSTURE_PASS" -eq 1 ]
+  [ "$_POSTURE_WARN" -eq 0 ]
+}
+
+@test "check_shared_compose_project_name: passes when only one stack exists" {
+  _make_stack octoprint
+  _clean_env
+  echo "COMPOSE_PROJECT_NAME=observability" > "$CLI_ROOT/.prod.env"
+  check_shared_compose_project_name octoprint
+  [ "$_POSTURE_PASS" -eq 1 ]
+  [ "$_POSTURE_WARN" -eq 0 ]
+}
+
+@test "check_shared_compose_project_name: passes when shared env file has no COMPOSE_PROJECT_NAME" {
+  _make_stack octoprint
+  _make_stack octoprint-ender5
+  _clean_env
+  echo "SOME_OTHER_VAR=value" > "$CLI_ROOT/.prod.env"
+  check_shared_compose_project_name octoprint
+  [ "$_POSTURE_PASS" -eq 1 ]
+  [ "$_POSTURE_WARN" -eq 0 ]
+}
+
 # ── check_compose_ports ───────────────────────────────────────────────────────
 
 @test "check_compose_ports: warns when port published to 0.0.0.0" {

@@ -217,6 +217,72 @@ check_required_vars() {
   fi
 }
 
+# check_shared_compose_project_name <stack>
+#
+# Warns if a SHARED (per-environment, not per-stack) env file sets
+# COMPOSE_PROJECT_NAME. Every stack deployed with that --env resolves to the
+# same Compose project name (see resolve_compose_cmd in lib/utils.sh), which
+# lets deploy's `--remove-orphans` step delete a sibling stack's containers —
+# this is the exact scenario behind strut#418. The runtime deploy path already
+# guards against this (_deploy_guard_project_collision in lib/deploy.sh); this
+# check surfaces the footgun proactively, before anyone deploys.
+#
+# A per-stack env file (.<stack>-<env>.env, e.g. .octoprint-prod.env for the
+# "octoprint" stack) is the supported isolation workaround and is skipped.
+check_shared_compose_project_name() {
+  local stack="$1"
+
+  local stack_count=0
+  local sd
+  for sd in "$CLI_ROOT/stacks"/*/; do
+    [ -d "$sd" ] || continue
+    [ "$(basename "$sd")" = "shared" ] && continue
+    stack_count=$((stack_count + 1))
+  done
+
+  if [ "$stack_count" -le 1 ]; then
+    posture_emit "pass" "filesystem" "$stack" "only one stack; no sibling to collide with"
+    return
+  fi
+
+  local env_file
+  for env_file in "$CLI_ROOT"/.env "$CLI_ROOT"/.*.env; do
+    [ -f "$env_file" ] || continue
+    local base token
+    base=$(basename "$env_file")
+    token="${base#.}"
+    token="${token%.env}"
+
+    # Skip per-stack env files (.<stack>-<env>.env) — the supported isolation
+    # workaround, not the footgun this check is looking for.
+    local is_per_stack="false"
+    local other_dir other_name
+    for other_dir in "$CLI_ROOT/stacks"/*/; do
+      [ -d "$other_dir" ] || continue
+      other_name=$(basename "$other_dir")
+      [ "$other_name" = "shared" ] && continue
+      if [[ "$token" == "${other_name}-"* ]]; then
+        is_per_stack="true"
+        break
+      fi
+    done
+    [ "$is_per_stack" = "true" ] && continue
+
+    local match
+    match=$(grep -E '^[[:space:]]*COMPOSE_PROJECT_NAME=' "$env_file" 2>/dev/null | head -1) || true
+    if [ -n "$match" ]; then
+      local val
+      val="${match#*=}"
+      posture_emit "warn" "filesystem" "$stack" \
+        "$base: COMPOSE_PROJECT_NAME=$val applies to every stack deployed with --env ${token:-<default>}, risking sibling-container deletion on deploy (strut#418)" \
+        "Move it to a per-stack env file .<stack>-<env>.env (deploy with --env <stack>-<env>) or remove COMPOSE_PROJECT_NAME from $base"
+      return
+    fi
+  done
+
+  posture_emit "pass" "filesystem" "$stack" "no shared COMPOSE_PROJECT_NAME collision risk"
+}
+
 # ── Category dispatch ─────────────────────────────────────────────────────────
 
 # run_category <stack> <category>
@@ -235,6 +301,7 @@ run_category() {
   case "$category" in
     filesystem|all)
       check_env_in_git "$stack"
+      check_shared_compose_project_name "$stack"
       ;;
   esac
   case "$category" in
@@ -330,7 +397,8 @@ Usage: strut posture [options]
 
 Security and ops posture check. Scans every stack (or one, with --stack)
 for placeholder secrets, exposed ports, missing resource limits, env
-files tracked in git, and missing required_vars.
+files tracked in git, missing required_vars, and shared env files whose
+COMPOSE_PROJECT_NAME risks sibling-stack container deletion (strut#418).
 
 Options:
   --stack <name>        Limit to a single stack
