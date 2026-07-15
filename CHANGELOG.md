@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.40.0](https://github.com/gfargo/strut/compare/v0.39.0...v0.40.0) (2026-07-15)
+
+
+### Features
+
+* **posture:** warn on shared COMPOSE_PROJECT_NAME collision risk ([#424](https://github.com/gfargo/strut/issues/424)) ([73aef62](https://github.com/gfargo/strut/commit/73aef621d8be4bbd11de1ecf290f1f973ec9848e))
+* **utils:** colorize terminal output with brand accent, respect NO_COLOR/TTY ([#425](https://github.com/gfargo/strut/issues/425)) ([ee2d751](https://github.com/gfargo/strut/commit/ee2d75166366eda6fdc77e0b90c7a41a0afc77b9))
+
+
+### Bug Fixes
+
+* **deploy:** honour empty STACK_DATA_DIRS to suppress dir creation ([#419](https://github.com/gfargo/strut/issues/419)) ([9200727](https://github.com/gfargo/strut/commit/92007275b4f4412e4f62b29e09dd5ed4e648d181)), closes [#417](https://github.com/gfargo/strut/issues/417)
+* **deploy:** refuse to deploy when the Compose project name collides with a different stack ([#420](https://github.com/gfargo/strut/issues/420)) ([471ad2c](https://github.com/gfargo/strut/commit/471ad2ca0978b993644ef8610f143f9aac00cfa9)), closes [#418](https://github.com/gfargo/strut/issues/418)
+* **secrets:** load services.conf in push/pull/diff/status/rotate to honour VPS_DEPLOY_DIR ([#423](https://github.com/gfargo/strut/issues/423)) ([16eca19](https://github.com/gfargo/strut/commit/16eca1911e64104c4eabbc342856644da3a700f3)), closes [#414](https://github.com/gfargo/strut/issues/414)
+
 ## [0.39.0](https://github.com/gfargo/strut/compare/v0.38.0...v0.39.0) (2026-07-12)
 
 
