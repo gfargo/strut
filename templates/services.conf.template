@@ -47,3 +47,18 @@
 # A "_PRIVILEGED" suffix is appended for the privileged tier.
 #
 # API_KEY_ENV_VAR=API_KEYS
+#
+# ── Data Directories ───────────────────────────────
+# Controls which host-side directories `deploy` creates under the stack dir
+# before bringing containers up ("Creating data directories" step).
+#
+# Unset (default) — derived from the DB_* flags above: data/postgres,
+# data/redis, data/neo4j, data/mysql as applicable, or a single generic
+# "data" dir if no DB_* flags are set.
+#
+# STACK_DATA_DIRS="data/uploads data/cache"   # explicit list — creates only these
+# STACK_DATA_DIRS=                            # empty — creates NONE at all;
+#                                              # use when data dirs are root-owned
+#                                              # by the container or managed
+#                                              # externally (e.g. a bind mount
+#                                              # the container itself populates)

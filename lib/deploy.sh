@@ -134,6 +134,44 @@ _deploy_guard_project_collision() {
   return 1
 }
 
+# _deploy_resolve_data_dirs
+#
+# Resolves which data directories deploy_stack should create for the stack
+# currently being deployed. Reads STACK_DATA_DIRS and the DB_* flags from
+# the environment — callers must load_services_conf first.
+#
+# Precedence (strut#417):
+#   1. STACK_DATA_DIRS explicitly set, including to an empty string —
+#      honoured verbatim. An empty value creates NO directories at all; use
+#      this for stacks whose data dirs are managed externally or are
+#      root-owned by the container. The no-colon ${var+x} test is what
+#      distinguishes "explicitly set to empty" from "never set" —
+#      ${STACK_DATA_DIRS:-default} treats both the same, which was the bug.
+#   2. STACK_DATA_DIRS unset — derive from the same DB_* flags in
+#      services.conf that health.sh reads, falling back to a single generic
+#      "data" dir when none are set.
+#
+# Echoes a space-separated list of paths relative to the stack directory
+# (possibly empty). Callers loop `for dir in $(...)`.
+_deploy_resolve_data_dirs() {
+  if [ -n "${STACK_DATA_DIRS+x}" ]; then
+    echo "$STACK_DATA_DIRS"
+    return 0
+  fi
+
+  local -a dirs=()
+  [ "${DB_POSTGRES:-false}" = "true" ] && dirs+=("data/postgres")
+  [ "${DB_REDIS:-false}" = "true" ]   && dirs+=("data/redis")
+  [ "${DB_NEO4J:-false}" = "true" ]   && dirs+=("data/neo4j")
+  [ "${DB_MYSQL:-false}" = "true" ]   && dirs+=("data/mysql")
+
+  if [ "${#dirs[@]}" -eq 0 ]; then
+    echo "data"
+  else
+    echo "${dirs[*]}"
+  fi
+}
+
 # deploy_stack <stack> <env_file> [services_profile]
 #
 # Brings up the stack at stacks/<stack>/docker-compose.yml using the given
@@ -265,28 +303,11 @@ deploy_stack() {
 
   # Data directories — explicit STACK_DATA_DIRS wins; otherwise derive from
   # the same DB_* flags in services.conf that health.sh reads, falling back
-  # to a single generic "data" dir when none are set.
-  #
-  # Setting STACK_DATA_DIRS="" (empty string) suppresses all directory creation
-  # entirely — use this for stacks whose data dirs are managed externally or
-  # are root-owned by the container.  The no-colon ${var+x} test distinguishes
-  # "explicitly set to empty" from "never set".
+  # to a single generic "data" dir when none are set. See
+  # _deploy_resolve_data_dirs for the full precedence rules.
   log "[4/5] Creating data directories..."
   local data_dirs
-  if [ -n "${STACK_DATA_DIRS+x}" ]; then
-    # Explicitly set (even to empty string) — honour it verbatim.
-    # Empty STACK_DATA_DIRS → no directories created → loop is a no-op.
-    data_dirs="$STACK_DATA_DIRS"
-  else
-    # Not set at all — derive from the DB_* flags loaded from services.conf,
-    # falling back to a single "data" dir when no databases are declared.
-    data_dirs=""
-    [ "${DB_POSTGRES:-false}" = "true" ] && data_dirs="$data_dirs data/postgres"
-    [ "${DB_REDIS:-false}" = "true" ]   && data_dirs="$data_dirs data/redis"
-    [ "${DB_NEO4J:-false}" = "true" ]   && data_dirs="$data_dirs data/neo4j"
-    [ "${DB_MYSQL:-false}" = "true" ]   && data_dirs="$data_dirs data/mysql"
-    data_dirs="${data_dirs:-data}"
-  fi
+  data_dirs=$(_deploy_resolve_data_dirs)
   for dir in $data_dirs; do
     mkdir -p "$stack_dir/$dir"
   done
