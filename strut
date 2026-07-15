@@ -251,7 +251,7 @@ unset _TUI_FORCE _TUI_DISABLED _TUI_PRINT _tui_preserved _a
 
 usage() {
   echo ""
-  echo -e "${BLUE}strut CLI${NC}"
+  echo -e "${BRAND}strut CLI${NC}"
   echo ""
   echo "Usage: strut <stack> <command> [options]"
   echo "       strut                    # interactive TUI (fzf if available, select fallback)"
@@ -509,9 +509,9 @@ case "${1:-}" in
   --version|-v|version)
     _version_file="$STRUT_HOME/VERSION"
     if [ -f "$_version_file" ]; then
-      cat "$_version_file"
+      echo -e "${BRAND}$(cat "$_version_file")${NC}"
     else
-      echo "unknown"
+      echo -e "${BRAND}unknown${NC}"
     fi
     exit 0
     ;;

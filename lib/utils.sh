@@ -14,11 +14,35 @@ set -euo pipefail
 # Never use bare || return 1 without a message
 
 # ── Colors ────────────────────────────────────────────────────────────────────
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m'  # No Color
+# Gate: emit ANSI only when NO_COLOR (https://no-color.org) is unset AND stdout
+# is a real terminal (-t 1). These vars back both stdout writers (log/ok/warn)
+# and stderr writers (fail/error) — gating on stdout alone means `strut ... >
+# deploy.log` from an interactive shell (stdout redirected, stderr still a
+# tty) stays escape-free, matching lib/output.sh's output_use_color, which
+# gates table rendering the same way (-t 1 only, not -t 1 || -t 2).
+if [ -z "${NO_COLOR:-}" ] && [ -t 1 ]; then
+  RED='\033[0;31m'
+  GREEN='\033[0;32m'
+  YELLOW='\033[1;33m'
+  BLUE='\033[0;34m'
+  NC='\033[0m'  # No Color
+  # Brand accent derived from the logo-mark SVGs (light #F2FEE9 / dark
+  # #3B4756) — a readable mid-tone green, distinct from generic BLUE, used
+  # only for brand furniture ([strut] prefix, banner, usage/version headers).
+  # Semantic pass/warn/fail colors above are untouched.
+  if [ "${COLORTERM:-}" = "truecolor" ] || [ "${COLORTERM:-}" = "24bit" ]; then
+    BRAND='\033[38;2;138;190;122m'
+  else
+    BRAND='\033[0;36m'  # 16-color fallback (cyan)
+  fi
+else
+  RED=''
+  GREEN=''
+  YELLOW=''
+  BLUE=''
+  BRAND=''
+  NC=''
+fi
 
 # ── Log helpers ───────────────────────────────────────────────────────────────
 # When _error_context is set (e.g. "my-stack/prod/deploy") by the strut
@@ -31,7 +55,7 @@ _error_prefix() {
   return 0
 }
 
-log()  { echo -e "${BLUE}[strut]${NC} $1"; }
+log()  { echo -e "${BRAND}[strut]${NC} $1"; }
 ok()   { echo -e "${GREEN}✓${NC} $1"; }
 warn() { echo -e "${YELLOW}⚠${NC}  $(_error_prefix)$1"; }
 fail() { echo -e "${RED}✗${NC}  $(_error_prefix)$1" >&2; exit 1; }
@@ -93,7 +117,7 @@ print_banner() {
   local inner_width=$(( text_len + 6 ))
   local border
   border=$(printf '═%.0s' $(seq 1 "$inner_width"))
-  echo -e "${BLUE}"
+  echo -e "${BRAND}"
   echo "  ╔${border}╗"
   echo "  ║   ${text}   ║"
   echo "  ╚${border}╝"
