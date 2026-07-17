@@ -50,6 +50,20 @@ EOF
   [[ "$output" == *"failed"* ]]
 }
 
+@test "anon_apply_postgres: a typo'd strategy aborts before any SQL reaches the database (issue #391)" {
+  cat > "$TEST_TMP/anonymize.conf" <<'EOF'
+users.email=fake_emial
+EOF
+
+  run anon_apply_postgres "test-stack" "fake_compose" "$TEST_TMP/anonymize.conf"
+  [ "$status" -ne 0 ]
+  [[ "$output" != *"complete"* ]]
+  # anon_build_sql must fail before the pipe into psql — fake_compose is
+  # never invoked at all, so PII is never at risk of being left untouched
+  # while the run reports success.
+  [ ! -s "$COMPOSE_CALL_LOG" ]
+}
+
 @test "anon_apply_postgres: reports success when all statements apply" {
   cat > "$TEST_TMP/anonymize.conf" <<'EOF'
 users.email=fake_email
