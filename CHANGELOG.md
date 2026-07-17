@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.40.1](https://github.com/gfargo/strut/compare/v0.40.0...v0.40.1) (2026-07-17)
+
+
+### Bug Fixes
+
+* **security:** env-sourcing RCE, argv secret exposure, and gitignore gaps ([#426](https://github.com/gfargo/strut/issues/426)) ([e4bbefb](https://github.com/gfargo/strut/commit/e4bbefb8a5a81afd35abfc20320c877bc426b424))
+
 ## [0.40.0](https://github.com/gfargo/strut/compare/v0.39.0...v0.40.0) (2026-07-15)
 
 
