@@ -474,12 +474,21 @@ cmd_list() {
 # ── Resolve stack + env ───────────────────────────────────────────────────────
 
 # resolve_env_file <stack> [env_name]
-# Returns the path to the env file.
+# Returns the path to the base env file.
 # Resolution order (stack-aware, since v0.29.0):
 #   1. stacks/<stack>/.<env>.env  (stack-level override)
 #   2. $CLI_ROOT/.<env>.env       (project-level)
 #   3. stacks/<stack>/.env        (stack-level default, no env name)
 #   4. $CLI_ROOT/.env             (project-level default)
+#
+# This is only the base layer. When the stack maps to a host in
+# [stacks]→[hosts] (or --host is passed), topology_apply_to_env /
+# topology_apply_host_override additionally layer
+# stacks/<stack>/env/hosts/<alias>.env on top — last-wins over the base
+# file — via topology_apply_host_layer (lib/topology.sh). That cascade is
+# re-applied by env_apply_layers (lib/utils.sh) anywhere the base file gets
+# re-sourced downstream, so host-layer values survive to the final
+# `docker compose --env-file` step.
 resolve_env_file() {
   local stack="$1"
   local env_name="${2:-}"
@@ -854,7 +863,7 @@ elif [ -n "$FLAGS_HOST" ]; then
   # --host flag overrides topology target and applies per-host env
   topology_apply_host_override "$STACK" "$FLAGS_HOST" "$STACK_DIR"
 else
-  topology_apply_to_env "$STACK"
+  topology_apply_to_env "$STACK" "$STACK_DIR"
 fi
 
 # Error context for fail/warn/error messages. Formats as

@@ -442,6 +442,48 @@ EOF
   [ "$SOME_VAR" = "hello" ]
 }
 
+# ── validate_env_file: tracked host-layer cascade survives re-source ───────────
+# Guards the clobber risk: validate_env_file re-sources the base env file, which
+# would otherwise reset any host-layer override (WEB_URL, ports, ...) applied
+# earlier by topology_apply_to_env. env_apply_layers must re-apply the layer.
+
+@test "validate_env_file: re-applies the active host layer after re-sourcing base env" {
+  _load_utils
+  source "$CLI_ROOT/lib/topology.sh"
+  fail() { echo "$1" >&2; return 1; }
+
+  cat > "$TEST_TMP/.test.env" <<'EOF'
+VPS_HOST=10.0.0.1
+WEB_URL=https://base.example.com
+EOF
+
+  mkdir -p "$TEST_TMP/env/hosts"
+  cat > "$TEST_TMP/env/hosts/compass.env" <<'EOF'
+WEB_URL=https://tracked.compass.local
+EOF
+
+  # Simulate the entrypoint context: CMD_STACK/CMD_STACK_DIR exported, and an
+  # active host alias set by an earlier topology_apply_to_env call.
+  export CMD_STACK="plane"
+  export CMD_STACK_DIR="$TEST_TMP"
+  _TOPO_ACTIVE_HOST_ALIAS="compass"
+
+  validate_env_file "$TEST_TMP/.test.env" VPS_HOST
+
+  [ "$WEB_URL" = "https://tracked.compass.local" ]
+}
+
+@test "validate_env_file: no-op when no host layer is active" {
+  _load_utils
+  cat > "$TEST_TMP/.test.env" <<'EOF'
+VPS_HOST=10.0.0.1
+WEB_URL=https://base.example.com
+EOF
+  unset CMD_STACK CMD_STACK_DIR
+  validate_env_file "$TEST_TMP/.test.env" VPS_HOST
+  [ "$WEB_URL" = "https://base.example.com" ]
+}
+
 # ── validate_subcommand ───────────────────────────────────────────────────────
 
 @test "validate_subcommand: valid command returns 0" {

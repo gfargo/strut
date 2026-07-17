@@ -34,3 +34,9 @@ logs/
 .*.env
 !.env.template
 *.backup-*
+
+# ── Tracked per-host env layer ───────────────────────────────────────────────
+# env/hosts/<alias>.env is NOT a dotfile, so the .*.env rule above does not
+# sweep it — this is intentional. It holds non-secret per-host overrides
+# (WEB_URL, ports, INSTALL_DIR, ...) and must stay committed so it survives a
+# clean git-redeploy. Do not add an ignore rule for env/hosts/*.env here.
