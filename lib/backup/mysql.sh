@@ -52,26 +52,31 @@ backup_mysql() {
   export MYSQL_PWD="$mysql_password"
   local mysql_result=0
 
-  # If container name is set, use docker exec directly (more reliable for
-  # stacks where the compose service name differs from the container name)
+  # Write to a temp name and mv into place on success — a dump killed
+  # mid-write must never leave a truncated file at the exact name every
+  # "latest" selector looks for.
   if [ -n "$mysql_container" ]; then
+    # If container name is set, use docker exec directly (more reliable for
+    # stacks where the compose service name differs from the container name)
     ${_sudo}docker exec -e MYSQL_PWD "$mysql_container" \
       mysqldump -u "$mysql_user" \
       --single-transaction --routines --triggers --events \
-      "$mysql_db" >"$out" 2>/dev/null || mysql_result=1
+      "$mysql_db" >"$out.tmp" 2>/dev/null || mysql_result=1
   else
     # Fallback: use compose exec with the configured mysql service name
     ${_sudo}$compose_cmd exec -T -e MYSQL_PWD "$mysql_service" \
       mysqldump -u "$mysql_user" \
       --single-transaction --routines --triggers --events \
-      "$mysql_db" >"$out" 2>/dev/null || mysql_result=1
+      "$mysql_db" >"$out.tmp" 2>/dev/null || mysql_result=1
   fi
   unset MYSQL_PWD
 
   if [ "$mysql_result" -eq 0 ]; then
+    mv "$out.tmp" "$out"
     ok "MySQL backup saved: $out"
     create_backup_metadata "$stack" "$out" "mysql" ""
   else
+    rm -f "$out.tmp"
     error "MySQL backup failed"
     return 1
   fi
@@ -86,6 +91,11 @@ restore_mysql() {
   local target_env="${4:-}"
 
   [ -f "$sql_file" ] || fail "SQL file not found: $sql_file"
+
+  # Refuse an empty/truncated dump BEFORE any destructive action, mirroring
+  # restore_postgres's pre-restore gate — a dump missing its completion
+  # marker restores without error yet leaves the DB with only partial data.
+  validate_backup_artifact "mysql" "$sql_file" || fail "Refusing to restore: invalid MySQL dump: $sql_file"
 
   # If target_env is provided, rebuild compose_cmd for that environment
   if [ -n "$target_env" ]; then
