@@ -104,9 +104,7 @@ keys_pull_from_vps() {
     fail "Environment file not found: $env_file"
   fi
 
-  set -a
-  source "$env_file"
-  set +a
+  safe_load_env "$env_file"
 
   local vps_host="${VPS_HOST:-}"
   local vps_user="${VPS_USER:-ubuntu}"
@@ -254,9 +252,7 @@ keys_pull_from_containers() {
     fail "Environment file not found: $env_file"
   fi
 
-  set -a
-  source "$env_file"
-  set +a
+  safe_load_env "$env_file"
 
   local vps_host="${VPS_HOST:-}"
   local vps_user="${VPS_USER:-ubuntu}"

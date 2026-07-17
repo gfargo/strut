@@ -40,9 +40,7 @@ keys_status() {
   # Check VPS connectivity
   local vps_status="unknown"
   if [ -f "$env_file" ]; then
-    set -a
-    source "$env_file"
-    set +a
+    safe_load_env "$env_file"
     local vps_host="${VPS_HOST:-}"
     local vps_user="${VPS_USER:-ubuntu}"
     local vps_ssh_key="${VPS_SSH_KEY:-}"

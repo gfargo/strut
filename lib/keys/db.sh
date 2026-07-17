@@ -75,9 +75,7 @@ keys_db_rotate_postgres() {
   # Load env
   local env_file="$CLI_ROOT/.prod.env"
   [ -f "$env_file" ] || fail "Env file not found: $env_file"
-  set -a
-  source "$env_file"
-  set +a
+  safe_load_env "$env_file"
 
   local postgres_user="${POSTGRES_USER:-postgres}"
   local postgres_db="${POSTGRES_DB:-${POSTGRES_USER:-postgres}}"
@@ -133,9 +131,12 @@ keys_db_rotate_postgres() {
 
   log "Updating PostgreSQL password..."
 
-  # Update password in database
-  $compose_cmd exec -T postgres psql -U "$postgres_user" -d "$postgres_db" <<EOF
-ALTER USER $postgres_user WITH PASSWORD '$new_password';
+  # Update password in database (psql -v substitution avoids interpolating
+  # $postgres_user/$new_password directly into the SQL text)
+  $compose_cmd exec -T postgres psql -v ON_ERROR_STOP=1 \
+    -v pg_user="$postgres_user" -v pg_pass="$new_password" \
+    -U "$postgres_user" -d "$postgres_db" <<'EOF'
+ALTER USER :"pg_user" WITH PASSWORD :'pg_pass';
 EOF
 
   ok "PostgreSQL password updated in database"
@@ -148,8 +149,10 @@ EOF
   # never diverge, rather than leaving a new password nowhere on disk.
   if ! grep -qxF "POSTGRES_PASSWORD=$new_password" "$env_file"; then
     warn "Write to $env_file failed verification — reverting database password"
-    $compose_cmd exec -T postgres psql -U "$postgres_user" -d "$postgres_db" <<EOF || true
-ALTER USER $postgres_user WITH PASSWORD '$old_password';
+    $compose_cmd exec -T postgres psql -v ON_ERROR_STOP=1 \
+      -v pg_user="$postgres_user" -v pg_pass="$old_password" \
+      -U "$postgres_user" -d "$postgres_db" <<'EOF' || true
+ALTER USER :"pg_user" WITH PASSWORD :'pg_pass';
 EOF
     cp "$backup_file" "$env_file"
     fail "Aborting: password write to $env_file failed verification — database password reverted, see backup: $backup_file"
@@ -199,9 +202,7 @@ keys_db_create_readonly() {
   # Load env
   local env_file="$CLI_ROOT/.prod.env"
   [ -f "$env_file" ] || fail "Env file not found: $env_file"
-  set -a
-  source "$env_file"
-  set +a
+  safe_load_env "$env_file"
 
   local postgres_user="${POSTGRES_USER:-postgres}"
   local postgres_db="${POSTGRES_DB:-${POSTGRES_USER:-postgres}}"
@@ -216,22 +217,25 @@ keys_db_create_readonly() {
 
   log "Creating PostgreSQL read-only user..."
 
-  # Create user and grant permissions
-  $compose_cmd exec -T postgres psql -U "$postgres_user" -d "$postgres_db" <<EOF
+  # Create user and grant permissions (psql -v substitution avoids
+  # interpolating $username/$password/$postgres_db directly into the SQL text)
+  $compose_cmd exec -T postgres psql -v ON_ERROR_STOP=1 \
+    -v ro_user="$username" -v ro_pass="$password" -v db_name="$postgres_db" \
+    -U "$postgres_user" -d "$postgres_db" <<'EOF'
 -- Create user
-CREATE USER $username WITH PASSWORD '$password';
+CREATE USER :"ro_user" WITH PASSWORD :'ro_pass';
 
 -- Grant connect
-GRANT CONNECT ON DATABASE $postgres_db TO $username;
+GRANT CONNECT ON DATABASE :"db_name" TO :"ro_user";
 
 -- Grant usage on schema
-GRANT USAGE ON SCHEMA public TO $username;
+GRANT USAGE ON SCHEMA public TO :"ro_user";
 
 -- Grant select on all tables
-GRANT SELECT ON ALL TABLES IN SCHEMA public TO $username;
+GRANT SELECT ON ALL TABLES IN SCHEMA public TO :"ro_user";
 
 -- Grant select on future tables
-ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO $username;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO :"ro_user";
 EOF
 
   ok "PostgreSQL read-only user created"

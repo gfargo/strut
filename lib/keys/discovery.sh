@@ -156,9 +156,7 @@ discover_vps_keys() {
     return
   fi
 
-  set -a
-  source "$env_file"
-  set +a
+  safe_load_env "$env_file"
 
   local vps_host="${VPS_HOST:-}"
   local vps_user="${VPS_USER:-ubuntu}"
