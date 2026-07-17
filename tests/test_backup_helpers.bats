@@ -230,6 +230,30 @@ EOF
   [[ "$local_file" != *"Downloading"* ]]
 }
 
+@test "_db_pull_postgres: a --file for a different engine is ignored, falls back to latest postgres backup (issue #387)" {
+  local remote_dir="/remote/backups"
+  local local_dir="$TEST_TMP/pg-download"
+  mkdir -p "$local_dir"
+
+  # ssh only responds to the postgres glob — if _db_pull_postgres passed the
+  # mismatched mysql-*.sql filename straight through as the specific file, no
+  # `ls -t` call would happen and rsync would try to fetch that literal name.
+  ssh() {
+    case "$*" in
+      *"postgres-*.sql"*) echo "postgres-20260101-000000.sql" ;;
+      *) echo "SHOULD NOT BE CALLED WITH MISMATCHED FILE" ;;
+    esac
+  }
+  rsync() { touch "${!#}"; }
+
+  DRY_RUN=false run _db_pull_postgres "-o Test=1" "vpsuser" "vpshost" \
+    "$remote_dir" "$local_dir" "fake_compose" "true" "mysql-20260101-000000.sql"
+
+  [ "$status" -eq 0 ]
+  [ -f "$local_dir/postgres-20260101-000000.sql" ]
+  [ ! -f "$local_dir/mysql-20260101-000000.sql" ]
+}
+
 @test "_db_pull_sqlite: restores locally even when ambient VPS_HOST is set (no prod overwrite)" {
   local remote_dir="/remote/backups"
   local backup_dir="$TEST_TMP/download"
@@ -380,5 +404,76 @@ EOF
   grep -q -- "s3cret-push-password" "$ssh_stdin_log"
 
   unset MYSQL_ROOT_PASSWORD MYSQL_DATABASE STRUT_YES
+  rm -rf "$backup_dir"
+}
+
+@test "_db_push_mysql: a --file for a different engine is skipped silently under target=all (issue #387)" {
+  local stack="test-mysql-push-skip-$$"
+  local backup_dir="$TEST_TMP/mysql-push-skip"
+  mkdir -p "$backup_dir"
+
+  _db_push_upload() { echo "SHOULD NOT UPLOAD"; return 0; }
+  ssh() { echo "SHOULD NOT SSH"; return 0; }
+
+  run _db_push_mysql "$stack" "" "deploy" "1.2.3.4" "/remote/dir" "$backup_dir" "" "false" "all" "postgres-20260101-000000.sql"
+
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"SHOULD NOT UPLOAD"* ]]
+  [[ "$output" != *"SHOULD NOT SSH"* ]]
+
+  rm -rf "$backup_dir"
+}
+
+@test "_db_push_postgres: a --file for a different engine fails loudly when this engine was explicitly requested (issue #387)" {
+  local stack="test-pg-push-mismatch-$$"
+  local backup_dir="$TEST_TMP/pg-push-mismatch"
+  mkdir -p "$backup_dir"
+
+  _db_push_upload() { echo "SHOULD NOT UPLOAD"; return 1; }
+  # This file's setup() overrides fail() to `return 1` (non-exiting) so
+  # other tests can inspect graceful continuation. This test needs fail()'s
+  # real `exit 1` semantics to verify the mismatch actually aborts before
+  # upload — safe under `run`, which only captures the forked subshell's exit.
+  fail() { echo "$1" >&2; exit 1; }
+
+  run _db_push_postgres "$stack" "" "deploy" "1.2.3.4" "/remote/dir" "$backup_dir" "test-env" "" "false" "postgres" "mysql-20260101-000000.sql"
+
+  [ "$status" -ne 0 ]
+  [[ "$output" != *"SHOULD NOT UPLOAD"* ]]
+  [[ "$output" == *"does not match PostgreSQL backup naming"* ]]
+
+  rm -rf "$backup_dir"
+}
+
+@test "_db_push_neo4j: restarts the service even when the remote load fails (issue #387)" {
+  local stack="test-neo4j-push-$$"
+  local backup_dir="$TEST_TMP/neo4j-push"
+  mkdir -p "$backup_dir"
+  echo "-- dump --" > "$backup_dir/neo4j-20260101-000000.dump"
+
+  export STRUT_YES=1
+  _db_push_upload() { return 0; }
+  load_remote_backup_conf() { BACKUP_NEO4J_SERVICE="neo4j"; }
+  resolve_deploy_dir() { echo "/opt/app"; }
+
+  local ssh_log="$TEST_TMP/neo4j_ssh_argv.log"
+  ssh() {
+    printf '%s\n' "$*" >> "$ssh_log"
+    case "$*" in
+      *"database load neo4j"*) return 1 ;;  # simulate a failed load
+      *) return 0 ;;
+    esac
+  }
+
+  run _db_push_neo4j "$stack" "" "deploy" "1.2.3.4" "/remote/dir" "$backup_dir" "test-env" "" "false" "neo4j" ""
+
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"Neo4j restore failed"* ]]
+  # The load failed, but `start` must still have been issued as a separate call.
+  grep -q "compose --project-name test-env start neo4j" "$ssh_log"
+  # --from-path must be a directory, not the dump file itself.
+  grep -q -- "--from-path=/var/lib/neo4j/import --overwrite-destination" "$ssh_log"
+
+  unset STRUT_YES
   rm -rf "$backup_dir"
 }
