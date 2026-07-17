@@ -880,9 +880,14 @@ _db_push_mysql() {
     local mysql_password="${MYSQL_ROOT_PASSWORD:-${MYSQL_PASSWORD:-}}"
 
     log "Restoring MySQL on VPS..."
-    if ssh $ssh_opts "$vps_user@$vps_host" \
-      "${_sudo}docker exec -i $mysql_container \
-        mysql -u $mysql_user --password=$mysql_password $mysql_db < $remote_dir/$filename"; then
+    # The password travels over ssh's stdin (never argv) — consumed by a
+    # remote `read` before the mysql restore's own `< $remote_dir/$filename`
+    # redirect takes over stdin for that command. This keeps the secret out
+    # of both the local ssh argv and the remote docker exec/mysql argv.
+    if printf '%s\n' "$mysql_password" | ssh $ssh_opts "$vps_user@$vps_host" \
+      "read -r MYSQL_PWD; export MYSQL_PWD; \
+        ${_sudo}docker exec -e MYSQL_PWD -i $mysql_container \
+        mysql -u $mysql_user $mysql_db < $remote_dir/$filename"; then
       ok "MySQL restore complete on VPS"
     else
       error "MySQL restore failed on VPS"

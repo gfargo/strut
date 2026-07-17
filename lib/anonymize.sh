@@ -199,12 +199,22 @@ anon_apply_mysql() {
   sql=$(anon_build_sql "$config_file" "mysql")
 
   log "Applying anonymization rules to MySQL..."
-  # Pass the password via MYSQL_PWD (env var on the exec'd process) instead
-  # of --password=, which would put it in the container's process list.
-  echo "$sql" | $compose_cmd exec -T -e MYSQL_PWD="$mysql_password" mysql \
-    mysql -u "$mysql_user" "$mysql_db" 2>/dev/null \
-    && ok "MySQL anonymization complete" \
-    || { error "MySQL anonymization failed"; return 1; }
+  # Pass the password via MYSQL_PWD, exported locally and referenced bare
+  # (-e MYSQL_PWD, no =value) so it never appears as a literal argv token on
+  # either the host (the docker/compose exec process) or in the container
+  # (the mysql client process) — closes both `ps` surfaces. unset runs on
+  # both success and failure so the export never leaks into later calls.
+  export MYSQL_PWD="$mysql_password"
+  local mysql_result=0
+  echo "$sql" | $compose_cmd exec -T -e MYSQL_PWD mysql \
+    mysql -u "$mysql_user" "$mysql_db" 2>/dev/null || mysql_result=1
+  unset MYSQL_PWD
+  if [ "$mysql_result" -eq 0 ]; then
+    ok "MySQL anonymization complete"
+  else
+    error "MySQL anonymization failed"
+    return 1
+  fi
 }
 
 # anon_apply_sqlite <stack> <db_file> <config_file>

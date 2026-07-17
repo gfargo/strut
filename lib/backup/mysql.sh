@@ -46,31 +46,34 @@ backup_mysql() {
 
   log "Backing up MySQL → $out"
 
+  # MYSQL_PWD exported locally and referenced bare (-e MYSQL_PWD, no =value)
+  # so the password never appears as a literal argv token on the host (the
+  # docker/compose exec process) or in the container (the mysqldump process).
+  export MYSQL_PWD="$mysql_password"
+  local mysql_result=0
+
   # If container name is set, use docker exec directly (more reliable for
   # stacks where the compose service name differs from the container name)
   if [ -n "$mysql_container" ]; then
-    ${_sudo}docker exec "$mysql_container" \
-      mysqldump -u "$mysql_user" --password="$mysql_password" \
+    ${_sudo}docker exec -e MYSQL_PWD "$mysql_container" \
+      mysqldump -u "$mysql_user" \
       --single-transaction --routines --triggers --events \
-      "$mysql_db" >"$out" 2>/dev/null \
-      && ok "MySQL backup saved: $out" \
-      && create_backup_metadata "$stack" "$out" "mysql" "" \
-      || {
-        error "MySQL backup failed"
-        return 1
-      }
+      "$mysql_db" >"$out" 2>/dev/null || mysql_result=1
   else
     # Fallback: use compose exec with the configured mysql service name
-    ${_sudo}$compose_cmd exec -T "$mysql_service" \
-      mysqldump -u "$mysql_user" --password="$mysql_password" \
+    ${_sudo}$compose_cmd exec -T -e MYSQL_PWD "$mysql_service" \
+      mysqldump -u "$mysql_user" \
       --single-transaction --routines --triggers --events \
-      "$mysql_db" >"$out" 2>/dev/null \
-      && ok "MySQL backup saved: $out" \
-      && create_backup_metadata "$stack" "$out" "mysql" "" \
-      || {
-        error "MySQL backup failed"
-        return 1
-      }
+      "$mysql_db" >"$out" 2>/dev/null || mysql_result=1
+  fi
+  unset MYSQL_PWD
+
+  if [ "$mysql_result" -eq 0 ]; then
+    ok "MySQL backup saved: $out"
+    create_backup_metadata "$stack" "$out" "mysql" ""
+  else
+    error "MySQL backup failed"
+    return 1
   fi
 }
 
@@ -92,9 +95,7 @@ restore_mysql() {
 
     log "Restoring to target environment: $target_env"
     compose_cmd=$(resolve_compose_cmd "$stack" "$target_env_file" "")
-    set -a
-    source "$target_env_file"
-    set +a
+    safe_load_env "$target_env_file"
   fi
 
   local mysql_container="${MYSQL_CONTAINER_NAME:-}"
@@ -123,21 +124,21 @@ restore_mysql() {
 
   log "Restoring MySQL..."
 
+  export MYSQL_PWD="$mysql_password"
+  local mysql_result=0
   if [ -n "$mysql_container" ]; then
-    ${_sudo}docker exec -i "$mysql_container" \
-      mysql -u "$mysql_user" --password="$mysql_password" "$mysql_db" <"$sql_file" \
-      && ok "MySQL restore complete" \
-      || {
-        error "MySQL restore failed"
-        return 1
-      }
+    ${_sudo}docker exec -i -e MYSQL_PWD "$mysql_container" \
+      mysql -u "$mysql_user" "$mysql_db" <"$sql_file" || mysql_result=1
   else
-    ${_sudo}$compose_cmd exec -T "$mysql_service" \
-      mysql -u "$mysql_user" --password="$mysql_password" "$mysql_db" <"$sql_file" \
-      && ok "MySQL restore complete" \
-      || {
-        error "MySQL restore failed"
-        return 1
-      }
+    ${_sudo}$compose_cmd exec -T -e MYSQL_PWD "$mysql_service" \
+      mysql -u "$mysql_user" "$mysql_db" <"$sql_file" || mysql_result=1
+  fi
+  unset MYSQL_PWD
+
+  if [ "$mysql_result" -eq 0 ]; then
+    ok "MySQL restore complete"
+  else
+    error "MySQL restore failed"
+    return 1
   fi
 }
