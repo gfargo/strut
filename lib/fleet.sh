@@ -39,6 +39,44 @@ fleet_git_status_parse() {
   done
 }
 
+# remote_ssh_with_pat <ssh_opts> <target> <gh_pat> <remote_script>
+#
+# Runs <remote_script> on <target> over ssh, with git PAT auth wired up
+# without ever putting the token on any argv (local ssh argv, remote shell
+# argv, or git argv). If gh_pat is non-empty, the token travels over ssh's
+# stdin, gets written remotely to a mode-600 temp file consumed by git's
+# credential.helper, and is removed via a remote `trap ... EXIT` regardless
+# of outcome. If gh_pat is empty, <remote_script> runs as-is (no credential
+# setup, git falls back to whatever auth is already configured on the host).
+#
+# Inside <remote_script>, reference \$GIT_CRED_OPT (a remote shell var this
+# function defines — empty when gh_pat is empty) as extra args to git, e.g.:
+#   git \$GIT_CRED_OPT fetch origin
+remote_ssh_with_pat() {
+  local ssh_opts="$1"
+  local target="$2"
+  local gh_pat="$3"
+  local remote_script="$4"
+
+  if [ -n "$gh_pat" ]; then
+    local prelude='
+      umask 077
+      _cred_file=$(mktemp "${HOME}/.strut-git-cred-XXXXXX") || exit 1
+      trap '"'"'rm -f "$_cred_file"'"'"' EXIT
+      IFS= read -r _cred_line
+      printf "%s\n" "$_cred_line" > "$_cred_file"
+      GIT_CRED_OPT="-c credential.helper=store --file=$_cred_file"
+    '
+    # shellcheck disable=SC2029
+    printf 'https://oauth2:%s@github.com\n' "$gh_pat" | ssh $ssh_opts "$target" "$prelude
+$remote_script"
+  else
+    # shellcheck disable=SC2029
+    ssh $ssh_opts "$target" "GIT_CRED_OPT=''
+$remote_script"
+  fi
+}
+
 # fleet_git_status <user> <host> <port> <ssh_key> <deploy_dir> <branch> [gh_pat]
 #
 # SSHes into <host> and emits parseable key=value lines describing the git
@@ -67,9 +105,9 @@ fleet_git_status() {
   local ssh_opts
   ssh_opts=$(build_ssh_opts -p "$vps_port" -k "$vps_ssh_key" --batch)
 
-  # Intentional: variables expand locally before SSH
-  # shellcheck disable=SC2029
-  ssh $ssh_opts "$vps_user@$vps_host" "
+  # Intentional: variables (other than the PAT, which never touches this
+  # string — see remote_ssh_with_pat) expand locally before SSH
+  local remote_script="
     if [ ! -d '$deploy_dir' ]; then
       echo 'head_sha=missing'
       echo 'branch=unknown'
@@ -86,14 +124,7 @@ fleet_git_status() {
     cur_branch=\$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo 'unknown')
 
     _fetch_ok=true
-    if [ -n '$gh_pat' ]; then
-      git \
-        -c 'url.https://oauth2:$gh_pat@github.com/.insteadOf=https://github.com/' \
-        -c 'url.https://oauth2:$gh_pat@github.com/.insteadOf=git@github.com:' \
-        fetch origin 2>/dev/null || _fetch_ok=false
-    else
-      git fetch origin 2>/dev/null || _fetch_ok=false
-    fi
+    git \$GIT_CRED_OPT fetch origin 2>/dev/null || _fetch_ok=false
 
     if \$_fetch_ok; then
       behind=\$(git rev-list --count HEAD..origin/'$branch' 2>/dev/null || echo 0)
@@ -122,6 +153,8 @@ fleet_git_status() {
     echo \"dirty_files=\$dirty_files\"
     echo \"working_dir=\$working_dir\"
   "
+
+  remote_ssh_with_pat "$ssh_opts" "$vps_user@$vps_host" "$gh_pat" "$remote_script"
 }
 
 # fleet_sync <user> <host> <port> <ssh_key> <deploy_dir> <branch> <gh_pat> [opts]
@@ -175,9 +208,9 @@ fleet_sync() {
     return 0
   fi
 
-  # Intentional: variables expand locally before SSH
-  # shellcheck disable=SC2029
-  ssh $ssh_opts "$vps_user@$vps_host" "
+  # Intentional: variables (other than the PAT, which never touches this
+  # string — see remote_ssh_with_pat) expand locally before SSH
+  local remote_script="
     set -e
     if [ ! -d '$deploy_dir' ]; then
       echo 'ERROR: $deploy_dir not found on VPS' >&2
@@ -195,14 +228,7 @@ fleet_sync() {
     git log --oneline -1
 
     echo '--- Fetching origin ---'
-    if [ -n '$gh_pat' ]; then
-      git \\
-        -c 'url.https://oauth2:$gh_pat@github.com/.insteadOf=https://github.com/' \\
-        -c 'url.https://oauth2:$gh_pat@github.com/.insteadOf=git@github.com:' \\
-        fetch origin
-    else
-      git fetch origin
-    fi
+    git \$GIT_CRED_OPT fetch origin
 
     echo '--- Resetting to origin/$branch ---'
     git reset --hard 'origin/$branch'
@@ -227,6 +253,8 @@ fleet_sync() {
     echo '--- After sync ---'
     git log --oneline -1
   "
+
+  remote_ssh_with_pat "$ssh_opts" "$vps_user@$vps_host" "$gh_pat" "$remote_script"
 }
 
 # fleet_working_dir_check <deploy_dir> <stack> <container_working_dir>

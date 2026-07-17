@@ -320,15 +320,15 @@ _adopt_bootstrap_checkout() {
       fi
       [[ "$clone_url" == *.git ]] || clone_url="${clone_url}.git"
       clone_url_q=$(_adopt_shell_quote "$clone_url")
-      # shellcheck disable=SC2029
-      ssh $ssh_opts "$user@$host" "
+      # PAT travels over ssh's stdin (never argv) — see remote_ssh_with_pat.
+      local clone_script="
         set -e
-        git clone \
-          -c 'url.https://oauth2:$gh_pat@github.com/.insteadOf=https://github.com/' \
-          -c 'url.https://oauth2:$gh_pat@github.com/.insteadOf=git@github.com:' \
+        git clone \$GIT_CRED_OPT \
           --branch $branch_q \
           $clone_url_q $deploy_dir_q
-      " || fail "Failed to clone repository. Check GH_PAT and repository access."
+      "
+      remote_ssh_with_pat "$ssh_opts" "$user@$host" "$gh_pat" "$clone_script" \
+        || fail "Failed to clone repository. Check GH_PAT and repository access."
     else
       setup_strut_repo "$user" "$host" "$port" "$ssh_key" "$repo_url" "$deploy_dir"
       # shellcheck disable=SC2029

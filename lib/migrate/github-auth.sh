@@ -95,20 +95,29 @@ clone_with_pat() {
   local pat="$6"
   local dest_dir="$7"
 
-  # Clone using a one-shot credential helper that feeds the PAT via stdin.
-  # This avoids embedding the PAT in the URL (which would persist in .git/config
-  # and be visible in `ps` output on the remote).
-  ssh_exec "$vps_user" "$vps_host" "$ssh_port" "$ssh_key" \
-    "git -c 'credential.helper=!f() { echo username=oauth2; echo password=$pat; };f' clone $https_url $dest_dir"
+  # Clone with the PAT delivered over ssh's stdin (never argv) via a
+  # mode-600 remote credential file — see remote_ssh_with_pat (lib/fleet.sh).
+  local ssh_opts
+  ssh_opts=$(build_ssh_opts -p "$ssh_port" -k "$ssh_key")
+  local clone_script="git clone \$GIT_CRED_OPT $https_url $dest_dir"
+  remote_ssh_with_pat "$ssh_opts" "$vps_user@$vps_host" "$pat" "$clone_script"
 
   # Configure a persistent credential helper for future fetches — store
   # credentials in ~/.git-credentials (append, don't clobber existing entries).
   ssh_exec "$vps_user" "$vps_host" "$ssh_port" "$ssh_key" \
     "cd $dest_dir && git config credential.helper store"
 
-  # Append credential (don't clobber existing entries for other hosts)
-  ssh_exec "$vps_user" "$vps_host" "$ssh_port" "$ssh_key" \
-    "grep -qF 'github.com' ~/.git-credentials 2>/dev/null && sed -i 's|https://[^@]*@github.com|https://oauth2:$pat@github.com|' ~/.git-credentials || printf '%s\n' 'https://oauth2:$pat@github.com' >> ~/.git-credentials; chmod 600 ~/.git-credentials"
+  # Append/replace the github.com credential — the line travels over ssh's
+  # stdin (never argv), so the PAT is never a literal substring of any
+  # remote sed/printf argv.
+  printf 'https://oauth2:%s@github.com\n' "$pat" | ssh_exec "$vps_user" "$vps_host" "$ssh_port" "$ssh_key" '
+    read -r _cred_line
+    touch ~/.git-credentials
+    grep -vF "github.com" ~/.git-credentials > ~/.git-credentials.tmp 2>/dev/null || true
+    printf "%s\n" "$_cred_line" >> ~/.git-credentials.tmp
+    mv ~/.git-credentials.tmp ~/.git-credentials
+    chmod 600 ~/.git-credentials
+  '
 }
 
 # Detect if URL is SSH or HTTPS

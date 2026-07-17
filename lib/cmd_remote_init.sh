@@ -184,15 +184,15 @@ Next step: remove the directory and re-run remote:init for a clean checkout:
     # Ensure .git suffix for clone
     [[ "$clone_url" == *.git ]] || clone_url="${clone_url}.git"
 
-    # shellcheck disable=SC2029
-    ssh $ssh_opts "$user@$host" "
+    # PAT travels over ssh's stdin (never argv) — see remote_ssh_with_pat.
+    local clone_script="
       set -e
-      git clone \
-        -c 'url.https://oauth2:$gh_pat@github.com/.insteadOf=https://github.com/' \
-        -c 'url.https://oauth2:$gh_pat@github.com/.insteadOf=git@github.com:' \
+      git clone \$GIT_CRED_OPT \
         --branch '$branch' \
         '$clone_url' '$deploy_dir'
-    " || fail "Failed to clone repository. Check GH_PAT and repository access."
+    "
+    remote_ssh_with_pat "$ssh_opts" "$user@$host" "$gh_pat" "$clone_script" \
+      || fail "Failed to clone repository. Check GH_PAT and repository access."
   else
     # No PAT — delegate to setup_strut_repo which handles interactive auth
     setup_strut_repo "$user" "$host" "$port" "$ssh_key" "$repo_url" "$deploy_dir"

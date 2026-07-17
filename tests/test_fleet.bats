@@ -221,3 +221,49 @@ teardown() {
   [ "$status" -ne 0 ]
   [[ "$output" == *"expected=/opt/stacks/stacks/myapp"* ]]
 }
+
+# ── remote_ssh_with_pat / GH_PAT argv safety (issue #379) ───────────────────
+
+@test "fleet_git_status: PAT travels over ssh stdin, never appears in ssh argv" {
+  ssh() {
+    printf '%s\n' "$*" >> "$TEST_TMP/ssh_argv.log"
+    cat >> "$TEST_TMP/ssh_stdin.log"
+    return 0
+  }
+  export -f ssh
+
+  run fleet_git_status ubuntu host.example 22 "" /home/ubuntu/strut main "ghp_SUPERSECRETTOKEN"
+  [ "$status" -eq 0 ]
+
+  ! grep -q "ghp_SUPERSECRETTOKEN" "$TEST_TMP/ssh_argv.log"
+  grep -q "ghp_SUPERSECRETTOKEN" "$TEST_TMP/ssh_stdin.log"
+  # The remote script references the credential var, not a literal URL-embedded token
+  grep -q 'GIT_CRED_OPT' "$TEST_TMP/ssh_argv.log"
+}
+
+@test "fleet_git_status: no PAT means no credential setup, and ssh gets no stdin" {
+  ssh() {
+    printf '%s\n' "$*" >> "$TEST_TMP/ssh_argv.log"
+    return 0
+  }
+  export -f ssh
+
+  run fleet_git_status ubuntu host.example 22 "" /home/ubuntu/strut main ""
+  [ "$status" -eq 0 ]
+  grep -q "GIT_CRED_OPT=''" "$TEST_TMP/ssh_argv.log"
+}
+
+@test "fleet_sync: PAT travels over ssh stdin, never appears in ssh argv" {
+  ssh() {
+    printf '%s\n' "$*" >> "$TEST_TMP/ssh_argv.log"
+    cat >> "$TEST_TMP/ssh_stdin.log"
+    return 0
+  }
+  export -f ssh
+
+  run fleet_sync ubuntu host.example 22 "" /home/ubuntu/strut main "ghp_SUPERSECRETTOKEN"
+  [ "$status" -eq 0 ]
+
+  ! grep -q "ghp_SUPERSECRETTOKEN" "$TEST_TMP/ssh_argv.log"
+  grep -q "ghp_SUPERSECRETTOKEN" "$TEST_TMP/ssh_stdin.log"
+}
