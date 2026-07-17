@@ -19,6 +19,7 @@ setup() {
   error() { echo "$1" >&2; }
   confirm() { return 0; }
 
+  source "$CLI_ROOT/lib/backup/engines.sh"
   source "$CLI_ROOT/lib/backup/verify.sh"
 }
 
@@ -102,6 +103,34 @@ EOF
   run verify_postgres_backup "test-stack" "$f" "stub_compose_cmd"
   [ "$status" -eq 0 ]
   [[ "$output" == *'"tables_verified":1'* ]]
+}
+
+@test "verify_postgres_backup: honors BACKUP_POSTGRES_SERVICE, not a hardcoded 'postgres' service (issue #389)" {
+  local f="$TEST_TMP/postgres-complete.sql"
+  cat > "$f" <<'EOF'
+CREATE TABLE widgets (id integer);
+-- PostgreSQL database dump complete
+EOF
+
+  export BACKUP_POSTGRES_SERVICE="db"
+
+  # Only responds when exec'd against the configured service name — if
+  # verify_postgres_backup fell back to a hardcoded "postgres" service,
+  # this stub returns nonzero and verification fails.
+  stub_compose_cmd() {
+    case "$*" in
+      *"exec -T db "*"SELECT COUNT(*)"*) echo "1" ;;
+      *"exec -T db "*"SELECT SUM(n_live_tup)"*) echo "3" ;;
+      *"exec -T db "*) return 0 ;;
+      *) return 1 ;;
+    esac
+  }
+
+  run verify_postgres_backup "test-stack" "$f" "stub_compose_cmd"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *'"tables_verified":1'* ]]
+
+  unset BACKUP_POSTGRES_SERVICE
 }
 
 # ── verify_mysql_backup ────────────────────────────────────────────────────────

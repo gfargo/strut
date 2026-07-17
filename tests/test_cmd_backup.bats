@@ -113,6 +113,23 @@ teardown() {
   [[ "$output" == *"backup_verify_all_cmd"* ]]
 }
 
+@test "cmd_backup: verify/verify-all/list/health load backup.conf (issue #389)" {
+  local calls_log="$TEST_TMP/load_backup_conf_calls.log"
+  load_backup_conf() { echo "$*" >> "$calls_log"; return 0; }
+  export -f load_backup_conf
+
+  run cmd_backup verify some-file.sql
+  [ "$status" -eq 0 ]
+  run cmd_backup verify-all
+  [ "$status" -eq 0 ]
+  run cmd_backup list
+  [ "$status" -eq 0 ]
+  run cmd_backup health
+  [ "$status" -eq 0 ]
+
+  [ "$(wc -l < "$calls_log")" -eq 4 ]
+}
+
 @test "cmd_backup: verify without file fails" {
   run cmd_backup verify
   [[ "$output" == *"Usage"* ]]

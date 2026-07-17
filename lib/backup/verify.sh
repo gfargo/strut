@@ -16,35 +16,13 @@ verify_postgres_backup() {
   local backup_file="$2"
   local compose_cmd="$3"
 
-  [ -f "$backup_file" ] || {
-    error "Backup file not found: $backup_file"
-    return 1
-  }
-  [ -s "$backup_file" ] || {
-    error "Verification failed: backup file is empty: $backup_file"
-    return 1
-  }
-  if [[ "$backup_file" == *.gz ]] && ! gzip -t "$backup_file" 2>/dev/null; then
-    error "Verification failed: gzip integrity check failed: $backup_file"
-    return 1
-  fi
+  # A dump truncated cleanly at a statement boundary (e.g. right after
+  # CREATE TABLE, before any data) restores without a psql error yet is
+  # missing data — validate_backup_artifact catches that (completion-marker
+  # trailer check) before wasting time on a restore.
+  validate_backup_artifact "postgres" "$backup_file" || return 1
 
-  # backup_postgres uses plain-text pg_dump, so a complete dump always ends
-  # with this trailer. A dump truncated cleanly at a statement boundary (e.g.
-  # right after CREATE TABLE, before any data) restores without a psql error
-  # yet is missing data — catch that before wasting time on a restore.
-  if [[ "$backup_file" == *.gz ]]; then
-    zgrep -q -- '-- PostgreSQL database dump complete' "$backup_file" || {
-      error "Verification failed: dump is truncated (missing completion marker)"
-      return 1
-    }
-  else
-    grep -q -- '-- PostgreSQL database dump complete' "$backup_file" || {
-      error "Verification failed: dump is truncated (missing completion marker)"
-      return 1
-    }
-  fi
-
+  local pg_service="${BACKUP_POSTGRES_SERVICE:-postgres}"
   local temp_db="verify_temp_$(date +%s)"
   local start_time
   start_time=$(date +%s)
@@ -53,7 +31,7 @@ verify_postgres_backup() {
   log "Creating temporary database: $temp_db" >&2
 
   # Create temporary database
-  if ! $compose_cmd exec -T postgres \
+  if ! $compose_cmd exec -T "$pg_service" \
     psql -U "${POSTGRES_USER:-postgres}" -c "CREATE DATABASE $temp_db;" >/dev/null 2>&1; then
     error "Failed to create temporary database"
     return 1
@@ -63,30 +41,30 @@ verify_postgres_backup() {
   # ON_ERROR_STOP=1 is essential: without it psql exits 0 on a truncated dump
   # and verification "passes" on a corrupt backup.
   log "Restoring backup to temporary database..." >&2
-  if ! $compose_cmd exec -T postgres \
+  if ! $compose_cmd exec -T "$pg_service" \
     psql -v ON_ERROR_STOP=1 -U "${POSTGRES_USER:-postgres}" -d "$temp_db" <"$backup_file" >/dev/null 2>&1; then
     error "Failed to restore backup to temporary database"
     # Cleanup
-    $compose_cmd exec -T postgres \
+    $compose_cmd exec -T "$pg_service" \
       psql -U "${POSTGRES_USER:-postgres}" -c "DROP DATABASE IF EXISTS $temp_db;" >/dev/null 2>&1
     return 1
   fi
 
   # Verify schema and get table count
   local table_count
-  table_count=$($compose_cmd exec -T postgres \
+  table_count=$($compose_cmd exec -T "$pg_service" \
     psql -U "${POSTGRES_USER:-postgres}" -d "$temp_db" -t -c \
     "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'public';" 2>/dev/null | tr -d ' ')
 
   # Get row count across all tables
   local row_count
-  row_count=$($compose_cmd exec -T postgres \
+  row_count=$($compose_cmd exec -T "$pg_service" \
     psql -U "${POSTGRES_USER:-postgres}" -d "$temp_db" -t -c \
     "SELECT SUM(n_live_tup) FROM pg_stat_user_tables;" 2>/dev/null | tr -d ' ')
 
   # Cleanup temporary database
   log "Cleaning up temporary database..." >&2
-  $compose_cmd exec -T postgres \
+  $compose_cmd exec -T "$pg_service" \
     psql -U "${POSTGRES_USER:-postgres}" -c "DROP DATABASE $temp_db;" >/dev/null 2>&1
 
   local end_time
@@ -341,20 +319,11 @@ verify_mysql_backup() {
   local backup_file="$2"
   local compose_cmd="$3"
 
-  [ -f "$backup_file" ] || {
-    error "Backup file not found: $backup_file"
-    return 1
-  }
-  [ -s "$backup_file" ] || {
-    error "Verification failed: backup file is empty: $backup_file"
-    return 1
-  }
-  # mysqldump appends this trailer on a complete dump; a dump truncated at a
-  # statement boundary restores without error yet is missing data.
-  grep -q -- '-- Dump completed on' "$backup_file" || {
-    error "Verification failed: dump is truncated (missing completion marker)"
-    return 1
-  }
+  # mysqldump appends a completion trailer on a complete dump; a dump
+  # truncated at a statement boundary restores without error yet is missing
+  # data — validate_backup_artifact catches that before wasting time on a
+  # restore.
+  validate_backup_artifact "mysql" "$backup_file" || return 1
 
   local start_time
   start_time=$(date +%s)

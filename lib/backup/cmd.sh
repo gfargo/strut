@@ -46,11 +46,19 @@ backup_command() {
     postgres|neo4j|mysql|sqlite|all) is_backup_target=true ;;
   esac
 
+  # verify/verify-all/list/health don't create/restore backups (no pre_backup
+  # hook needed) but do read BACKUP_POSTGRES_SERVICE/BACKUP_MYSQL_SERVICE/etc,
+  # so they need backup.conf loaded too, just without the hook firing.
+  local needs_backup_conf="$is_backup_target"
+  case "$target" in
+    verify|verify-all|list|health) needs_backup_conf=true ;;
+  esac
+
   # Load backup.conf up front so every per-engine backup/restore function sees
   # BACKUP_POSTGRES_SERVICE / BACKUP_NEO4J_SERVICE / BACKUP_MYSQL_SERVICE /
   # BACKUP_LOCAL_DIR regardless of which target is invoked (previously only
   # the "all" and "offsite" targets loaded this config at all).
-  if [ "$is_backup_target" = "true" ]; then
+  if [ "$needs_backup_conf" = "true" ]; then
     load_backup_conf "$stack" "$stack_dir" || fail "Failed to load backup.conf for $stack"
   fi
 
