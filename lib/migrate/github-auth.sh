@@ -110,6 +110,7 @@ clone_with_pat() {
   # Append/replace the github.com credential — the line travels over ssh's
   # stdin (never argv), so the PAT is never a literal substring of any
   # remote sed/printf argv.
+  # shellcheck disable=SC2016 # intentional: these expand on the remote shell, not here
   printf 'https://oauth2:%s@github.com\n' "$pat" | ssh_exec "$vps_user" "$vps_host" "$ssh_port" "$ssh_key" '
     read -r _cred_line
     touch ~/.git-credentials

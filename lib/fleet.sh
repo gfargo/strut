@@ -59,6 +59,7 @@ remote_ssh_with_pat() {
   local remote_script="$4"
 
   if [ -n "$gh_pat" ]; then
+    # shellcheck disable=SC2016 # intentional: these expand on the remote shell, not here
     local prelude='
       umask 077
       _cred_file=$(mktemp "${HOME}/.strut-git-cred-XXXXXX") || exit 1
