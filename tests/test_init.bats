@@ -187,10 +187,31 @@ _hostile_org_names() {
 
   [ -f "$project_dir/.gitignore" ]
   grep -q ".env" "$project_dir/.gitignore"
+  grep -qxF ".*.env" "$project_dir/.gitignore"
+  grep -qxF "*.backup-*" "$project_dir/.gitignore"
   grep -q "backups/" "$project_dir/.gitignore"
   grep -q "data/" "$project_dir/.gitignore"
   grep -q ".rollback/" "$project_dir/.gitignore"
   grep -q ".bluegreen" "$project_dir/.gitignore"
+}
+
+@test "init: generated .gitignore matches strut's actual secret-file naming (issue #396)" {
+  local project_dir="$TEST_TMP/init_gitignore_secret_names"
+  mkdir -p "$project_dir"
+
+  (cd "$project_dir" && cmd_init)
+  git -C "$project_dir" init -q
+
+  run git -C "$project_dir" check-ignore ".prod.env"
+  [ "$status" -eq 0 ]
+  run git -C "$project_dir" check-ignore ".mystack-pulled.env"
+  [ "$status" -eq 0 ]
+  run git -C "$project_dir" check-ignore ".prod.env.backup-20260101"
+  [ "$status" -eq 0 ]
+
+  # .env.template stays trackable
+  run git -C "$project_dir" check-ignore ".env.template"
+  [ "$status" -ne 0 ]
 }
 
 @test "init: preserves existing populated .gitignore and appends missing strut rules under marker" {
@@ -209,7 +230,9 @@ _hostile_org_names() {
   grep -qxF "# strut — managed rules" "$project_dir/.gitignore"
   grep -qxF ".env" "$project_dir/.gitignore"
   grep -qxF ".env.*" "$project_dir/.gitignore"
+  grep -qxF ".*.env" "$project_dir/.gitignore"
   grep -qxF "!.env.template" "$project_dir/.gitignore"
+  grep -qxF "*.backup-*" "$project_dir/.gitignore"
   grep -qxF "backups/" "$project_dir/.gitignore"
   grep -qxF "data/" "$project_dir/.gitignore"
   grep -qxF ".rollback/" "$project_dir/.gitignore"
@@ -219,7 +242,7 @@ _hostile_org_names() {
 @test "init: does not duplicate strut rules already present as bare lines" {
   local project_dir="$TEST_TMP/init_gitignore_no_dupe"
   mkdir -p "$project_dir"
-  printf 'node_modules/\n.env\n.env.*\n!.env.template\nbackups/\ndata/\n.rollback/\n.bluegreen\n' > "$project_dir/.gitignore"
+  printf 'node_modules/\n.env\n.env.*\n.*.env\n!.env.template\n*.backup-*\nbackups/\ndata/\n.rollback/\n.bluegreen\n' > "$project_dir/.gitignore"
   local before
   before="$(cat "$project_dir/.gitignore")"
 
@@ -236,7 +259,7 @@ _hostile_org_names() {
 @test "init: .gitignore is idempotent — unchanged on repeated invocations once marker exists" {
   local project_dir="$TEST_TMP/init_gitignore_idempotent"
   mkdir -p "$project_dir"
-  printf 'node_modules/\n\n# strut — managed rules\n.env\n.env.*\n!.env.template\nbackups/\ndata/\n.rollback/\n.bluegreen\n' > "$project_dir/.gitignore"
+  printf 'node_modules/\n\n# strut — managed rules\n.env\n.env.*\n.*.env\n!.env.template\n*.backup-*\nbackups/\ndata/\n.rollback/\n.bluegreen\n' > "$project_dir/.gitignore"
 
   (cd "$project_dir" && cmd_init)
   local checksum_after_first

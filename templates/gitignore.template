@@ -33,3 +33,4 @@ logs/
 .env
 .*.env
 !.env.template
+*.backup-*
