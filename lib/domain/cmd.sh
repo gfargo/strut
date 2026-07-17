@@ -46,10 +46,8 @@ domain_command() {
   local ssh_opts
   ssh_opts=$(build_ssh_opts -p "$vps_port" -k "$vps_ssh_key" --batch)
 
-  # scp uses -P (uppercase) for port, not -p — build separate opts
-  local scp_opts="-o StrictHostKeyChecking=no -o ConnectTimeout=10 -o BatchMode=yes"
-  [ -n "$vps_port" ] && scp_opts="-P $vps_port $scp_opts"
-  [ -n "$vps_ssh_key" ] && scp_opts="$scp_opts -i $vps_ssh_key"
+  local scp_opts
+  scp_opts=$(build_scp_opts -p "$vps_port" -k "$vps_ssh_key" --batch) || return 1
 
   local proxy="${REVERSE_PROXY:-nginx}"
   local conf_local=""

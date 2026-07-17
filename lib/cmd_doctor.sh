@@ -230,8 +230,12 @@ _doc_check_vps() {
     local ssh_key=""
     ssh_key=$(grep -E '^VPS_SSH_KEY=' "$env_file" 2>/dev/null | head -1 | cut -d= -f2 | tr -d '"' | tr -d "'" | xargs)
 
-    local ssh_opts="-o StrictHostKeyChecking=no -o ConnectTimeout=5 -o BatchMode=yes"
-    [ -n "$ssh_key" ] && [ -f "$ssh_key" ] && ssh_opts="$ssh_opts -i $ssh_key"
+    local ssh_opts
+    if [ -n "$ssh_key" ] && [ -f "$ssh_key" ]; then
+      ssh_opts=$(build_ssh_opts -k "$ssh_key" -t 5 --batch)
+    else
+      ssh_opts=$(build_ssh_opts -t 5 --batch)
+    fi
 
     local vps_user=""
     vps_user=$(grep -E '^VPS_USER=' "$env_file" 2>/dev/null | head -1 | cut -d= -f2 | tr -d '"' | tr -d "'" | xargs)

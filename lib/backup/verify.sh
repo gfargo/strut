@@ -366,42 +366,52 @@ verify_mysql_backup() {
   local mysql_password="${MYSQL_ROOT_PASSWORD:-${MYSQL_PASSWORD:-}}"
   local temp_db="verify_temp_$(date +%s)"
 
-  # Determine exec method
+  # Determine exec method (array, not string, so -e MYSQL_PWD can be inserted
+  # safely without relying on word-splitting). -e must precede the
+  # container/service name for both `docker exec` and `compose exec`.
   local mysql_service="${BACKUP_MYSQL_SERVICE:-mysql}"
-  local exec_prefix=""
+  local exec_prefix=()
   if [ -n "$mysql_container" ]; then
-    exec_prefix="docker exec -i $mysql_container"
+    exec_prefix=(docker exec -i -e MYSQL_PWD "$mysql_container")
   else
-    exec_prefix="$compose_cmd exec -T $mysql_service"
+    # shellcheck disable=SC2206 # intentional: compose_cmd may be "docker compose" (2 words)
+    exec_prefix=($compose_cmd exec -T -e MYSQL_PWD "$mysql_service")
   fi
+
+  # MYSQL_PWD exported locally so it never appears as a literal argv token on
+  # host or container.
+  export MYSQL_PWD="$mysql_password"
 
   # Create temporary database
   log "Creating temporary database: $temp_db" >&2
-  if ! $exec_prefix mysql -u "$mysql_user" --password="$mysql_password" \
+  if ! "${exec_prefix[@]}" mysql -u "$mysql_user" \
     -e "CREATE DATABASE \`$temp_db\`;" 2>/dev/null; then
     error "Failed to create temporary database"
+    unset MYSQL_PWD
     return 1
   fi
 
   # Restore backup to temporary database
   log "Restoring backup to temporary database..." >&2
-  if ! $exec_prefix mysql -u "$mysql_user" --password="$mysql_password" \
+  if ! "${exec_prefix[@]}" mysql -u "$mysql_user" \
     "$temp_db" <"$backup_file" 2>/dev/null; then
     error "Failed to restore backup to temporary database"
-    $exec_prefix mysql -u "$mysql_user" --password="$mysql_password" \
+    "${exec_prefix[@]}" mysql -u "$mysql_user" \
       -e "DROP DATABASE IF EXISTS \`$temp_db\`;" 2>/dev/null
+    unset MYSQL_PWD
     return 1
   fi
 
   # Get table count
   local table_count
-  table_count=$($exec_prefix mysql -u "$mysql_user" --password="$mysql_password" \
+  table_count=$("${exec_prefix[@]}" mysql -u "$mysql_user" \
     -N -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='$temp_db';" 2>/dev/null | tr -d ' ')
 
   # Cleanup
   log "Cleaning up temporary database..." >&2
-  $exec_prefix mysql -u "$mysql_user" --password="$mysql_password" \
+  "${exec_prefix[@]}" mysql -u "$mysql_user" \
     -e "DROP DATABASE IF EXISTS \`$temp_db\`;" 2>/dev/null
+  unset MYSQL_PWD
 
   local end_time
   end_time=$(date +%s)

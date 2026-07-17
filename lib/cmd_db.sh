@@ -140,11 +140,15 @@ cmd_migrate_schema() {
       else
         migrate_cmd="python -m ch_ops.migrations.neo4j_migrator $migrate_action"
       fi
+      # NEO4J_PASSWORD exported locally and referenced bare (-e VAR, no
+      # =value) so it never appears as a literal argv token in the host's
+      # `docker run` process.
+      export NEO4J_PASSWORD="${NEO4J_PASSWORD}"
       docker run --rm --pull always \
         --network "$migrate_network" \
         -e NEO4J_URI="${NEO4J_URI}" \
         -e NEO4J_USER="${NEO4J_USER:-neo4j}" \
-        -e NEO4J_PASSWORD="${NEO4J_PASSWORD}" \
+        -e NEO4J_PASSWORD \
         -e STACK_NAME="${stack}" \
         -e DEPLOY_ENV="${deploy_env_value}" \
         "${MIGRATION_IMAGE:?MIGRATION_IMAGE must be set in env file or services.conf}" \
@@ -159,9 +163,13 @@ cmd_migrate_schema() {
       else
         postgres_migrate_cmd="python -m ch_ops.migrations.postgres_migrator $pg_action"
       fi
+      # DATABASE_URL carries POSTGRES_PASSWORD — export locally and reference
+      # bare (-e VAR, no =value) so it never appears as a literal argv token
+      # in the host's `docker run` process.
+      export DATABASE_URL="postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}"
       docker run --rm --pull always \
         --network "$migrate_network" \
-        -e DATABASE_URL="postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}" \
+        -e DATABASE_URL \
         -e STACK_NAME="${stack}" \
         -e DEPLOY_ENV="${deploy_env_value}" \
         "${MIGRATION_IMAGE:?MIGRATION_IMAGE must be set in env file or services.conf}" \

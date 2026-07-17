@@ -311,10 +311,8 @@ _validate_required_vars() {
     return
   fi
 
-  # Source env file to get values
-  set -a
-  source "$env_file" 2>/dev/null || true
-  set +a
+  # Parse env file to get values (safe_load_env: no shell execution of values)
+  safe_load_env "$env_file" 2>/dev/null || true
 
   while IFS= read -r var || [ -n "$var" ]; do
     var=$(echo "$var" | xargs)

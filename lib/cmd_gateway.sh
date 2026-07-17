@@ -139,10 +139,8 @@ _gateway_deploy() {
 
   local ssh_opts
   ssh_opts=$(build_ssh_opts -p "$_GW_PORT" -k "$_GW_KEY" --batch)
-  # SCP uses -P (uppercase) for port, not -p like SSH
-  local scp_opts="-o StrictHostKeyChecking=no -o ConnectTimeout=10"
-  [[ -n "$_GW_PORT" && "$_GW_PORT" != "22" ]] && scp_opts="$scp_opts -P $_GW_PORT"
-  [[ -n "$_GW_KEY" ]] && scp_opts="$scp_opts -o IdentitiesOnly=yes -i $_GW_KEY"
+  local scp_opts
+  scp_opts=$(build_scp_opts -p "$_GW_PORT" -k "$_GW_KEY" --batch) || return 1
   local remote_path="${GATEWAY_CADDY_PATH:-/etc/caddy/Caddyfile}"
   local staging_path="/tmp/Caddyfile.new"
 

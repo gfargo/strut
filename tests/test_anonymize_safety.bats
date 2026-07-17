@@ -101,7 +101,10 @@ EOF
   MYSQL_ROOT_PASSWORD="s3cret-password" run anon_apply_mysql "test-stack" "fake_compose" "$TEST_TMP/anonymize.conf"
   [ "$status" -eq 0 ]
   ! grep -q -- "--password=" "$COMPOSE_CALL_LOG"
-  grep -q -- "-e MYSQL_PWD=s3cret-password" "$COMPOSE_CALL_LOG"
+  # Password travels via a bare `-e MYSQL_PWD` (inherited from the local
+  # shell env) — the literal secret must never appear in the exec argv log.
+  grep -q -- "-e MYSQL_PWD" "$COMPOSE_CALL_LOG"
+  ! grep -q -- "s3cret-password" "$COMPOSE_CALL_LOG"
 }
 
 # ── anon_apply_sqlite ───────────────────────────────────────────────────────

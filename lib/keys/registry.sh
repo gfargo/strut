@@ -75,10 +75,7 @@ keys_registry_rotate() {
   # Load VPS credentials from env file
   local vps_host="" vps_user="ubuntu" vps_ssh_key="" vps_port="22"
   if [ -f "$env_file" ]; then
-    set -a
-    # shellcheck source=/dev/null
-    source "$env_file"
-    set +a
+    safe_load_env "$env_file"
     vps_host="${VPS_HOST:-}"
     vps_user="${VPS_USER:-ubuntu}"
     vps_ssh_key="${VPS_SSH_KEY:-}"
@@ -253,10 +250,7 @@ keys_registry_status() {
 
   local vps_host="" vps_user="ubuntu" vps_ssh_key="" vps_port="22"
   if [ -f "$env_file" ]; then
-    set -a
-    # shellcheck source=/dev/null
-    source "$env_file"
-    set +a
+    safe_load_env "$env_file"
     vps_host="${VPS_HOST:-}"
     vps_user="${VPS_USER:-ubuntu}"
     vps_ssh_key="${VPS_SSH_KEY:-}"

@@ -365,16 +365,8 @@ _secrets_push() {
 
   # Upload
   log "[1/3] Uploading env file..."
-  # Use scp with port flag (-P for scp, not -p)
-  local scp_opts="-o StrictHostKeyChecking=no -o ConnectTimeout=10"
-  [[ -n "$vps_port" && "$vps_port" != "22" ]] && scp_opts="$scp_opts -P $vps_port"
-  [[ -n "$vps_ssh_key" ]] && scp_opts="$scp_opts -o IdentitiesOnly=yes -i $vps_ssh_key"
-  # Add mux if enabled
-  if ssh_mux_enabled 2>/dev/null; then
-    local ctl_path
-    ctl_path=$(ssh_mux_control_path)
-    scp_opts="$scp_opts -o ControlMaster=auto -o ControlPath=$ctl_path -o ControlPersist=60s"
-  fi
+  local scp_opts
+  scp_opts=$(build_scp_opts -p "$vps_port" -k "$vps_ssh_key") || return 1
 
   # shellcheck disable=SC2086
   scp $scp_opts "$local_env" "$vps_user@$vps_host:$remote_path" || fail "Upload failed"
@@ -492,14 +484,8 @@ _secrets_pull() {
 
   # Download to temp file first, then atomically rename (prevents partial file on interrupt)
   log "Downloading..."
-  local scp_opts="-o StrictHostKeyChecking=no -o ConnectTimeout=10"
-  [[ -n "$vps_port" && "$vps_port" != "22" ]] && scp_opts="$scp_opts -P $vps_port"
-  [[ -n "$vps_ssh_key" ]] && scp_opts="$scp_opts -o IdentitiesOnly=yes -i $vps_ssh_key"
-  if ssh_mux_enabled 2>/dev/null; then
-    local ctl_path
-    ctl_path=$(ssh_mux_control_path)
-    scp_opts="$scp_opts -o ControlMaster=auto -o ControlPath=$ctl_path -o ControlPersist=60s"
-  fi
+  local scp_opts
+  scp_opts=$(build_scp_opts -p "$vps_port" -k "$vps_ssh_key") || return 1
 
   local tmp_pull
   tmp_pull=$(mktemp "${local_env}.XXXXXX") || fail "Could not create temp file"
@@ -571,14 +557,8 @@ _secrets_diff() {
   local tmp_remote
   tmp_remote=$(mktemp "${TMPDIR:-/tmp}/strut-secrets-diff-XXXXXX") || { fail "Could not create temp file"; return 1; }
   trap 'rm -f "$tmp_remote" 2>/dev/null' RETURN
-  local scp_opts="-o StrictHostKeyChecking=no -o ConnectTimeout=10"
-  [[ -n "$vps_port" && "$vps_port" != "22" ]] && scp_opts="$scp_opts -P $vps_port"
-  [[ -n "$vps_ssh_key" ]] && scp_opts="$scp_opts -o IdentitiesOnly=yes -i $vps_ssh_key"
-  if ssh_mux_enabled 2>/dev/null; then
-    local ctl_path
-    ctl_path=$(ssh_mux_control_path)
-    scp_opts="$scp_opts -o ControlMaster=auto -o ControlPath=$ctl_path -o ControlPersist=60s"
-  fi
+  local scp_opts
+  scp_opts=$(build_scp_opts -p "$vps_port" -k "$vps_ssh_key") || return 1
 
   # shellcheck disable=SC2086
   scp $scp_opts "$vps_user@$vps_host:$remote_path" "$tmp_remote" 2>/dev/null || {

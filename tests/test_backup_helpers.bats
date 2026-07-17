@@ -339,7 +339,7 @@ EOF
   # returns nonzero and the backup fails.
   fake_compose() {
     case "$*" in
-      *"exec -T customsvc"*) echo "-- mysqldump output --"; return 0 ;;
+      *"exec -T -e MYSQL_PWD customsvc"*) echo "-- mysqldump output --"; return 0 ;;
       *) return 1 ;;
     esac
   }
@@ -349,4 +349,36 @@ EOF
   [ "$status" -eq 0 ]
 
   rm -rf "$stack_dir"
+}
+
+@test "_db_push_mysql: remote restore never puts the MySQL password in ssh argv (issue #390)" {
+  local stack="test-mysql-push-$$"
+  local backup_dir="$TEST_TMP/mysql-push-backups"
+  mkdir -p "$backup_dir"
+  echo "-- dump --" > "$backup_dir/mysql-20260101-000000.sql"
+
+  export MYSQL_ROOT_PASSWORD="s3cret-push-password"
+  export MYSQL_DATABASE="appdb"
+  export STRUT_YES=1
+
+  _db_push_upload() { return 0; }
+
+  local ssh_log="$TEST_TMP/ssh_argv.log"
+  local ssh_stdin_log="$TEST_TMP/ssh_stdin.log"
+  ssh() {
+    printf '%s\n' "$*" >> "$ssh_log"
+    cat > "$ssh_stdin_log"
+    return 0
+  }
+
+  run _db_push_mysql "$stack" "" "deploy" "1.2.3.4" "/remote/dir" "$backup_dir" "" "false" "single" ""
+
+  [ "$status" -eq 0 ]
+  # Password must never appear as an argv token to ssh...
+  ! grep -q -- "s3cret-push-password" "$ssh_log"
+  # ...it must travel over ssh's stdin instead.
+  grep -q -- "s3cret-push-password" "$ssh_stdin_log"
+
+  unset MYSQL_ROOT_PASSWORD MYSQL_DATABASE STRUT_YES
+  rm -rf "$backup_dir"
 }

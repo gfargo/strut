@@ -32,7 +32,7 @@ cmd_volumes() {
   validate_env_file "$env_file"
 
   local volume_conf="$stack_dir/volume.conf"
-  [ -f "$volume_conf" ] && source "$volume_conf"
+  [ -f "$volume_conf" ] && { safe_source_config "$volume_conf" || return 1; }
 
   case "$volume_action" in
     status)
