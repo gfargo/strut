@@ -49,7 +49,7 @@ get_backup_list() {
   extension=$(backup_engine_ext "$service" 2>/dev/null) || { error "Unknown service: $service"; return 1; }
 
   # List backups sorted by modification time (newest first)
-  ls -t "$backup_dir/${service}-"*."$extension" 2>/dev/null
+  ls -t "$backup_dir/${service}-"*."$extension" 2>/dev/null || true
 }
 
 # delete_backup <stack> <backup_file> <reason>

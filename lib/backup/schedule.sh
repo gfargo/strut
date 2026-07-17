@@ -267,7 +267,7 @@ check_missed_backups() {
         # Find latest backup for this service
         local latest_backup="" glob
         if glob=$(backup_engine_glob "$service" 2>/dev/null); then
-          latest_backup=$(ls -t "$backup_dir/$glob" 2>/dev/null | head -1)
+          latest_backup=$(ls -t "$backup_dir/$glob" 2>/dev/null | head -1 || true)
         fi
 
         if [ -z "$latest_backup" ]; then
