@@ -644,6 +644,56 @@ build_ssh_opts() {
   echo "$opts"
 }
 
+# build_scp_opts [options]
+#
+# Builds a standard SCP options string. Mirrors build_ssh_opts (same
+# STRUT_SSH_HOST_KEY_CHECK/accept-new default, same ControlMaster mux
+# integration) but uses scp's uppercase -P for port instead of ssh's -p.
+#   -p <port>       SCP port (omitted from opts if not provided)
+#   -k <key>        SSH key path (omitted if empty)
+#   -t <seconds>    ConnectTimeout (default: 10)
+#   --batch         Add -o BatchMode=yes (default: off)
+#   --no-mux        Suppress ControlMaster options for this call
+#
+# Echoes the options string. Caller captures via: scp_opts=$(build_scp_opts ...)
+build_scp_opts() {
+  local port="" ssh_key="" timeout=10 batch=false no_mux=false
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      -p) port="$2"; shift 2 ;;
+      -k) ssh_key="$2"; shift 2 ;;
+      -t) timeout="$2"; shift 2 ;;
+      --batch) batch=true; shift ;;
+      --no-mux) no_mux=true; shift ;;
+      *) shift ;;
+    esac
+  done
+
+  # Default to accept-new (TOFU: accept on first connect, reject on change).
+  # Override with STRUT_SSH_HOST_KEY_CHECK=no for legacy behavior.
+  local hk_mode="${STRUT_SSH_HOST_KEY_CHECK:-accept-new}"
+  local opts="-o StrictHostKeyChecking=$hk_mode -o ConnectTimeout=$timeout"
+  [[ -n "$port" && "$port" != "22" ]] && opts="$opts -P $port"
+  [[ "$batch" == true ]] && opts="$opts -o BatchMode=yes"
+  if [[ -n "$ssh_key" ]]; then
+    if [[ "$ssh_key" == *" "* ]]; then
+      echo "ERROR: SSH key path contains spaces: $ssh_key" >&2
+      echo "ERROR: Rename or symlink the key to a path without spaces." >&2
+      return 1
+    fi
+    opts="$opts -o IdentitiesOnly=yes -i $ssh_key"
+  fi
+
+  if [[ "$no_mux" != true ]] && ssh_mux_enabled; then
+    local ctl_path
+    ctl_path=$(ssh_mux_control_path)
+    opts="$opts -o ControlMaster=auto -o ControlPath=$ctl_path -o ControlPersist=60s"
+  fi
+
+  echo "$opts"
+}
+
 # ── Env file validation ──────────────────────────────────────────────────────
 
 # _env_not_found_hint <env_file>

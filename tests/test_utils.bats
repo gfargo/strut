@@ -207,6 +207,76 @@ _load_utils() {
   [[ "$result" == *"BatchMode=yes"* ]]
 }
 
+@test "build_ssh_opts: STRUT_SSH_HOST_KEY_CHECK overrides accept-new default" {
+  _load_utils
+  STRUT_SSH_HOST_KEY_CHECK=no
+  result=$(build_ssh_opts)
+  [[ "$result" == *"StrictHostKeyChecking=no"* ]]
+  [[ "$result" != *"accept-new"* ]]
+}
+
+# ── build_scp_opts (issue #386) ──────────────────────────────────────────────
+
+@test "build_scp_opts: defaults (no args) → StrictHostKeyChecking=accept-new + ConnectTimeout=10" {
+  _load_utils
+  result=$(build_scp_opts)
+  [[ "$result" == *"StrictHostKeyChecking=accept-new"* ]]
+  [[ "$result" == *"ConnectTimeout=10"* ]]
+  [[ "$result" != *"-P "* ]]
+  [[ "$result" != *"-i "* ]]
+}
+
+@test "build_scp_opts: never hardcodes StrictHostKeyChecking=no" {
+  _load_utils
+  result=$(build_scp_opts)
+  [[ "$result" != *"StrictHostKeyChecking=no"* ]]
+}
+
+@test "build_scp_opts: STRUT_SSH_HOST_KEY_CHECK overrides accept-new default" {
+  _load_utils
+  STRUT_SSH_HOST_KEY_CHECK=no
+  result=$(build_scp_opts)
+  [[ "$result" == *"StrictHostKeyChecking=no"* ]]
+}
+
+@test "build_scp_opts: -p sets uppercase -P port flag (scp convention)" {
+  _load_utils
+  result=$(build_scp_opts -p 2222)
+  [[ "$result" == *"-P 2222"* ]]
+  [[ "$result" != *"-p 2222"* ]]
+}
+
+@test "build_scp_opts: omits -P for default port 22" {
+  _load_utils
+  result=$(build_scp_opts -p 22)
+  [[ "$result" != *"-P "* ]]
+}
+
+@test "build_scp_opts: -k sets key with IdentitiesOnly=yes" {
+  _load_utils
+  result=$(build_scp_opts -k /path/to/key)
+  [[ "$result" == *"-i /path/to/key"* ]]
+  [[ "$result" == *"IdentitiesOnly=yes"* ]]
+}
+
+@test "build_scp_opts: --batch adds BatchMode=yes" {
+  _load_utils
+  result=$(build_scp_opts --batch)
+  [[ "$result" == *"BatchMode=yes"* ]]
+}
+
+@test "build_scp_opts: includes ControlMaster options by default" {
+  _load_utils
+  result=$(build_scp_opts)
+  [[ "$result" == *"ControlMaster=auto"* ]]
+}
+
+@test "build_scp_opts: --no-mux suppresses ControlMaster options" {
+  _load_utils
+  result=$(build_scp_opts --no-mux)
+  [[ "$result" != *"ControlMaster"* ]]
+}
+
 @test "ssh_mux_control_path: honors STRUT_SSH_CONTROL_DIR override" {
   _load_utils
   STRUT_SSH_CONTROL_DIR="$TEST_TMP/sockets"

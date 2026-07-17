@@ -171,14 +171,15 @@ keys_github_rotate_vps_key() {
   log "Step 3: Testing new key..."
 
   # Load VPS connection info
-  set -a
-  source "$env_file"
-  set +a
+  safe_load_env "$env_file"
 
   local vps_host="${VPS_HOST:-}"
   local vps_user="${VPS_USER:-ubuntu}"
 
-  if ssh -i "$private_key" -o StrictHostKeyChecking=no -o ConnectTimeout=5 "$vps_user@$vps_host" "echo 'SSH test successful'" &>/dev/null; then
+  local ssh_opts
+  ssh_opts=$(build_ssh_opts -k "$private_key" -t 5 --batch)
+  # shellcheck disable=SC2086
+  if ssh $ssh_opts "$vps_user@$vps_host" "echo 'SSH test successful'" &>/dev/null; then
     ok "New key works!"
   else
     warn "Could not verify new key - please test manually"
@@ -295,9 +296,7 @@ keys_github_sync() {
   )
 
   # Load env file
-  set -a
-  source "$env_file"
-  set +a
+  safe_load_env "$env_file"
 
   local synced=0
   for var in "${sync_vars[@]}"; do

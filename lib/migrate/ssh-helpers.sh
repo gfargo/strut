@@ -43,9 +43,8 @@ build_scp_cmd() {
   local ssh_port="${3:-}"
   local ssh_key="${4:-}"
 
-  local scp_opts="-o StrictHostKeyChecking=no -o ConnectTimeout=10"
-  [ -n "$ssh_port" ] && scp_opts="$scp_opts -P $ssh_port"
-  [ -n "$ssh_key" ] && scp_opts="$scp_opts -i $ssh_key"
+  local scp_opts
+  scp_opts=$(build_scp_opts -p "$ssh_port" -k "$ssh_key")
 
   echo "scp $scp_opts"
 }

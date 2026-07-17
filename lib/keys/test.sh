@@ -80,9 +80,7 @@ keys_test_ssh_all() {
     return 1
   fi
 
-  set -a
-  source "$env_file"
-  set +a
+  safe_load_env "$env_file"
 
   local vps_host="${VPS_HOST:-}"
   local vps_user="${VPS_USER:-ubuntu}"
@@ -103,8 +101,10 @@ keys_test_ssh_all() {
       continue
     fi
 
-    if ssh -n -i "$private_key" -o StrictHostKeyChecking=no -o ConnectTimeout=5 -o BatchMode=yes \
-      "$vps_user@$vps_host" "echo 'ok'" &>/dev/null; then
+    local ssh_opts
+    ssh_opts=$(build_ssh_opts -k "$private_key" -t 5 --batch)
+    # shellcheck disable=SC2086
+    if ssh -n $ssh_opts "$vps_user@$vps_host" "echo 'ok'" &>/dev/null; then
       echo -e "  ${GREEN}✓${NC} $username: SSH connection successful"
     else
       echo -e "  ${RED}✗${NC} $username: SSH connection failed"
@@ -126,9 +126,7 @@ keys_test_vps() {
     return 1
   fi
 
-  set -a
-  source "$env_file"
-  set +a
+  safe_load_env "$env_file"
 
   local vps_host="${VPS_HOST:-}"
   local vps_user="${VPS_USER:-ubuntu}"
@@ -227,9 +225,7 @@ keys_test_db() {
 
   local env_file="$CLI_ROOT/.prod.env"
   [ -f "$env_file" ] || fail "Env file not found: $env_file"
-  set -a
-  source "$env_file"
-  set +a
+  safe_load_env "$env_file"
 
   local compose_cmd
   compose_cmd=$(resolve_compose_cmd "$stack" "$env_file" "")
