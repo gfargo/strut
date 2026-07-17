@@ -265,6 +265,13 @@ local_sync_db() {
   local remote_backup_dir
   remote_backup_dir=$(_remote_backup_dir "$stack" "$ssh_opts" "$vps_user" "$vps_host" "$vps_deploy_dir")
 
+  # Tracks which engines actually restored this run, so the anonymize step
+  # below can act on what really happened rather than just what was
+  # requested via $target — and so declining one engine's confirm only
+  # skips that engine, not the rest of the function (issue #392).
+  local postgres_restored=false
+  local neo4j_restored=false
+
   # Pull and restore postgres
   if [[ "$target" == "postgres" || "$target" == "all" ]]; then
     log "Finding latest PostgreSQL backup on VPS..."
@@ -289,11 +296,12 @@ local_sync_db() {
 
       log "Restoring PostgreSQL to local environment..."
       warn "This will overwrite your local PostgreSQL database"
-      if [ "$auto_yes" = false ]; then
-        confirm "Continue with restore?" || { ok "Restore skipped"; return 0; }
+      if [ "$auto_yes" = true ] || confirm "Continue with restore?"; then
+        restore_postgres "$stack" "$compose_cmd" "$local_file"
+        postgres_restored=true
+      else
+        ok "PostgreSQL restore skipped"
       fi
-
-      restore_postgres "$stack" "$compose_cmd" "$local_file"
     fi
   fi
 
@@ -321,15 +329,20 @@ local_sync_db() {
 
       log "Restoring Neo4j to local environment..."
       warn "This will overwrite your local Neo4j database"
-      if [ "$auto_yes" = false ]; then
-        confirm "Continue with restore?" || { ok "Restore skipped"; return 0; }
+      if [ "$auto_yes" = true ] || confirm "Continue with restore?"; then
+        restore_neo4j "$stack" "$compose_cmd" "$local_file"
+        neo4j_restored=true
+      else
+        ok "Neo4j restore skipped"
       fi
-
-      restore_neo4j "$stack" "$compose_cmd" "$local_file"
     fi
   fi
 
-  # Anonymize if requested
+  # Anonymize if requested — act on what was actually restored this run,
+  # not just what $target requested (a restore that was declined or found
+  # nothing on the VPS must not be anonymized against — there's nothing new
+  # to anonymize, and anon_apply_postgres would just re-run against
+  # whatever was already local before this sync).
   if [ "$anonymize" = true ]; then
     local anon_conf="$stack_dir/anonymize.conf"
     if [ ! -f "$anon_conf" ]; then
@@ -344,8 +357,11 @@ local_sync_db() {
         anon_dry_run "$anon_conf" "postgres"
       else
         log "Applying anonymization rules from anonymize.conf..."
-        if [[ "$target" == "postgres" || "$target" == "all" ]]; then
+        if [ "$postgres_restored" = true ]; then
           anon_apply_postgres "$stack" "$compose_cmd" "$anon_conf"
+        fi
+        if [ "$neo4j_restored" = true ]; then
+          warn "Neo4j has no anonymization support yet — the restored Neo4j database still contains production data"
         fi
       fi
     fi
@@ -358,7 +374,11 @@ local_sync_db() {
     fi
   fi
 
-  ok "Database synced successfully"
+  if [ "$postgres_restored" = true ] || [ "$neo4j_restored" = true ]; then
+    ok "Database synced successfully"
+  else
+    warn "No databases were restored"
+  fi
 }
 
 # local_logs <stack> [--follow]
