@@ -12,9 +12,15 @@
 # proxy upstream, drains the old color, stops it. On health failure the
 # new color is torn down and the current color is left untouched.
 #
-# State: stacks/<stack>/.bluegreen records the currently-active color so
-# the next deploy flips to the opposite slot. A rollback reads this file
-# and flips back.
+# State: stacks/<stack>/.bluegreen.<env> records the currently-active color
+# so the next deploy of that env flips to the opposite slot. A rollback
+# reads this file and flips back. State is per-env (not per-stack) because
+# project names are per-env (<stack>-<env>-<color>) — a shared file would
+# let one env's deploy overwrite another's active color and cause an
+# in-place recreation of a live, unrelated project (strut#375). Reads fall
+# back to the old per-stack path (stacks/<stack>/.bluegreen) for
+# deployments made before this change; the first write under the new
+# scheme migrates by deleting the legacy file.
 #
 # Helpers are underscore-prefixed and intentionally small so tests can
 # stub them individually.
@@ -23,41 +29,83 @@ set -euo pipefail
 
 # ── State file ────────────────────────────────────────────────────────────────
 
-# _bg_state_file <stack>
+# _bg_state_file <stack> <env_name>
 _bg_state_file() {
+  local stack="$1" env_name="${2:-prod}"
+  local cli_root="${CLI_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+  echo "$cli_root/stacks/$stack/.bluegreen.$env_name"
+}
+
+# _bg_legacy_state_file <stack> — pre-per-env state path. Kept only for a
+# backward-compatible read fallback (_bg_read_state) and one-time migration
+# (_bg_write_state); nothing writes here anymore.
+_bg_legacy_state_file() {
   local stack="$1"
   local cli_root="${CLI_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
   echo "$cli_root/stacks/$stack/.bluegreen"
 }
 
-# _bg_read_state <stack> — echoes the current active color or empty string.
-# Parses a tiny `active_color=<blue|green>` file (not JSON, to avoid a
-# jq dependency on the fast path).
-_bg_read_state() {
-  local stack="$1"
+# _bg_resolve_state_file <stack> <env_name>
+#
+# Echoes the per-env state file path if it exists, else the legacy
+# per-stack path if THAT exists, else nothing. Shared lookup used by every
+# state reader so the fallback logic lives in exactly one place.
+_bg_resolve_state_file() {
+  local stack="$1" env_name="${2:-prod}"
   local f
-  f="$(_bg_state_file "$stack")"
-  [ -f "$f" ] || { echo ""; return 0; }
+  f="$(_bg_state_file "$stack" "$env_name")"
+  [ -f "$f" ] && { echo "$f"; return 0; }
+  f="$(_bg_legacy_state_file "$stack")"
+  [ -f "$f" ] && { echo "$f"; return 0; }
+  echo ""
+}
+
+# _bg_read_state <stack> <env_name> — echoes the current active color or
+# empty string. Parses a tiny `active_color=<blue|green>` file (not JSON,
+# to avoid a jq dependency on the fast path). Falls back to the legacy
+# per-stack file when no per-env file exists yet.
+_bg_read_state() {
+  local stack="$1" env_name="${2:-prod}"
+  local f
+  f="$(_bg_resolve_state_file "$stack" "$env_name")"
+  [ -n "$f" ] || { echo ""; return 0; }
   awk -F= '$1 == "active_color" { print $2; exit }' "$f" | tr -d '[:space:]"'
 }
 
-# _bg_write_state <stack> <color> [project]
-_bg_write_state() {
-  local stack="$1" color="$2" project="${3:-}"
+# _bg_active_project <stack> <env_name>
+#
+# Echoes the compose project name of the currently-active color, or empty
+# string if this stack/env isn't in blue-green mode. stop/status/health use
+# this to target the color actually serving traffic — the plain
+# <stack>-<env> project blue-green deploys never touch (strut#384).
+_bg_active_project() {
+  local stack="$1" env_name="${2:-prod}"
   local f
-  f="$(_bg_state_file "$stack")"
+  f="$(_bg_resolve_state_file "$stack" "$env_name")"
+  [ -n "$f" ] || { echo ""; return 0; }
+  awk -F= '$1 == "active_project" { print $2; exit }' "$f" | tr -d '[:space:]"'
+}
+
+# _bg_write_state <stack> <env_name> <color> [project]
+_bg_write_state() {
+  local stack="$1" env_name="${2:-prod}" color="$3" project="${4:-}"
+  local f
+  f="$(_bg_state_file "$stack" "$env_name")"
   mkdir -p "$(dirname "$f")"
   {
     echo "active_color=$color"
     [ -n "$project" ] && echo "active_project=$project"
     echo "updated_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   } > "$f"
+  # One-time migration: now that this env has its own state file, drop the
+  # legacy shared one so a different env can't misread it later.
+  rm -f "$(_bg_legacy_state_file "$stack")"
 }
 
-# _bg_clear_state <stack>
+# _bg_clear_state <stack> <env_name>
 _bg_clear_state() {
-  local stack="$1"
-  rm -f "$(_bg_state_file "$stack")"
+  local stack="$1" env_name="${2:-prod}"
+  rm -f "$(_bg_state_file "$stack" "$env_name")"
 }
 
 # ── Colors ────────────────────────────────────────────────────────────────────
@@ -71,15 +119,15 @@ _bg_flip_color() {
   esac
 }
 
-# _bg_pick_colors <stack>
+# _bg_pick_colors <stack> <env_name>
 #
 # Echoes two whitespace-separated tokens: "<old_color> <new_color>".
 # First deploy (no state): "none blue" — the green slot is empty, new
 # color goes to blue.
 _bg_pick_colors() {
-  local stack="$1"
+  local stack="$1" env_name="${2:-prod}"
   local current
-  current="$(_bg_read_state "$stack")"
+  current="$(_bg_read_state "$stack" "$env_name")"
   if [ -z "$current" ]; then
     echo "none blue"
   else
@@ -255,7 +303,13 @@ _bg_swap_proxy() {
 
   # Built-in fallback: reload the new project's proxy container in place.
   # This is a no-op for routing unless the compose template is built for
-  # blue-green (pluggable upstream). The warn makes that contract visible.
+  # blue-green (pluggable upstream) — plenty of real stacks are a single
+  # app container with no nginx/caddy sidecar at all, so a failed/no-op
+  # reload here is expected, not a swap failure. Deliberately non-fatal
+  # (warn, not fail/return 1); the strut#375 guard on _bg_swap_proxy's
+  # return value is aimed at BLUE_GREEN_PROXY_HOOK, a user-supplied hook
+  # that can fail meaningfully (bad nginx config, container not ready) —
+  # see the caller in bg_deploy_stack/bg_rollback_stack.
   local proxy="${REVERSE_PROXY:-nginx}"
   local new_cmd
   new_cmd="$(resolve_compose_cmd "$stack" "$env_file" "" "$new_project")"
@@ -269,6 +323,7 @@ _bg_swap_proxy() {
   else
     warn "Unknown proxy '$proxy' — skipping reload"
   fi
+  return 0
 }
 
 # _bg_drain <seconds>
@@ -328,7 +383,7 @@ bg_deploy_stack() {
 
   # Decide colors
   local pick old_color new_color
-  pick="$(_bg_pick_colors "$stack")"
+  pick="$(_bg_pick_colors "$stack" "$env_name")"
   old_color="${pick%% *}"
   new_color="${pick##* }"
 
@@ -350,14 +405,14 @@ bg_deploy_stack() {
   log "Health timeout: ${BLUE_GREEN_HEALTH_TIMEOUT:-30}s | Drain: ${BLUE_GREEN_DRAIN:-60}s"
 
   # Pre-flight
-  log "[1/9] Pre-flight checks..."
+  log "[1/8] Pre-flight checks..."
   require_cmd docker "Install with: curl -fsSL https://get.docker.com | bash"
   docker compose version &>/dev/null || fail "Docker Compose plugin not found"
   ok "Pre-flight checks passed"
 
   # Pre-deploy validation (reuse standard path's contract)
   if [ "${SKIP_VALIDATION:-false}" != "true" ] && [ "${PRE_DEPLOY_VALIDATE:-true}" = "true" ]; then
-    log "[2/9] Pre-deploy validation..."
+    log "[2/8] Pre-deploy validation..."
   fi
   deploy_run_pre_deploy_validation "$stack" "$stack_dir" "$env_file" "$env_name"
 
@@ -370,18 +425,18 @@ bg_deploy_stack() {
     run_cmd "Start $new_color project"   $new_cmd up -d --remove-orphans
     run_cmd "Wait for $new_color health (timeout: ${BLUE_GREEN_HEALTH_TIMEOUT:-30}s)" echo "probe"
     run_cmd "Swap proxy $old_color → $new_color" echo "swap"
+    run_cmd "Mark $new_color as active" echo "write state"
     run_cmd "Drain $old_color (${BLUE_GREEN_DRAIN:-60}s)" echo "drain"
     if [ "$old_color" != "none" ]; then
       run_cmd "Stop $old_color project" $old_cmd stop
     fi
-    run_cmd "Mark $new_color as active" echo "write state"
     echo ""
     echo -e "${YELLOW}[DRY-RUN] No changes made.${NC}"
     return 0
   fi
 
   # Registry auth (shared with standard deploy).
-  log "[3/9] Authenticating with registry..."
+  log "[3/8] Authenticating with registry..."
   registry_login
 
   # Save rollback snapshot of the **current** color before we touch anything.
@@ -393,11 +448,11 @@ bg_deploy_stack() {
   fi
 
   # Stand up green
-  log "[4/9] Starting $new_color project alongside $old_color..."
+  log "[4/8] Starting $new_color project alongside $old_color..."
   _bg_start_color "$new_cmd"
 
   # Health gate
-  log "[5/9] Waiting for $new_color health..."
+  log "[5/8] Waiting for $new_color health..."
   if ! _bg_wait_healthy "$stack_dir" "$new_cmd" "$compose_file" "${BLUE_GREEN_HEALTH_TIMEOUT:-30}"; then
     warn "green failed health checks — tearing down and aborting"
     _bg_teardown_failed_color "$new_cmd"
@@ -408,25 +463,34 @@ bg_deploy_stack() {
     return 1
   fi
 
-  # Swap proxy
-  log "[6/9] Swapping reverse proxy: $old_color → $new_color"
-  _bg_swap_proxy "$stack" "$old_project" "$new_project" "$env_file"
+  # Swap proxy. Guarded explicitly — an unchecked failure here used to fall
+  # through to draining/stopping the old color anyway, leaving traffic
+  # pointed at containers that had just been stopped (strut#375).
+  log "[6/8] Swapping reverse proxy: $old_color → $new_color"
+  if ! _bg_swap_proxy "$stack" "$old_project" "$new_project" "$env_file"; then
+    notify_event deploy.failed stack="$stack" env="$env_name" reason="proxy_swap_failed"
+    fail "Blue-green deploy aborted: proxy swap to $new_color failed ($old_color is still active and untouched)"
+    return 1
+  fi
+
+  # Mark active immediately after the swap succeeds, not after drain/stop
+  # below — from this point $new_color is what's actually serving traffic,
+  # so a crash or interrupt during drain/stop must not leave the state file
+  # still pointing at the old (about-to-be-stopped) color.
+  log "Marking $new_color as active"
+  _bg_write_state "$stack" "$env_name" "$new_color" "$new_project"
 
   # Drain
   if [ "$old_color" != "none" ]; then
-    log "[7/9] Draining $old_color (${BLUE_GREEN_DRAIN:-60}s)..."
+    log "[7/8] Draining $old_color (${BLUE_GREEN_DRAIN:-60}s)..."
     _bg_drain "${BLUE_GREEN_DRAIN:-60}"
 
-    log "[8/9] Stopping $old_color project..."
+    log "[8/8] Stopping $old_color project..."
     _bg_stop_color "$old_cmd"
   else
-    log "[7/9] Skipping drain (no previous color)"
-    log "[8/9] Skipping stop (no previous color)"
+    log "[7/8] Skipping drain (no previous color)"
+    log "[8/8] Skipping stop (no previous color)"
   fi
-
-  # Mark active
-  log "[9/9] Marking $new_color as active"
-  _bg_write_state "$stack" "$new_color" "$new_project"
 
   echo ""
   echo -e "${GREEN}════════════════════════════════════════════${NC}"
@@ -465,7 +529,7 @@ bg_rollback_stack() {
   env_name="$(extract_env_name "$env_file")"
 
   local current previous
-  current="$(_bg_read_state "$stack")"
+  current="$(_bg_read_state "$stack" "$env_name")"
   if [ -z "$current" ]; then
     fail "No blue-green state for $stack — use standard rollback"
     return 1
@@ -488,8 +552,8 @@ bg_rollback_stack() {
     run_cmd "Bring $previous back up"   $previous_cmd up -d --remove-orphans
     run_cmd "Wait for $previous health (timeout: ${BLUE_GREEN_HEALTH_TIMEOUT:-30}s)" echo "probe"
     run_cmd "Swap proxy $current → $previous" echo "swap"
-    run_cmd "Stop $current project"     $current_cmd stop
     run_cmd "Mark $previous active"     echo "write state"
+    run_cmd "Stop $current project"     $current_cmd stop
     echo ""
     echo -e "${YELLOW}[DRY-RUN] No changes made.${NC}"
     return 0
@@ -516,12 +580,19 @@ bg_rollback_stack() {
   fi
 
   log "Swapping proxy: $current → $previous"
-  _bg_swap_proxy "$stack" "$current_project" "$previous_project" "$env_file"
+  if ! _bg_swap_proxy "$stack" "$current_project" "$previous_project" "$env_file"; then
+    warn "  Proxy is left pointed at $current; $current has NOT been stopped"
+    fail "Blue-green rollback aborted: proxy swap to $previous failed"
+    return 1
+  fi
+
+  # Mark active immediately after the swap succeeds, before stopping
+  # $current below — same reasoning as bg_deploy_stack.
+  _bg_write_state "$stack" "$env_name" "$previous" "$previous_project"
 
   log "Stopping $current project..."
   _bg_stop_color "$current_cmd"
 
-  _bg_write_state "$stack" "$previous" "$previous_project"
   ok "Rollback complete — $previous is now active"
 
   notify_event deploy.rollback stack="$stack" env="$env_name" active_color="$previous"

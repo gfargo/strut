@@ -199,6 +199,51 @@ EOF
   [[ "$output" == *"ps"* ]]
 }
 
+# strut#384: status/health/stop used to always target the plain <stack>-<env>
+# project, which blue-green deploys never use — after a blue-green deploy
+# they'd silently query/act on an empty project.
+
+@test "cmd_status: passes the blue-green active project as resolve_compose_cmd's override" {
+  # _bg_active_project (deploy_blue_green.sh) resolves the state file path
+  # from CLI_ROOT, independent of CMD_STACK_DIR — point it at the fixture dir.
+  export CLI_ROOT="$TEST_TMP"
+  echo "active_color=green" > "$TEST_TMP/stacks/test-stack/.bluegreen.test"
+  echo "active_project=test-stack-test-green" >> "$TEST_TMP/stacks/test-stack/.bluegreen.test"
+
+  # Must expand to an invocable command (echo COMPOSE-style) — resolve_compose_cmd's
+  # result is executed directly as `$compose_cmd ps` by cmd_status.
+  resolve_compose_cmd() { echo "echo PROJECT_OVERRIDE=$4"; }
+  export -f resolve_compose_cmd
+
+  run cmd_status
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"PROJECT_OVERRIDE=test-stack-test-green"* ]]
+}
+
+@test "cmd_status: no blue-green state → resolve_compose_cmd gets an empty project override" {
+  resolve_compose_cmd() { echo "echo PROJECT_OVERRIDE=[$4]"; }
+  export -f resolve_compose_cmd
+
+  run cmd_status
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"PROJECT_OVERRIDE=[]"* ]]
+}
+
+@test "cmd_health: passes the blue-green active project as resolve_compose_cmd's override" {
+  export CLI_ROOT="$TEST_TMP"
+  echo "active_color=green" > "$TEST_TMP/stacks/test-stack/.bluegreen.test"
+  echo "active_project=test-stack-test-green" >> "$TEST_TMP/stacks/test-stack/.bluegreen.test"
+
+  should_dispatch_remote() { return 1; }
+  resolve_compose_cmd() { echo "echo PROJECT_OVERRIDE=$4"; }
+  health_run_all() { echo "health_run_all:$2"; }
+  export -f should_dispatch_remote resolve_compose_cmd health_run_all
+
+  run cmd_health
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"health_run_all:echo PROJECT_OVERRIDE=test-stack-test-green"* ]]
+}
+
 @test "cmd_prune: dispatches to docker_prune" {
   run cmd_prune
   [ "$status" -eq 0 ]

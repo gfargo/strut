@@ -334,9 +334,19 @@ deploy_stack() {
 
   ok "Existing containers stopped"
 
-  # Bring up stack
+  # Bring up stack. This step runs after the previous containers were
+  # already stopped (:327), so a failure here leaves the stack DOWN — it
+  # must never fall through to the success banner/notify_event below.
+  # Guarded explicitly (not relying on ambient `set -e`) because callers
+  # like `deploy_stack ... || _deploy_rc=$?` (cmd_deploy.sh) put this whole
+  # call on the left side of `||`, which suppresses errexit for the entire
+  # call tree per POSIX/bash semantics.
   log "[6/6] Starting services..."
-  $compose_cmd up -d --remove-orphans
+  if ! $compose_cmd up -d --remove-orphans; then
+    error "compose up failed — the stack was already stopped and is now DOWN"
+    notify_event deploy.failed stack="$stack" env="$env_name" reason="compose_up_failed"
+    return 1
+  fi
 
   echo -n "  Waiting for services to start"
   for i in $(seq 1 12); do sleep 5; echo -n "."; done
