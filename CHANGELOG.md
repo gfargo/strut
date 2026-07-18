@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.41.0](https://github.com/gfargo/strut/compare/v0.40.1...v0.41.0) (2026-07-18)
+
+
+### Features
+
+* **mcp:** add briefing and preflight synthesis tools ([#431](https://github.com/gfargo/strut/issues/431)) ([9d5cfee](https://github.com/gfargo/strut/commit/9d5cfeeb22f189d8fe3bcb0567dbe33a11de9723))
+* **topology:** tracked, always-applied, layered per-host env overrides ([#428](https://github.com/gfargo/strut/issues/428)) ([1858087](https://github.com/gfargo/strut/commit/1858087a4327d4e0361e67e7a6352ffa9d3a6c43))
+
 ## [0.40.1](https://github.com/gfargo/strut/compare/v0.40.0...v0.40.1) (2026-07-17)
 
 
