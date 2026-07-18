@@ -14,6 +14,10 @@ if [ -z "$RED" ]; then
   SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
   source "$SCRIPT_DIR/utils.sh"
 fi
+# diff_fetch_remote (SSH cat) — reused below so drift can compare against
+# the file actually deployed on the VPS, not a second local copy of the
+# same working-tree file (strut#182).
+declare -F diff_fetch_remote >/dev/null || source "${SCRIPT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}/diff.sh"
 
 # ── Configuration ─────────────────────────────────────────────────────────────
 
@@ -54,29 +58,83 @@ drift_get_git_hash() {
 
   # Check if the file is tracked in git
   if ! git -C "$cli_root" show "HEAD:$relative_path" &>/dev/null; then
-    # File not tracked in git, use current file hash
-    sha256sum "$file_path" 2>/dev/null | awk '{print $1}'
+    # File not tracked in git — hash via a captured variable (see below)
+    # rather than `sha256sum file` directly, so this stays consistent with
+    # the tracked-file branch's normalization.
+    local untracked_content
+    untracked_content=$(cat "$file_path" 2>/dev/null)
+    printf '%s' "$untracked_content" | sha256sum | awk '{print $1}'
     return 0
   fi
 
-  # Hash the git-committed content — pipe directly from git show to avoid
-  # echo adding a trailing newline that the file may not have (fixes phantom
-  # drift false positives on files without a final newline).
-  git -C "$cli_root" show "HEAD:$relative_path" 2>/dev/null | sha256sum | awk '{print $1}'
+  # Hash the git-committed content via a captured variable (command
+  # substitution strips a trailing newline) rather than piping raw bytes.
+  # This must match drift_get_vps_hash's normalization exactly: a remote
+  # fetch over SSH is ALSO captured via command substitution (diff_fetch_remote),
+  # which strips a trailing newline the same way — comparing a raw-byte git
+  # hash against a substitution-stripped remote hash would falsely flag
+  # drift on every file that simply ends in a newline (nearly all of them).
+  # A lone trailing newline is treated as insignificant everywhere in drift
+  # comparison, not just for the local case the July 2026 fix covered.
+  local git_content
+  git_content=$(git -C "$cli_root" show "HEAD:$relative_path" 2>/dev/null)
+  printf '%s' "$git_content" | sha256sum | awk '{print $1}'
 }
 
-# drift_get_vps_hash <file_path>
-# Returns the sha256 hash of the current file on disk (VPS runtime)
+# drift_get_vps_hash <stack> <tracked_file> <stack_dir>
+#
+# Returns the sha256 hash of the file as actually DEPLOYED. When VPS_HOST
+# is configured (loaded by validate_env_file before any drift_* command
+# runs — see cmd_drift.sh), fetches the real file from the VPS deploy dir
+# over SSH and hashes THAT — comparing against what's actually running,
+# not a second local copy of the same working-tree file. Previously
+# git_file and vps_file were the same local path, so drift was blind to
+# real VPS-side changes and could report CLEAN while `strut diff` showed
+# pending changes (strut#182). Falls back to the local working-tree file
+# for local-only stacks (no VPS_HOST) or when the deploy dir can't be
+# resolved.
+#
+# Echoes one of: a sha256 hash, "missing" (file absent, local or remote),
+# or "unreachable" (VPS_HOST set but SSH couldn't connect — the caller
+# must skip this file rather than treat it as drift, since "we couldn't
+# check" and "it changed" are different things).
+# Return code: 0 = hash, 1 = missing, 2 = unreachable.
 drift_get_vps_hash() {
-  local file_path="$1"
+  local stack="$1"
+  local tracked_file="$2"
+  local stack_dir="$3"
+  local local_file="$stack_dir/$tracked_file"
 
-  if [ ! -f "$file_path" ]; then
+  if [ -n "${VPS_HOST:-}" ] && declare -F resolve_deploy_dir >/dev/null 2>&1; then
+    local deploy_dir
+    deploy_dir=$(resolve_deploy_dir 2>/dev/null) || deploy_dir=""
+    if [ -n "$deploy_dir" ]; then
+      local remote_path="$deploy_dir/stacks/$stack/$tracked_file"
+      local remote_content rc=0
+      remote_content=$(diff_fetch_remote "$remote_path") || rc=$?
+      if [ "${rc:-0}" -eq 2 ]; then
+        echo "unreachable"
+        return 2
+      fi
+      if [ -z "$remote_content" ]; then
+        echo "missing"
+        return 1
+      fi
+      printf '%s' "$remote_content" | sha256sum | awk '{print $1}'
+      return 0
+    fi
+  fi
+
+  # Local-only stack, or deploy dir couldn't be resolved. Captured via a
+  # variable (strips a trailing newline) rather than `sha256sum file`
+  # directly, matching drift_get_git_hash's normalization exactly.
+  if [ ! -f "$local_file" ]; then
     echo "missing"
     return 1
   fi
-
-  # Hash the actual file on disk
-  sha256sum "$file_path" 2>/dev/null | awk '{print $1}'
+  local local_content
+  local_content=$(cat "$local_file" 2>/dev/null)
+  printf '%s' "$local_content" | sha256sum | awk '{print $1}'
 }
 
 # drift_get_git_content <file_path>
@@ -169,41 +227,63 @@ drift_validate_syntax() {
   return 0
 }
 
-# drift_generate_diff <git_file> <vps_file>
-# Generates a unified diff between git-committed and VPS files
+# drift_generate_diff <stack> <tracked_file> <stack_dir>
+#
+# Generates a unified diff between git-committed and deployed content.
+# Deployed content is the real VPS file over SSH when VPS_HOST is set
+# (matching drift_get_vps_hash's resolution), else the local working-tree
+# copy for local-only stacks.
 drift_generate_diff() {
-  local git_file="$1"
-  local vps_file="$2"
-
-  if [ ! -f "$vps_file" ]; then
-    echo "VPS file missing: $vps_file"
-    return 1
-  fi
+  local stack="$1"
+  local tracked_file="$2"
+  local stack_dir="$3"
+  local git_file="$stack_dir/$tracked_file"
 
   # Get git-committed content
   local git_content
   git_content=$(drift_get_git_content "$git_file")
 
   if [ -z "$git_content" ]; then
-    echo "Git file not tracked: $git_file"
+    echo "Git file not tracked: $tracked_file"
     return 1
   fi
 
-  # Get relative filename for labels
-  local cli_root="${CLI_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
-  local relative_path="${vps_file#$cli_root/stacks/}"
+  # Resolve deployed content the same way drift_get_vps_hash does.
+  local vps_content=""
+  local using_remote=false
+  if [ -n "${VPS_HOST:-}" ] && declare -F resolve_deploy_dir >/dev/null 2>&1; then
+    local deploy_dir
+    deploy_dir=$(resolve_deploy_dir 2>/dev/null) || deploy_dir=""
+    if [ -n "$deploy_dir" ]; then
+      using_remote=true
+      vps_content=$(diff_fetch_remote "$deploy_dir/stacks/$stack/$tracked_file") || {
+        echo "VPS unreachable: could not fetch $tracked_file"
+        return 1
+      }
+    fi
+  fi
+  if ! $using_remote; then
+    local local_file="$stack_dir/$tracked_file"
+    [ -f "$local_file" ] || { echo "VPS file missing: $tracked_file"; return 1; }
+    vps_content=$(cat "$local_file")
+  fi
+  [ -n "$vps_content" ] || { echo "VPS file missing: $tracked_file"; return 1; }
 
-  # Create temp file with git content
-  local temp_git_file
+  # Create temp files for a real diff(1) invocation
+  local temp_git_file temp_vps_file
   temp_git_file=$(mktemp)
-  echo "$git_content" > "$temp_git_file"
+  temp_vps_file=$(mktemp)
+  printf '%s' "$git_content" > "$temp_git_file"
+  printf '%s' "$vps_content" > "$temp_vps_file"
+
+  local label="local-workdir"
+  $using_remote && label="vps-runtime"
 
   # Generate unified diff with readable labels
-  diff -u --label "git-committed/$relative_path" --label "vps-runtime/$relative_path" \
-    "$temp_git_file" "$vps_file" 2>/dev/null || true  # diff returns 1 when files differ — expected
+  diff -u --label "git-committed/$tracked_file" --label "$label/$tracked_file" \
+    "$temp_git_file" "$temp_vps_file" 2>/dev/null || true  # diff returns 1 when files differ — expected
 
-  # Cleanup
-  rm -f "$temp_git_file"
+  rm -f "$temp_git_file" "$temp_vps_file"
 }
 
 # drift_detect <stack> <env>
@@ -236,10 +316,6 @@ drift_detect() {
   # Check each tracked file
   for tracked_file in "${tracked_files[@]}"; do
     local git_file="$stack_dir/$tracked_file"
-    # Compare git-committed content against the local working-tree copy.
-    # Note: this catches local uncommitted drift, not VPS drift. For full
-    # remote comparison, use `strut diff` which fetches via SSH.
-    local vps_file="$stack_dir/$tracked_file"
 
     # Skip if file doesn't exist in git
     [ -f "$git_file" ] || continue
@@ -249,17 +325,27 @@ drift_detect() {
       continue
     fi
 
-    # Get hashes
+    # Get hashes. drift_get_vps_hash fetches the real deployed file over
+    # SSH when VPS_HOST is set, falling back to the local working-tree
+    # copy for local-only stacks (strut#182).
     local git_hash
     local vps_hash
+    local vps_rc=0
     git_hash=$(drift_get_git_hash "$git_file")
-    vps_hash=$(drift_get_vps_hash "$vps_file")
+    vps_hash=$(drift_get_vps_hash "$stack" "$tracked_file" "$stack_dir") || vps_rc=$?
+    if [ "$vps_rc" -eq 2 ]; then
+      warn "Skipping $tracked_file: VPS unreachable — could not verify"
+      continue
+    fi
 
     # Compare hashes
     if [ "$git_hash" != "$vps_hash" ]; then
-      # Validate syntax before reporting drift
-      if ! drift_validate_syntax "$vps_file"; then
-        warn "Skipping $tracked_file: invalid syntax on VPS"
+      # Validate syntax before reporting drift (local-only stacks only —
+      # the remote-fetched case would need a second SSH round-trip to
+      # write the content somewhere lintable; not worth it for a
+      # best-effort pre-report sanity check).
+      if [ -z "${VPS_HOST:-}" ] && ! drift_validate_syntax "$stack_dir/$tracked_file"; then
+        warn "Skipping $tracked_file: invalid syntax on disk"
         continue
       fi
 
@@ -268,7 +354,7 @@ drift_detect() {
 
       # Generate diff
       local diff_output
-      diff_output=$(drift_generate_diff "$git_file" "$vps_file")
+      diff_output=$(drift_generate_diff "$stack" "$tracked_file" "$stack_dir")
 
       drift_details+=("{\"file\":\"$tracked_file\",\"git_hash\":\"$git_hash\",\"vps_hash\":\"$vps_hash\",\"diff\":$(echo "$diff_output" | jq -Rs .)}")
     fi
@@ -420,20 +506,22 @@ drift_fix() {
 
   for tracked_file in "${tracked_files[@]}"; do
     local git_file="$stack_dir/$tracked_file"
-    local vps_file="$stack_dir/$tracked_file"
 
     [ -f "$git_file" ] || continue
     drift_should_ignore "$git_file" "$stack_dir" && continue
 
     local git_hash
     local vps_hash
+    local vps_rc=0
     git_hash=$(drift_get_git_hash "$git_file")
-    vps_hash=$(drift_get_vps_hash "$vps_file")
+    vps_hash=$(drift_get_vps_hash "$stack" "$tracked_file" "$stack_dir") || vps_rc=$?
+    if [ "$vps_rc" -eq 2 ]; then
+      warn "Skipping $tracked_file: VPS unreachable — could not verify"
+      continue
+    fi
 
     if [ "$git_hash" != "$vps_hash" ]; then
       drifted_files+=("$tracked_file")
-      local diff_output
-      diff_output=$(drift_generate_diff "$git_file" "$vps_file")
       drift_details+=("{\"file\":\"$tracked_file\",\"git_hash\":\"$git_hash\",\"vps_hash\":\"$vps_hash\"}")
     fi
   done
@@ -528,6 +616,9 @@ drift_fix() {
   fi
 
   ok "Configuration drift fixed successfully"
+  if [ -n "${VPS_HOST:-}" ]; then
+    log "This restored the local git-tracked source — run 'strut $stack deploy --env $env' or 'release' to push it to the VPS."
+  fi
 
   # Update drift event resolution
   local latest_drift_file
@@ -571,20 +662,21 @@ drift_report() {
 
   for tracked_file in "${tracked_files[@]}"; do
     local git_file="$stack_dir/$tracked_file"
-    local vps_file="$stack_dir/$tracked_file"
 
     [ -f "$git_file" ] || continue
     drift_should_ignore "$git_file" "$stack_dir" && continue
 
     local git_hash
     local vps_hash
+    local vps_rc=0
     git_hash=$(drift_get_git_hash "$git_file")
-    vps_hash=$(drift_get_vps_hash "$vps_file")
+    vps_hash=$(drift_get_vps_hash "$stack" "$tracked_file" "$stack_dir") || vps_rc=$?
+    [ "$vps_rc" -eq 2 ] && continue  # unreachable — omit from the report rather than false-flag it
 
     if [ "$git_hash" != "$vps_hash" ]; then
       drifted_files+=("$tracked_file")
       local diff_output
-      diff_output=$(drift_generate_diff "$git_file" "$vps_file")
+      diff_output=$(drift_generate_diff "$stack" "$tracked_file" "$stack_dir")
       drift_details+=("{\"file\":\"$tracked_file\",\"git_hash\":\"$git_hash\",\"vps_hash\":\"$vps_hash\",\"diff\":$(echo "$diff_output" | jq -Rs .)}")
     fi
   done
@@ -623,20 +715,23 @@ drift_report() {
       # Show each drifted file with its diff
       for tracked_file in "${tracked_files[@]}"; do
         local git_file="$stack_dir/$tracked_file"
-        local vps_file="$stack_dir/$tracked_file"
 
-        [ -f "$vps_file" ] || continue
-        drift_should_ignore "$vps_file" "$stack_dir" && continue
+        [ -f "$git_file" ] || continue
+        drift_should_ignore "$git_file" "$stack_dir" && continue
 
         local git_hash
         local vps_hash
-        git_hash=$(drift_get_git_hash "$vps_file")
-        vps_hash=$(drift_get_vps_hash "$vps_file")
+        local vps_rc=0
+        git_hash=$(drift_get_git_hash "$git_file")
+        vps_hash=$(drift_get_vps_hash "$stack" "$tracked_file" "$stack_dir") || vps_rc=$?
+        [ "$vps_rc" -eq 2 ] && continue
 
         if [ "$git_hash" != "$vps_hash" ]; then
           echo -e "${YELLOW}File: $tracked_file${NC}"
           echo "----------------------------------------"
-          drift_generate_diff "$vps_file" "$vps_file" || echo "  (diff generation failed)"
+          # Previously compared vps_file against itself here — always an
+          # empty diff even when the hashes above disagreed.
+          drift_generate_diff "$stack" "$tracked_file" "$stack_dir" || echo "  (diff generation failed)"
           echo ""
         fi
       done
@@ -659,14 +754,14 @@ drift_diff() {
 
   local cli_root="${CLI_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
   local stack_dir="$cli_root/stacks/$stack"
-  local vps_file="$stack_dir/$file"
+  local git_file="$stack_dir/$file"
 
-  [ -f "$vps_file" ] || { error "VPS file not found: $vps_file"; return 1; }
+  [ -f "$git_file" ] || { error "File not found: $git_file"; return 1; }
 
-  # Get git-committed content
+  # Get git-committed content (just to give a clear "not tracked" error
+  # before printing headers — drift_generate_diff re-fetches this itself).
   local git_content
-  git_content=$(drift_get_git_content "$vps_file")
-
+  git_content=$(drift_get_git_content "$git_file")
   if [ -z "$git_content" ]; then
     error "File not tracked in git: $file"
     return 1
@@ -677,20 +772,17 @@ drift_diff() {
   echo -e "==================================================${NC}"
   echo ""
   echo -e "${GREEN}Git-committed version${NC} (source of truth)"
-  echo -e "${RED}VPS runtime version${NC} (current file on disk)"
+  # `drift diff` isn't routed through validate_env_file (cmd_drift.sh), so
+  # VPS_HOST is normally unset here and this shows the local working-tree
+  # copy — same as drift_generate_diff's fallback for local-only stacks.
+  if [ -n "${VPS_HOST:-}" ]; then
+    echo -e "${RED}VPS runtime version${NC} (fetched over SSH)"
+  else
+    echo -e "${RED}Local working-tree version${NC} (current file on disk)"
+  fi
   echo ""
 
-  # Create temp file with git content
-  local temp_git_file
-  temp_git_file=$(mktemp)
-  echo "$git_content" > "$temp_git_file"
-
-  # Show unified diff with labels
-  diff -u --label "git-committed/$file" --label "vps-runtime/$file" \
-    "$temp_git_file" "$vps_file" || true  # diff returns 1 when files differ — expected
-
-  # Cleanup
-  rm -f "$temp_git_file"
+  drift_generate_diff "$stack" "$file" "$stack_dir" || echo "  (diff generation failed)"
 
   return 0
 }
@@ -792,15 +884,16 @@ drift_monitor() {
 
   for tracked_file in "${tracked_files[@]}"; do
     local git_file="$stack_dir/$tracked_file"
-    local vps_file="$stack_dir/$tracked_file"
 
     [ -f "$git_file" ] || continue
     drift_should_ignore "$git_file" "$stack_dir" && continue
 
     local git_hash
     local vps_hash
+    local vps_rc=0
     git_hash=$(drift_get_git_hash "$git_file")
-    vps_hash=$(drift_get_vps_hash "$vps_file")
+    vps_hash=$(drift_get_vps_hash "$stack" "$tracked_file" "$stack_dir") || vps_rc=$?
+    [ "$vps_rc" -eq 2 ] && continue  # unreachable — don't page on a network blip
 
     if [ "$git_hash" != "$vps_hash" ]; then
       drifted_files+=("$tracked_file")

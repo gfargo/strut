@@ -114,7 +114,7 @@ cmd_drift() {
       [ -n "$json_flag" ] && img_args+=(--json)
       # Default to remote if VPS_HOST is set
       [ -n "${VPS_HOST:-}" ] && img_args+=(--remote)
-      drift_images "$stack" "${img_args[@]+"${img_args[@]}"}" "$@"
+      drift_images "$stack" "$env_file" "${img_args[@]+"${img_args[@]}"}" "$@"
       ;;
     *)
       fail "Unknown drift command: $target

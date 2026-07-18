@@ -44,7 +44,14 @@ cmd_diff() {
   local stack="$CMD_STACK"
   local stack_dir="$CMD_STACK_DIR"
   local env_name="$CMD_ENV_NAME"
-  local json_mode="${CMD_JSON:-false}"
+  # CMD_JSON is populated by the top-level flag parser (flags.sh), which
+  # strips --json out of CMD_ARGS before cmd_diff ever sees it — the value
+  # is the literal string "--json" (or unset), never "true"/"false". The
+  # loop below only catches --json if it somehow survives to CMD_ARGS
+  # (e.g. a future direct call); the real signal is CMD_JSON's presence,
+  # matching how cmd_drift.sh already reads it (strut#380).
+  local json_mode=false
+  [ -n "${CMD_JSON:-}" ] && json_mode=true
 
   while [[ $# -gt 0 ]]; do
     case "$1" in

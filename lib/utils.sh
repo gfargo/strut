@@ -68,9 +68,15 @@ error() { echo -e "${RED}✗${NC}  $(_error_prefix)$1" >&2; }
 # json_escape <string>
 #
 # Escapes a string for safe embedding inside a hand-built JSON string value.
+# The single shared escaper for all hand-built JSON in strut — table/status
+# output (lib/output.sh), notify payloads, history records, alert bodies.
+#
 # Order matters: backslashes must be escaped FIRST, then quotes, then control
 # characters — otherwise the backslashes just inserted for \n/\r/\t would
-# themselves get doubled by a later backslash pass.
+# themselves get doubled by a later backslash pass. Any other control
+# character (0x01-0x1F — e.g. a stray ANSI ESC byte) is invalid unescaped in
+# a JSON string and would make consumers like jq reject it; those get
+# \u00XX-escaped individually.
 json_escape() {
   local s="$1"
   s="${s//\\/\\\\}"
@@ -78,6 +84,18 @@ json_escape() {
   s="${s//$'\r'/\\r}"
   s="${s//$'\n'/\\n}"
   s="${s//$'\t'/\\t}"
+  if [[ "$s" == *[$'\x01'-$'\x1f']* ]]; then
+    local out="" c code i len=${#s}
+    for (( i = 0; i < len; i++ )); do
+      c="${s:i:1}"
+      if [[ "$c" < $'\x20' ]]; then
+        printf -v code '%d' "'$c"
+        printf -v c '\\u%04x' "$code"
+      fi
+      out+="$c"
+    done
+    s="$out"
+  fi
   echo "$s"
 }
 

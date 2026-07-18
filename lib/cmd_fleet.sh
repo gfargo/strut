@@ -83,7 +83,7 @@ _fleet_status() {
 
     if ! parse_host_spec "$host_spec"; then
       if $json_flag; then
-        json_entries+=("{\"host\":\"$host_alias\",\"status\":\"error\",\"error\":\"failed to parse host spec\"}")
+        json_entries+=("{\"host\":\"$(json_escape "$host_alias")\",\"status\":\"error\",\"error\":\"failed to parse host spec\"}")
       else
         printf "  %-12s %-8s %-6s %-6s %-5s %s\n" "$host_alias" "—" "—" "—" "—" "parse error"
       fi
@@ -98,7 +98,7 @@ _fleet_status() {
 
     if [ -z "$status_output" ]; then
       if $json_flag; then
-        json_entries+=("{\"host\":\"$host_alias\",\"status\":\"unreachable\"}")
+        json_entries+=("{\"host\":\"$(json_escape "$host_alias")\",\"status\":\"unreachable\"}")
       else
         printf "  %-12s %-8s %-6s %-6s %-5s %s\n" "$host_alias" "—" "—" "—" "—" "unreachable"
       fi
@@ -114,7 +114,13 @@ _fleet_status() {
     [ "$FLEET_HEAD_SHA" = "unknown" ] && short_sha="unknown"
 
     if $json_flag; then
-      json_entries+=("{\"host\":\"$host_alias\",\"status\":\"ok\",\"branch\":\"$FLEET_BRANCH\",\"behind\":\"$FLEET_BEHIND\",\"ahead\":\"$FLEET_AHEAD\",\"dirty\":$FLEET_DIRTY_COUNT,\"head_sha\":\"$FLEET_HEAD_SHA\"}")
+      # FLEET_DIRTY_COUNT is emitted unquoted (it's a count, not a string)
+      # so it must be a bare integer — a blank/non-numeric value (e.g. a
+      # truncated SSH stream) would otherwise produce invalid JSON like
+      # "dirty":,. Default and validate before interpolating.
+      local dirty_count="${FLEET_DIRTY_COUNT:-0}"
+      [[ "$dirty_count" =~ ^[0-9]+$ ]] || dirty_count=0
+      json_entries+=("{\"host\":\"$(json_escape "$host_alias")\",\"status\":\"ok\",\"branch\":\"$(json_escape "$FLEET_BRANCH")\",\"behind\":\"$(json_escape "$FLEET_BEHIND")\",\"ahead\":\"$(json_escape "$FLEET_AHEAD")\",\"dirty\":$dirty_count,\"head_sha\":\"$(json_escape "$FLEET_HEAD_SHA")\"}")
     else
       # Color-code behind count
       local behind_str="$FLEET_BEHIND"

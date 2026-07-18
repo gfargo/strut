@@ -22,7 +22,12 @@ _doc_pass() {
   local name="$1" msg="$2"
   _DOC_PASSED=$((_DOC_PASSED + 1))
   if $_DOC_JSON; then
-    _DOC_JSON_RESULTS=$(echo "$_DOC_JSON_RESULTS" | jq -c ". += [{\"name\":\"$name\",\"status\":\"pass\",\"message\":\"$msg\"}]")
+    # --arg passes values as jq DATA, not interpolated into the program
+    # text — a message/fix containing a double quote (e.g. a chmod fix
+    # like `chmod 600 "/home/u/.ssh/id_rsa"`) used to break the program
+    # string and abort `doctor --json` under set -e (strut#381).
+    _DOC_JSON_RESULTS=$(echo "$_DOC_JSON_RESULTS" | jq -c --arg n "$name" --arg m "$msg" \
+      '. += [{name:$n,status:"pass",message:$m}]')
   else
     echo -e "  ${GREEN}✓${NC} $name: $msg"
   fi
@@ -32,7 +37,8 @@ _doc_warn() {
   local name="$1" msg="$2" fix="${3:-}"
   _DOC_WARNED=$((_DOC_WARNED + 1))
   if $_DOC_JSON; then
-    _DOC_JSON_RESULTS=$(echo "$_DOC_JSON_RESULTS" | jq -c ". += [{\"name\":\"$name\",\"status\":\"warn\",\"message\":\"$msg\",\"fix\":\"$fix\"}]")
+    _DOC_JSON_RESULTS=$(echo "$_DOC_JSON_RESULTS" | jq -c --arg n "$name" --arg m "$msg" --arg f "$fix" \
+      '. += [{name:$n,status:"warn",message:$m,fix:$f}]')
   else
     echo -e "  ${YELLOW}⚠${NC} $name: $msg"
     if [ -n "$fix" ] && $_DOC_FIX; then
@@ -45,7 +51,8 @@ _doc_fail() {
   local name="$1" msg="$2" fix="${3:-}"
   _DOC_FAILED=$((_DOC_FAILED + 1))
   if $_DOC_JSON; then
-    _DOC_JSON_RESULTS=$(echo "$_DOC_JSON_RESULTS" | jq -c ". += [{\"name\":\"$name\",\"status\":\"fail\",\"message\":\"$msg\",\"fix\":\"$fix\"}]")
+    _DOC_JSON_RESULTS=$(echo "$_DOC_JSON_RESULTS" | jq -c --arg n "$name" --arg m "$msg" --arg f "$fix" \
+      '. += [{name:$n,status:"fail",message:$m,fix:$f}]')
   else
     echo -e "  ${RED}✗${NC} $name: $msg"
     if [ -n "$fix" ] && $_DOC_FIX; then

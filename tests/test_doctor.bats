@@ -213,6 +213,32 @@ teardown() {
   [[ "$output" == *"chmod"* ]]
 }
 
+# strut#381: _doc_check_ssh_key's fix string is literally `chmod 600
+# "$key"` — embedded double quotes around the path. The JSON emitters used
+# to interpolate name/message/fix straight into the jq PROGRAM text, so
+# this exact fix broke the jq program and aborted `doctor --json` under
+# set -e. The text-mode test above never exercised the JSON path at all.
+@test "cmd_doctor --json: insecure key perms (embedded-quote fix string) produces valid JSON, does not abort" {
+  command -v jq &>/dev/null || skip "jq not available"
+
+  export HOME="$TEST_TMP/home-fail-json"
+  mkdir -p "$HOME/.ssh"
+  touch "$HOME/.ssh/id_rsa"
+  chmod 755 "$HOME/.ssh"
+  chmod 644 "$HOME/.ssh/id_rsa"
+
+  _DOC_PASSED=0; _DOC_WARNED=0; _DOC_FAILED=0; _DOC_JSON=true; _DOC_FIX=true
+  _DOC_JSON_RESULTS="[]"
+
+  _doc_check_ssh_key
+
+  echo "$_DOC_JSON_RESULTS" | jq -e . >/dev/null
+  local fix
+  fix=$(echo "$_DOC_JSON_RESULTS" | jq -r '.[] | select(.name == "SSH key permissions") | .fix')
+  [[ "$fix" == *"chmod 600"* ]]
+  [[ "$fix" == *"id_rsa"* ]]
+}
+
 # ── --deep flag parsing ──────────────────────────────────────────────────────
 
 @test "cmd_doctor: --deep implies --check-vps" {
