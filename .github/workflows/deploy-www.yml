@@ -1,0 +1,80 @@
+name: deploy-www
+
+# Redeploy the marketing site (strut-www, on Vercel) whenever a new strut
+# release is published, so its version badge — regenerated at build time by
+# strut-www's own `prebuild` step (scripts/fetch-version.js fetches
+# releases/latest) — always reflects the newest release. Also runnable on
+# demand from the Actions "Run workflow" button.
+#
+# Trigger note (same constraint as homebrew.yml): GitHub suppresses
+# workflow-triggering for events authored by the default GITHUB_TOKEN, so a
+# release cut with that token will NOT wake this `on: release` workflow.
+# release-please.yml uses RELEASE_PLEASE_TOKEN (a PAT/App token) precisely so
+# its releases are authored by a real actor and thus fire downstream workflows
+# like this one. If releases aren't triggering a site deploy, that secret is
+# the thing to check.
+#
+# Setup (one-time, by a maintainer): create a Deploy Hook in the strut-www
+# Vercel project (Settings → Git → Deploy Hooks, bound to the production
+# branch) and add its URL as the repo secret VERCEL_WWW_DEPLOY_HOOK. Until
+# then this workflow is a no-op (warns and exits green), so it's safe to merge
+# ahead of the setup.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deploy-www:
+    # Deploy on published, non-prerelease releases and on manual dispatch.
+    # Drafts never emit `published`; prereleases are skipped so the site tracks
+    # the latest stable version only. On workflow_dispatch there is no release
+    # payload, so `prerelease` is null and the manual branch allows it.
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.release.prerelease == false }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger strut-www Vercel deploy
+        env:
+          # Secrets can't be read in a step `if:`, so the empty-secret guard
+          # lives in the script below.
+          HOOK: ${{ secrets.VERCEL_WWW_DEPLOY_HOOK }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${HOOK:-}" ]; then
+            echo "::warning::VERCEL_WWW_DEPLOY_HOOK is not set — skipping strut-www redeploy."
+            echo "To enable automatic site updates on release:"
+            echo "  1. In the strut-www Vercel project: Settings → Git → Deploy Hooks"
+            echo "  2. Create a hook on the production branch, copy its URL"
+            echo "  3. Add it here as repo secret VERCEL_WWW_DEPLOY_HOOK"
+            exit 0
+          fi
+
+          # Guard against a mis-pasted secret — never POST to a non-https target.
+          case "$HOOK" in
+            https://*) : ;;
+            *) echo "::error::VERCEL_WWW_DEPLOY_HOOK is not an https URL — refusing to POST."; exit 1 ;;
+          esac
+
+          ref="${RELEASE_TAG:-manual dispatch}"
+          echo "Triggering strut-www redeploy for: ${ref}"
+
+          # Deploy hooks accept an empty POST. A few retries ride out transient
+          # network blips before we surface a real failure.
+          http_code="$(curl -sS -X POST "$HOOK" \
+            --retry 3 --retry-delay 5 \
+            -o /tmp/hook_response.json -w '%{http_code}')"
+
+          echo "Vercel responded HTTP ${http_code}:"
+          cat /tmp/hook_response.json 2>/dev/null || true
+          echo ""
+
+          case "$http_code" in
+            2??) echo "✓ strut-www redeploy triggered — the build's prebuild step will refresh the version badge." ;;
+            *)   echo "::error::Vercel deploy hook returned HTTP ${http_code}"; exit 1 ;;
+          esac
