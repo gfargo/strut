@@ -70,8 +70,8 @@ domain_command() {
     esac
     if ! $skip_ssl; then
       run_cmd "Commit SSL config to git" git commit -m "[SSL] Configure HTTPS for $domain"
-      run_cmd "Push to git" git push origin main
-      run_cmd "Update VPS repo" ssh "$vps_user@$vps_host" "git pull origin main"
+      run_cmd "Push to git" git push
+      run_cmd "Update VPS repo" ssh "$vps_user@$vps_host" "git pull origin ${DEFAULT_BRANCH:-main}"
       run_cmd "Restart $proxy on VPS" ssh "$vps_user@$vps_host" "docker compose restart $proxy"
     fi
     echo ""
@@ -132,7 +132,7 @@ domain_command() {
         ok "SSL config committed and pushed to git"
         log "Updating VPS repo to sync SSL config..."
         ssh $ssh_opts "$vps_user@$vps_host" \
-          "cd '$deploy_dir' && git pull origin main"
+          "cd '$deploy_dir' && git pull origin ${DEFAULT_BRANCH:-main}"
         log "Restarting $proxy to load updated config..."
         ssh $ssh_opts "$vps_user@$vps_host" \
           "cd '$deploy_dir' && docker compose --project-name ${env_name:-prod} restart $proxy"

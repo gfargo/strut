@@ -223,10 +223,22 @@ _webhook_serve() {
   export _WEBHOOK_BRANCH="$branch"
   export _WEBHOOK_CLI_ROOT="${CLI_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 
-  local handler_script
-  handler_script=$(_webhook_handler_script)
+  # Write the handler to a real, executable file rather than passing its
+  # text directly as socat's SYSTEM: command. socat runs SYSTEM: via
+  # `/bin/sh -c "<text>"` — on stock Debian/Ubuntu /bin/sh is dash, which
+  # chokes on this script's bash-only syntax (${line,,}, $'\r') before it
+  # ever validates a request. Pointing SYSTEM: at a file with a bash
+  # shebang instead makes the KERNEL exec it via #!/usr/bin/env bash,
+  # sidestepping dash entirely (strut#393).
+  local handler_file
+  handler_file=$(mktemp "${TMPDIR:-/tmp}/strut-webhook-handler.XXXXXX")
+  _webhook_handler_script > "$handler_file"
+  chmod +x "$handler_file"
+  if declare -F strut_register_cleanup >/dev/null; then
+    strut_register_cleanup "rm -f '$handler_file'"
+  fi
 
-  socat "TCP-LISTEN:$port,fork,reuseaddr" "SYSTEM:$handler_script"
+  socat "TCP-LISTEN:$port,fork,reuseaddr" "SYSTEM:$handler_file"
 }
 
 _webhook_handler_script() {
@@ -241,9 +253,19 @@ signature=""
 while IFS= read -r line; do
   line="${line%%$'\r'}"
   [ -z "$line" ] && break
+  # Strip up to the first colon, then any leading whitespace — tolerant of
+  # a missing space after ':' (a reformatting proxy can drop it, which
+  # would otherwise leave content_length non-numeric and silently zero the
+  # body read below).
   case "${line,,}" in
-    content-length:*) content_length="${line#*: }" ;;
-    x-hub-signature-256:*) signature="${line#*: }" ;;
+    content-length:*)
+      content_length="${line#*:}"
+      content_length="$(echo "$content_length" | sed 's/^[[:space:]]*//')"
+      ;;
+    x-hub-signature-256:*)
+      signature="${line#*:}"
+      signature="$(echo "$signature" | sed 's/^[[:space:]]*//')"
+      ;;
   esac
 done
 
