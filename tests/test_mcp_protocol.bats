@@ -111,3 +111,35 @@ _serve() {
   [ "$status" -eq 0 ]
   [[ "$output" == *'-32601'* ]]
 }
+
+@test "framed multi-byte UTF-8 body: Content-Length is a byte count, not a char count" {
+  # msg's Content-Length must be its BYTE length (wc -c, locale-independent).
+  # Using a char-counting read (${#msg} under a UTF-8 locale) would
+  # under-consume the body and desync onto the next frame's headers.
+  local msg='{"jsonrpc":"2.0","id":1,"method":"ping","params":{"note":"héllo wörld 日本語 🎉"}}'
+  local next='{"jsonrpc":"2.0","id":2,"method":"ping"}'
+  local infile="$TEST_TMP/in"
+  local byte_len
+  byte_len=$(printf '%s' "$msg" | wc -c)
+
+  {
+    printf 'Content-Length: %d\r\n\r\n%s' "$byte_len" "$msg"
+    printf 'Content-Length: %d\r\n\r\n%s' "${#next}" "$next"
+  } > "$infile"
+
+  run _serve "$infile"
+  [ "$status" -eq 0 ]
+  [ "$(printf '%s\n' "$output" | grep -c '"jsonrpc"')" -eq 2 ]
+  [[ "$output" == *'"id":1'* ]]
+  [[ "$output" == *'"id":2'* ]]
+}
+
+@test "framed message with lowercase content-length header: still parsed" {
+  local msg='{"jsonrpc":"2.0","id":1,"method":"ping"}'
+  local infile="$TEST_TMP/in"
+  printf 'content-length: %d\r\n\r\n%s' "${#msg}" "$msg" > "$infile"
+
+  run _serve "$infile"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *'"id":1'* ]]
+}

@@ -12,14 +12,15 @@ set -euo pipefail
 # HTTP-style framing (Kiro, VS Code MCP clients) per the MCP stdio transport
 # spec. Returns non-zero on EOF.
 _mcp_read_message() {
-  local header hdr len
+  local header header_lc hdr len
 
   if ! IFS= read -r header; then
     return 1
   fi
   header="${header%$'\r'}"
+  header_lc="${header,,}"
 
-  if [[ "$header" =~ ^Content-Length:[[:space:]]*([0-9]+)[[:space:]]*$ ]]; then
+  if [[ "$header_lc" =~ ^content-length:[[:space:]]*([0-9]+)[[:space:]]*$ ]]; then
     len="${BASH_REMATCH[1]}"
 
     # Consume remaining headers up to the blank separator line
@@ -30,7 +31,10 @@ _mcp_read_message() {
 
     REPLY=""
     if [ "$len" -gt 0 ]; then
-      IFS= read -r -N "$len" REPLY || true
+      # Content-Length is a BYTE count; force the C locale so `read -N`
+      # counts bytes instead of multi-byte characters (a UTF-8 locale would
+      # under-consume the body and desync the stream on non-ASCII content).
+      LC_ALL=C IFS= read -r -N "$len" REPLY || true
     fi
     return 0
   fi
