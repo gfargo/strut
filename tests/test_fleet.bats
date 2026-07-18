@@ -237,8 +237,8 @@ teardown() {
 
   ! grep -q "ghp_SUPERSECRETTOKEN" "$TEST_TMP/ssh_argv.log"
   grep -q "ghp_SUPERSECRETTOKEN" "$TEST_TMP/ssh_stdin.log"
-  # The remote script references the credential var, not a literal URL-embedded token
-  grep -q 'GIT_CRED_OPT' "$TEST_TMP/ssh_argv.log"
+  # The remote script defines a git_cred() wrapper, not a literal URL-embedded token
+  grep -q 'git_cred()' "$TEST_TMP/ssh_argv.log"
 }
 
 @test "fleet_git_status: no PAT means no credential setup, and ssh gets no stdin" {
@@ -250,7 +250,42 @@ teardown() {
 
   run fleet_git_status ubuntu host.example 22 "" /home/ubuntu/strut main ""
   [ "$status" -eq 0 ]
-  grep -q "GIT_CRED_OPT=''" "$TEST_TMP/ssh_argv.log"
+  grep -q 'git_cred() { git "$@"; }' "$TEST_TMP/ssh_argv.log"
+}
+
+@test "remote_ssh_with_pat: git_cred keeps credential.helper's value as ONE argv token to git (issue #429)" {
+  # Reproduces #429: an earlier version handed the remote script an unquoted
+  # $GIT_CRED_OPT variable containing "-c credential.helper=store --file=X"
+  # as one string; referenced unquoted, the remote shell word-split it into
+  # three tokens and "--file=X" landed as an invalid top-level git flag
+  # instead of staying part of the -c value. Simulate the remote shell
+  # actually running the generated script against a fake `git`.
+  ssh() {
+    local script="${@: -1}"
+    cat > /dev/null  # consume the piped PAT so the writer doesn't block
+    bash -c "
+      git() {
+        echo \"argv_count=\$#\"
+        local i=1
+        for a in \"\$@\"; do echo \"argv[\$i]=[\$a]\"; i=\$((i+1)); done
+      }
+      mktemp() { echo \"$TEST_TMP/fake-cred-file\"; }
+      $script
+    " > "$TEST_TMP/remote_output.log" 2>&1
+  }
+  export -f ssh
+
+  # deploy_dir must actually exist — fleet_git_status's remote script exits
+  # early (before ever reaching git_cred) when [ ! -d "$deploy_dir" ].
+  run fleet_git_status ubuntu host.example 22 "" "$TEST_TMP" main "ghp_FAKETOKEN"
+  [ "$status" -eq 0 ]
+
+  grep -q "argv\[1\]=\[-c\]" "$TEST_TMP/remote_output.log"
+  # The credential.helper value (which itself contains a space) must arrive
+  # as a single argv token — not split into "credential.helper=store" and
+  # "--file=..." as two separate (and for the second, invalid) top-level args.
+  grep -q "argv\[2\]=\[credential.helper=store --file=" "$TEST_TMP/remote_output.log"
+  ! grep -q "argv\[3\]=\[--file=" "$TEST_TMP/remote_output.log"
 }
 
 @test "fleet_sync: PAT travels over ssh stdin, never appears in ssh argv" {

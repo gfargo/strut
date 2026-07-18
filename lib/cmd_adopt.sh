@@ -323,7 +323,7 @@ _adopt_bootstrap_checkout() {
       # PAT travels over ssh's stdin (never argv) — see remote_ssh_with_pat.
       local clone_script="
         set -e
-        git clone \$GIT_CRED_OPT \
+        git_cred clone \
           --branch $branch_q \
           $clone_url_q $deploy_dir_q
       "

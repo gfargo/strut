@@ -49,9 +49,17 @@ fleet_git_status_parse() {
 # of outcome. If gh_pat is empty, <remote_script> runs as-is (no credential
 # setup, git falls back to whatever auth is already configured on the host).
 #
-# Inside <remote_script>, reference \$GIT_CRED_OPT (a remote shell var this
-# function defines — empty when gh_pat is empty) as extra args to git, e.g.:
-#   git \$GIT_CRED_OPT fetch origin
+# Inside <remote_script>, invoke `git_cred` (a remote shell function this
+# function defines) in place of `git` wherever the operation needs auth,
+# e.g.: git_cred fetch origin
+#
+# git_cred wraps `git -c "credential.helper=store --file=$_cred_file" "$@"`
+# with the value double-quoted inside the function body — NOT exposed as a
+# plain variable callers interpolate unquoted. An earlier version handed
+# callers a $GIT_CRED_OPT string containing both the `-c` flag and its
+# (space-containing) value; unquoted at the call site, the remote shell
+# word-split it into separate argv tokens and `--file=...` landed as an
+# invalid top-level git flag instead of staying part of the -c value (#429).
 remote_ssh_with_pat() {
   local ssh_opts="$1"
   local target="$2"
@@ -66,15 +74,15 @@ remote_ssh_with_pat() {
       trap '"'"'rm -f "$_cred_file"'"'"' EXIT
       IFS= read -r _cred_line
       printf "%s\n" "$_cred_line" > "$_cred_file"
-      GIT_CRED_OPT="-c credential.helper=store --file=$_cred_file"
+      git_cred() { git -c "credential.helper=store --file=$_cred_file" "$@"; }
     '
     # shellcheck disable=SC2029
     printf 'https://oauth2:%s@github.com\n' "$gh_pat" | ssh $ssh_opts "$target" "$prelude
 $remote_script"
   else
-    # shellcheck disable=SC2029
-    ssh $ssh_opts "$target" "GIT_CRED_OPT=''
-$remote_script"
+    # shellcheck disable=SC2016 # intentional: expands on the remote shell
+    ssh $ssh_opts "$target" 'git_cred() { git "$@"; }
+'"$remote_script"
   fi
 }
 
@@ -125,7 +133,7 @@ fleet_git_status() {
     cur_branch=\$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo 'unknown')
 
     _fetch_ok=true
-    git \$GIT_CRED_OPT fetch origin 2>/dev/null || _fetch_ok=false
+    git_cred fetch origin 2>/dev/null || _fetch_ok=false
 
     if \$_fetch_ok; then
       behind=\$(git rev-list --count HEAD..origin/'$branch' 2>/dev/null || echo 0)
@@ -229,7 +237,7 @@ fleet_sync() {
     git log --oneline -1
 
     echo '--- Fetching origin ---'
-    git \$GIT_CRED_OPT fetch origin
+    git_cred fetch origin
 
     echo '--- Resetting to origin/$branch ---'
     git reset --hard 'origin/$branch'

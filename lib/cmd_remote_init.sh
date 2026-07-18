@@ -187,7 +187,7 @@ Next step: remove the directory and re-run remote:init for a clean checkout:
     # PAT travels over ssh's stdin (never argv) — see remote_ssh_with_pat.
     local clone_script="
       set -e
-      git clone \$GIT_CRED_OPT \
+      git_cred clone \
         --branch '$branch' \
         '$clone_url' '$deploy_dir'
     "
