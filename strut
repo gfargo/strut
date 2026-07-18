@@ -606,6 +606,15 @@ case "${1:-}" in
     cmd_webhook "$@"
     exit $?
     ;;
+  secrets-filter)
+    shift
+    # Stack-agnostic on purpose: git invokes `clean`/`smudge` with just a
+    # repo-relative path (no stack context), and `install`/`uninstall`/
+    # `status` configure one filter driver shared by every stack. cmd_secrets.sh
+    # is already sourced above (it's a per-stack command too).
+    cmd_secrets_filter "$@"
+    exit $?
+    ;;
   mcp)
     shift
     source "$LIB/cmd_mcp.sh"

@@ -88,7 +88,11 @@ EOF
   # NEVER truncate an existing .gitignore — it is the primary defense against
   # `git clean -fd` deleting untracked data dirs on deploy. Append a marker
   # block with only the rules that are missing.
-  local -a strut_ignores=('.env' '.env.*' '.*.env' '!.env.template' '*.backup-*' 'backups/' 'data/' '.rollback/' '.bluegreen')
+  # !*.env.age / !*.env.gpg: at-rest encrypted secrets (`secrets lock` /
+  # `secrets-filter`) are ciphertext and meant to be committed. They don't
+  # end in literally ".env" so .*.env above already misses them — these
+  # negations make that explicit and future-proof (strut#178).
+  local -a strut_ignores=('.env' '.env.*' '.*.env' '!.env.template' '!*.env.age' '!*.env.gpg' '*.backup-*' 'backups/' 'data/' '.rollback/' '.bluegreen')
   if [ ! -f "$PWD/.gitignore" ]; then
     {
       echo "# strut — generated .gitignore"

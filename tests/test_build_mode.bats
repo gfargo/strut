@@ -87,6 +87,18 @@ EOF
   [[ "$output" != *"DOCKER_PULL_CALLED"* ]]
 }
 
+@test "pull_only_stack: loads common.env before the stack env file (strut#176)" {
+  cat > "$TEST_TMP/stacks/hub/services.conf" <<'EOF'
+BUILD_MODE=none
+EOF
+  cat > "$TEST_TMP/common.env" <<'EOF'
+REGISTRY_HOST=ghcr.io/shared-org
+EOF
+
+  pull_only_stack "hub" "$TEST_TMP/.prod.env" "" >/dev/null
+  [ "$REGISTRY_HOST" = "ghcr.io/shared-org" ]
+}
+
 @test "pull_only_stack: BUILD_MODE=none skips both pull and build" {
   cat > "$TEST_TMP/stacks/hub/services.conf" <<'EOF'
 BUILD_MODE=none

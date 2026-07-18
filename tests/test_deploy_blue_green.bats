@@ -100,10 +100,57 @@ _record() { echo "$*" >> "$CALLS_FILE"; }
 }
 
 @test "_bg_write_state + _bg_read_state: round-trips the active color" {
-  _bg_write_state "$STACK" "green" "demo-test-green"
-  run _bg_read_state "$STACK"
+  _bg_write_state "$STACK" "test" "green" "demo-test-green"
+  run _bg_read_state "$STACK" "test"
   [ "$status" -eq 0 ]
   [ "$output" = "green" ]
+}
+
+# strut#375: state used to be keyed per-stack, not per-env — a prod deploy
+# and a staging deploy of the same stack would overwrite each other's
+# active color and could trigger an in-place recreation of a live project.
+@test "_bg_state_file: prod and staging get distinct per-env state files" {
+  [ "$(_bg_state_file "$STACK" "prod")" != "$(_bg_state_file "$STACK" "staging")" ]
+}
+
+@test "_bg_write_state + _bg_read_state: prod and staging don't clobber each other" {
+  _bg_write_state "$STACK" "prod" "blue" "demo-prod-blue"
+  _bg_write_state "$STACK" "staging" "green" "demo-staging-green"
+
+  [ "$(_bg_read_state "$STACK" "prod")" = "blue" ]
+  [ "$(_bg_read_state "$STACK" "staging")" = "green" ]
+
+  # A subsequent prod deploy still sees prod's own color, unaffected by
+  # staging having been written in between.
+  _bg_write_state "$STACK" "staging" "blue" "demo-staging-blue"
+  [ "$(_bg_read_state "$STACK" "prod")" = "blue" ]
+}
+
+@test "_bg_read_state: falls back to the legacy per-stack file when no per-env file exists" {
+  local legacy
+  legacy="$(_bg_legacy_state_file "$STACK")"
+  mkdir -p "$(dirname "$legacy")"
+  echo "active_color=green" > "$legacy"
+
+  [ "$(_bg_read_state "$STACK" "prod")" = "green" ]
+}
+
+@test "_bg_write_state: migrates away from the legacy file once a per-env file is written" {
+  local legacy
+  legacy="$(_bg_legacy_state_file "$STACK")"
+  mkdir -p "$(dirname "$legacy")"
+  echo "active_color=green" > "$legacy"
+
+  _bg_write_state "$STACK" "prod" "blue" "demo-prod-blue"
+
+  [ ! -f "$legacy" ]
+  [ "$(_bg_read_state "$STACK" "prod")" = "blue" ]
+}
+
+@test "_bg_active_project: echoes the active_project field, empty when no state" {
+  [ -z "$(_bg_active_project "$STACK" "prod")" ]
+  _bg_write_state "$STACK" "prod" "green" "demo-prod-green"
+  [ "$(_bg_active_project "$STACK" "prod")" = "demo-prod-green" ]
 }
 
 @test "_bg_flip_color: blue ↔ green, unknown → blue" {
@@ -114,21 +161,21 @@ _record() { echo "$*" >> "$CALLS_FILE"; }
 }
 
 @test "_bg_pick_colors: first deploy yields 'none blue'" {
-  run _bg_pick_colors "$STACK"
+  run _bg_pick_colors "$STACK" "test"
   [ "$status" -eq 0 ]
   [ "$output" = "none blue" ]
 }
 
 @test "_bg_pick_colors: after active=blue → flips to green" {
-  _bg_write_state "$STACK" "blue" "demo-test-blue"
-  run _bg_pick_colors "$STACK"
+  _bg_write_state "$STACK" "test" "blue" "demo-test-blue"
+  run _bg_pick_colors "$STACK" "test"
   [ "$status" -eq 0 ]
   [ "$output" = "blue green" ]
 }
 
 @test "_bg_pick_colors: after active=green → flips to blue" {
-  _bg_write_state "$STACK" "green" "demo-test-green"
-  run _bg_pick_colors "$STACK"
+  _bg_write_state "$STACK" "test" "green" "demo-test-green"
+  run _bg_pick_colors "$STACK" "test"
   [ "$status" -eq 0 ]
   [ "$output" = "green blue" ]
 }
@@ -192,13 +239,13 @@ _record() { echo "$*" >> "$CALLS_FILE"; }
   ! grep -q "^stop:"  "$CALLS_FILE"
 
   # State now tracks blue
-  run _bg_read_state "$STACK"
+  run _bg_read_state "$STACK" "test"
   [ "$output" = "blue" ]
 }
 
 @test "bg_deploy_stack: second deploy flips blue → green and drains old" {
   # Seed state as if a previous deploy landed on blue.
-  _bg_write_state "$STACK" "blue" "demo-test-blue"
+  _bg_write_state "$STACK" "test" "blue" "demo-test-blue"
 
   _bg_start_color()  { _record "start:$1"; }
   _bg_wait_healthy() { _record "wait:ok"; return 0; }
@@ -225,11 +272,11 @@ _record() { echo "$*" >> "$CALLS_FILE"; }
   grep "^stop:"  "$CALLS_FILE" | grep -q "demo-test-blue"
 
   # State advances to green
-  [ "$(_bg_read_state "$STACK")" = "green" ]
+  [ "$(_bg_read_state "$STACK" "test")" = "green" ]
 }
 
 @test "bg_deploy_stack: health failure tears down green, leaves old color untouched" {
-  _bg_write_state "$STACK" "blue" "demo-test-blue"
+  _bg_write_state "$STACK" "test" "blue" "demo-test-blue"
 
   _bg_start_color()  { _record "start:$1"; }
   _bg_wait_healthy() { _record "wait:FAIL"; return 1; }
@@ -252,11 +299,63 @@ _record() { echo "$*" >> "$CALLS_FILE"; }
   ! grep -q "^stop:"  "$CALLS_FILE"
 
   # State is unchanged — blue still active
-  [ "$(_bg_read_state "$STACK")" = "blue" ]
+  [ "$(_bg_read_state "$STACK" "test")" = "blue" ]
+}
+
+# strut#375: an unchecked proxy-swap failure used to fall through to
+# draining/stopping the old color anyway — traffic left pointed at
+# containers that had just been stopped.
+@test "bg_deploy_stack: proxy swap failure aborts, leaves old color running, state unchanged" {
+  _bg_write_state "$STACK" "test" "blue" "demo-test-blue"
+
+  _bg_start_color()  { _record "start:$1"; }
+  _bg_wait_healthy() { _record "wait:ok"; return 0; }
+  _bg_swap_proxy()   { _record "swap:$2→$3"; return 1; }
+  _bg_drain()        { _record "drain:$1"; }
+  _bg_stop_color()   { _record "stop:$1"; }
+  _bg_teardown_failed_color() { _record "teardown:$1"; }
+  export -f _bg_start_color _bg_wait_healthy _bg_swap_proxy _bg_drain _bg_stop_color _bg_teardown_failed_color
+
+  export PRE_DEPLOY_VALIDATE=false DRY_RUN=false SKIP_VALIDATION=false
+
+  run bg_deploy_stack "$STACK" "$ENV_FILE"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"proxy swap"* ]]
+  [[ "$output" == *"notify_event deploy.failed"* ]]
+  [[ "$output" == *"reason=proxy_swap_failed"* ]]
+
+  # Swap was attempted, but drain/stop of the old (still-live) color never ran.
+  grep -q "^swap:demo-test-blue→demo-test-green" "$CALLS_FILE"
+  ! grep -q "^drain:" "$CALLS_FILE"
+  ! grep -q "^stop:"  "$CALLS_FILE"
+
+  # State is unchanged — blue is still active, green was never marked live.
+  [ "$(_bg_read_state "$STACK" "test")" = "blue" ]
+}
+
+@test "bg_deploy_stack: state is marked active right after the swap, before drain" {
+  _bg_write_state "$STACK" "test" "blue" "demo-test-blue"
+
+  _bg_start_color()  { _record "start:$1"; }
+  _bg_wait_healthy() { _record "wait:ok"; return 0; }
+  _bg_swap_proxy()   { _record "swap:$2→$3"; }
+  # Read state from inside the drain stub — if state isn't written until
+  # AFTER drain/stop (the pre-fix ordering), this observes the OLD color.
+  _bg_drain() {
+    _record "drain:state-seen=$(_bg_read_state "$STACK" "test")"
+  }
+  _bg_stop_color()   { _record "stop:$1"; }
+  export -f _bg_start_color _bg_wait_healthy _bg_swap_proxy _bg_drain _bg_stop_color
+
+  export PRE_DEPLOY_VALIDATE=false DRY_RUN=false SKIP_VALIDATION=false
+
+  run bg_deploy_stack "$STACK" "$ENV_FILE"
+  [ "$status" -eq 0 ]
+  grep -q "^drain:state-seen=green" "$CALLS_FILE"
 }
 
 @test "bg_deploy_stack: dry-run prints plan, touches nothing, no state change" {
-  _bg_write_state "$STACK" "blue" "demo-test-blue"
+  _bg_write_state "$STACK" "test" "blue" "demo-test-blue"
   _bg_start_color()  { _record "start:$1"; }
   _bg_wait_healthy() { _record "wait"; return 0; }
   _bg_swap_proxy()   { _record "swap"; }
@@ -276,7 +375,7 @@ _record() { echo "$*" >> "$CALLS_FILE"; }
     echo "Expected empty calls log, got:"; cat "$CALLS_FILE"; false;
   }
   # State unchanged
-  [ "$(_bg_read_state "$STACK")" = "blue" ]
+  [ "$(_bg_read_state "$STACK" "test")" = "blue" ]
 }
 
 @test "bg_deploy_stack: dry-run does not execute the real pre_deploy hook" {
@@ -382,10 +481,54 @@ EOF
   [[ "$output" == *"did not define"* ]] || [[ "$output" == *"bluegreen_proxy_swap"* ]]
 }
 
+# The built-in (no-hook) fallback stays non-fatal on a failed/no-op reload
+# by design — plenty of real stacks are a single app container with no
+# nginx/caddy sidecar to reload at all, so this must not abort the deploy.
+# The strut#375 swap guard targets BLUE_GREEN_PROXY_HOOK (see the hook
+# tests above), a user-supplied hook that can fail meaningfully.
+@test "_bg_swap_proxy: built-in fallback stays non-fatal when the reload command fails" {
+  unset BLUE_GREEN_PROXY_HOOK
+  build_proxy_reload_cmd() { echo "reload-cmd"; return 0; }
+  reload-cmd() { return 1; }
+  export -f build_proxy_reload_cmd reload-cmd
+
+  run _bg_swap_proxy "demo" "demo-test-blue" "demo-test-green" "$ENV_FILE"
+  [ "$status" -eq 0 ]
+}
+
+@test "_bg_swap_proxy: built-in fallback succeeds when the reload command succeeds" {
+  unset BLUE_GREEN_PROXY_HOOK
+  build_proxy_reload_cmd() { echo "reload-cmd"; return 0; }
+  reload-cmd() { return 0; }
+  export -f build_proxy_reload_cmd reload-cmd
+
+  run _bg_swap_proxy "demo" "demo-test-blue" "demo-test-green" "$ENV_FILE"
+  [ "$status" -eq 0 ]
+}
+
 # ── Rollback flip ────────────────────────────────────────────────────────────
 
+@test "bg_rollback_stack: loads common.env before the base env file (strut#176)" {
+  _bg_write_state "$STACK" "test" "green" "demo-test-green"
+  cat > "$CLI_ROOT/common.env" <<'EOF'
+REGISTRY_HOST=ghcr.io/shared-org
+EOF
+
+  _bg_wait_healthy() { return 0; }
+  _bg_swap_proxy() { :; }
+  _bg_stop_color() { :; }
+  export -f _bg_wait_healthy _bg_swap_proxy _bg_stop_color
+  _bg_compose_for_color() { echo "true"; }
+  export -f _bg_compose_for_color
+
+  export DRY_RUN=false
+
+  bg_rollback_stack "$STACK" "$ENV_FILE" >/dev/null
+  [ "$REGISTRY_HOST" = "ghcr.io/shared-org" ]
+}
+
 @test "bg_rollback_stack: flips green → blue, brings blue up, stops green" {
-  _bg_write_state "$STACK" "green" "demo-test-green"
+  _bg_write_state "$STACK" "test" "green" "demo-test-green"
 
   # Capture the compose_cmd prefix that up/down receives so we can assert
   # which color each operation targeted.
@@ -419,28 +562,28 @@ EOF
   grep -q "^stop:compose-green" "$CALLS_FILE"
 
   # State flipped to blue
-  [ "$(_bg_read_state "$STACK")" = "blue" ]
+  [ "$(_bg_read_state "$STACK" "test")" = "blue" ]
 }
 
 @test "bg_rollback_stack: no state → fails cleanly" {
-  _bg_clear_state "$STACK"
+  _bg_clear_state "$STACK" "test"
   run bg_rollback_stack "$STACK" "$ENV_FILE"
   [ "$status" -ne 0 ]
   [[ "$output" == *"No blue-green state"* ]] || [[ "$output" == *"standard rollback"* ]]
 }
 
 @test "bg_rollback_stack: dry-run prints plan and doesn't flip state" {
-  _bg_write_state "$STACK" "green" "demo-test-green"
+  _bg_write_state "$STACK" "test" "green" "demo-test-green"
   export DRY_RUN=true
 
   run bg_rollback_stack "$STACK" "$ENV_FILE"
   [ "$status" -eq 0 ]
   [[ "$output" == *"DRY-RUN"* ]]
-  [ "$(_bg_read_state "$STACK")" = "green" ]
+  [ "$(_bg_read_state "$STACK" "test")" = "green" ]
 }
 
 @test "bg_rollback_stack: previous color fails health check → aborts, no swap, no stop, state unchanged" {
-  _bg_write_state "$STACK" "green" "demo-test-green"
+  _bg_write_state "$STACK" "test" "green" "demo-test-green"
 
   _bg_wait_healthy() { _record "wait:FAIL"; return 1; }
   _bg_swap_proxy()   { _record "swap:$2→$3"; }
@@ -465,7 +608,36 @@ EOF
   ! grep -q "^stop:" "$CALLS_FILE"
 
   # State unchanged — green still active, rollback never completed
-  [ "$(_bg_read_state "$STACK")" = "green" ]
+  [ "$(_bg_read_state "$STACK" "test")" = "green" ]
+}
+
+@test "bg_rollback_stack: proxy swap failure aborts, leaves current color running, state unchanged" {
+  _bg_write_state "$STACK" "test" "green" "demo-test-green"
+
+  _bg_wait_healthy() { _record "wait:ok"; return 0; }
+  _bg_swap_proxy()   { _record "swap:$2→$3"; return 1; }
+  _bg_stop_color()   { _record "stop:$1"; }
+  export -f _bg_wait_healthy _bg_swap_proxy _bg_stop_color
+
+  _bg_compose_for_color() {
+    local color="$3"
+    echo "compose-$color"
+  }
+  export -f _bg_compose_for_color
+  compose-blue() { _record "up:blue:$*"; }
+  export -f compose-blue
+
+  export DRY_RUN=false
+
+  run bg_rollback_stack "$STACK" "$ENV_FILE"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"proxy swap"* ]]
+
+  grep -q "^swap:demo-test-green→demo-test-blue" "$CALLS_FILE"
+  ! grep -q "^stop:" "$CALLS_FILE"
+
+  # State unchanged — green (current) is still active
+  [ "$(_bg_read_state "$STACK" "test")" = "green" ]
 }
 
 # ── Stop uses `stop`, never `down` ───────────────────────────────────────────

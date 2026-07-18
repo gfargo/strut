@@ -16,6 +16,10 @@ setup() {
   source "$CLI_ROOT/lib/cmd_deploy.sh"
   source "$CLI_ROOT/lib/cmd_logs.sh"
 
+  # LIB must point at the real repo (deploy_blue_green.sh lives there) —
+  # capture it before CLI_ROOT is repointed at the test fixture dir below.
+  export LIB="$CLI_ROOT/lib"
+
   # Create a minimal test stack + env file
   mkdir -p "$TEST_TMP/stacks/test-stack"
   echo "services:" > "$TEST_TMP/stacks/test-stack/docker-compose.yml"

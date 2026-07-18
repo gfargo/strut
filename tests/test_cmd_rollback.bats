@@ -9,6 +9,13 @@ setup() {
   load_utils
   source "$CLI_ROOT/lib/output.sh"
   source "$CLI_ROOT/lib/rollback.sh"
+  # Real deploy_blue_green.sh (not a stub) so _bg_state_file/_bg_active_project
+  # are genuinely defined — mirrors the entrypoint, which always sources this
+  # before cmd_rollback.sh. Tests that stub bg_rollback_stack must do so
+  # AFTER this source call, or cmd_rollback.sh's own `declare -F
+  # bg_rollback_stack || source ...` guard will see the stub, skip sourcing,
+  # and leave _bg_state_file undefined.
+  source "$CLI_ROOT/lib/deploy_blue_green.sh"
   source "$CLI_ROOT/lib/cmd_rollback.sh"
 
   export LIB="$CLI_ROOT/lib"
@@ -152,4 +159,49 @@ EOF
   run cat "$hist_file"
   [[ "$output" == *'"action":"rollback"'* ]]
   [[ "$output" == *'"outcome":"success"'* ]]
+}
+
+# ── Blue-green dispatch (strut#375) ──────────────────────────────────────────
+# cmd_rollback used to check only the legacy per-stack `.bluegreen` file,
+# ignoring env — a stack blue-green-deployed under a different env than the
+# one being rolled back could misdetect (or miss) blue-green mode.
+
+@test "cmd_rollback: per-env blue-green state file dispatches to bg_rollback_stack" {
+  should_dispatch_remote() { return 1; }
+  bg_rollback_stack() { echo "bg_rollback_stack $*"; return 0; }
+  export -f should_dispatch_remote bg_rollback_stack
+
+  echo "active_color=blue" > "$TEST_TMP/stacks/test-stack/.bluegreen.test"
+
+  _set_rollback_ctx ""
+
+  run cmd_rollback
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"bg_rollback_stack test-stack"* ]]
+}
+
+@test "cmd_rollback: legacy per-stack state file (pre-migration) still dispatches to bg_rollback_stack" {
+  should_dispatch_remote() { return 1; }
+  bg_rollback_stack() { echo "bg_rollback_stack $*"; return 0; }
+  export -f should_dispatch_remote bg_rollback_stack
+
+  echo "active_color=blue" > "$TEST_TMP/stacks/test-stack/.bluegreen"
+
+  _set_rollback_ctx ""
+
+  run cmd_rollback
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"bg_rollback_stack test-stack"* ]]
+}
+
+@test "cmd_rollback: no blue-green state file uses the standard restore path" {
+  should_dispatch_remote() { return 1; }
+  bg_rollback_stack() { echo "SHOULD_NOT_BE_CALLED"; return 0; }
+  rollback_get_latest_snapshot() { echo ""; }
+  export -f should_dispatch_remote bg_rollback_stack rollback_get_latest_snapshot
+
+  _set_rollback_ctx ""
+
+  run cmd_rollback
+  [[ "$output" != *"SHOULD_NOT_BE_CALLED"* ]]
 }

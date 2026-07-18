@@ -362,6 +362,79 @@ _load_utils() {
   ssh_mux_cleanup
 }
 
+# ── load_common_env / common.env layer (strut#176) ────────────────────────────
+
+@test "load_common_env: no-op when common.env doesn't exist" {
+  _load_utils
+  export CLI_ROOT="$TEST_TMP"
+  run load_common_env
+  [ "$status" -eq 0 ]
+}
+
+@test "load_common_env: loads common.env into the environment" {
+  _load_utils
+  export CLI_ROOT="$TEST_TMP"
+  cat > "$TEST_TMP/common.env" <<'EOF'
+REGISTRY_HOST=ghcr.io/shared-org
+WEB_URL=https://shared.example.com
+EOF
+  load_common_env
+  [ "$REGISTRY_HOST" = "ghcr.io/shared-org" ]
+  [ "$WEB_URL" = "https://shared.example.com" ]
+}
+
+@test "validate_env_file: common.env applies when the stack env file doesn't set the var" {
+  _load_utils
+  export CLI_ROOT="$TEST_TMP"
+  cat > "$TEST_TMP/common.env" <<'EOF'
+REGISTRY_HOST=ghcr.io/shared-org
+EOF
+  cat > "$TEST_TMP/.test.env" <<'EOF'
+VPS_HOST=10.0.0.1
+EOF
+  validate_env_file "$TEST_TMP/.test.env" VPS_HOST
+  [ "$REGISTRY_HOST" = "ghcr.io/shared-org" ]
+}
+
+@test "validate_env_file: the stack env file overrides common.env on conflict" {
+  _load_utils
+  export CLI_ROOT="$TEST_TMP"
+  cat > "$TEST_TMP/common.env" <<'EOF'
+WEB_URL=https://shared-default.example.com
+EOF
+  cat > "$TEST_TMP/.test.env" <<'EOF'
+VPS_HOST=10.0.0.1
+WEB_URL=https://stack-specific.example.com
+EOF
+  validate_env_file "$TEST_TMP/.test.env" VPS_HOST
+  [ "$WEB_URL" = "https://stack-specific.example.com" ]
+}
+
+@test "validate_env_file: tracked host layer still wins over common.env" {
+  _load_utils
+  source "$CLI_ROOT/lib/topology.sh"
+  fail() { echo "$1" >&2; return 1; }
+  export CLI_ROOT="$TEST_TMP"
+
+  cat > "$TEST_TMP/common.env" <<'EOF'
+WEB_URL=https://shared-default.example.com
+EOF
+  cat > "$TEST_TMP/.test.env" <<'EOF'
+VPS_HOST=10.0.0.1
+WEB_URL=https://stack-specific.example.com
+EOF
+  mkdir -p "$TEST_TMP/env/hosts"
+  cat > "$TEST_TMP/env/hosts/compass.env" <<'EOF'
+WEB_URL=https://tracked.compass.local
+EOF
+  export CMD_STACK="plane"
+  export CMD_STACK_DIR="$TEST_TMP"
+  _TOPO_ACTIVE_HOST_ALIAS="compass"
+
+  validate_env_file "$TEST_TMP/.test.env" VPS_HOST
+  [ "$WEB_URL" = "https://tracked.compass.local" ]
+}
+
 # ── validate_env_file ─────────────────────────────────────────────────────────
 
 @test "validate_env_file: succeeds with valid vars" {

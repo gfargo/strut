@@ -73,6 +73,42 @@ teardown() {
   [ "$status" -eq 0 ]
 }
 
+@test "lock_acquire_local: echoes a nonce on stdout, recorded in the info file" {
+  run lock_acquire_local "s" "prod" "deploy"
+  [ "$status" -eq 0 ]
+  [ -n "$output" ]
+  grep -q "^nonce=$output\$" "$STRUT_LOCK_ROOT/s-prod.lock.d/info"
+}
+
+# strut#383 (bonus fix): a lock force-broken and re-acquired by a different
+# process must not be deleted by the FIRST process's own (now-stale) EXIT
+# cleanup once it eventually finishes.
+@test "lock_release_local: nonce mismatch leaves a lock re-acquired by someone else alone" {
+  local first_nonce
+  first_nonce=$(lock_acquire_local "s" "prod" "deploy")
+  lock_force_break_local "s" "prod"
+  lock_acquire_local "s" "prod" "deploy" >/dev/null   # a second process re-acquires
+
+  run lock_release_local "s" "prod" "$first_nonce"
+  [ "$status" -eq 0 ]
+  [ -d "$STRUT_LOCK_ROOT/s-prod.lock.d" ]
+}
+
+@test "lock_release_local: matching nonce releases normally" {
+  local nonce
+  nonce=$(lock_acquire_local "s" "prod" "deploy")
+  run lock_release_local "s" "prod" "$nonce"
+  [ "$status" -eq 0 ]
+  [ ! -d "$STRUT_LOCK_ROOT/s-prod.lock.d" ]
+}
+
+@test "lock_release_local: no nonce given releases unconditionally (backward compat)" {
+  lock_acquire_local "s" "prod" "deploy" >/dev/null
+  run lock_release_local "s" "prod"
+  [ "$status" -eq 0 ]
+  [ ! -d "$STRUT_LOCK_ROOT/s-prod.lock.d" ]
+}
+
 @test "lock_acquire_local: different env doesn't conflict" {
   lock_acquire_local "s" "prod" "deploy"
   run lock_acquire_local "s" "staging" "deploy"
@@ -138,6 +174,42 @@ EOF
   # Replace pid with one that definitely doesn't exist
   sed -i.bak "s/^pid=.*/pid=999999/" "$STRUT_LOCK_ROOT/s-prod.lock.d/info"
   rm -f "$STRUT_LOCK_ROOT/s-prod.lock.d/info.bak"
+  run lock_is_stale_local "s" "prod"
+  [ "$status" -eq 0 ]
+}
+
+# strut#383: a lock is declared stale purely by age even though its holder
+# pid is alive — a live long-running deploy (image pull, --no-cache
+# rebuild, blue-green health poll) routinely exceeds the default 600s
+# threshold, so the age fallback must never override a verifiable live pid.
+@test "lock_is_stale_local: NOT stale when pid is alive, even past the age threshold" {
+  lock_acquire_local "s" "prod" "deploy"
+  # Rewrite started to 1 hour ago, same host, but keep OUR OWN pid ($$) —
+  # guaranteed alive for the duration of this test.
+  local past
+  past=$(date -u -v-1H +%FT%TZ 2>/dev/null || date -u -d "1 hour ago" +%FT%TZ)
+  cat > "$STRUT_LOCK_ROOT/s-prod.lock.d/info" <<EOF
+pid=$$
+host=$(hostname)
+started=$past
+command=deploy
+EOF
+  export STRUT_LOCK_STALE_SECONDS=60
+  run lock_is_stale_local "s" "prod"
+  [ "$status" -eq 1 ]
+}
+
+@test "lock_is_stale_local: age fallback still applies for a cross-host lock (pid unverifiable)" {
+  lock_acquire_local "s" "prod" "deploy"
+  local past
+  past=$(date -u -v-1H +%FT%TZ 2>/dev/null || date -u -d "1 hour ago" +%FT%TZ)
+  cat > "$STRUT_LOCK_ROOT/s-prod.lock.d/info" <<EOF
+pid=$$
+host=some-other-host
+started=$past
+command=deploy
+EOF
+  export STRUT_LOCK_STALE_SECONDS=60
   run lock_is_stale_local "s" "prod"
   [ "$status" -eq 0 ]
 }

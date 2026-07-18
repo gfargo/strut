@@ -149,6 +149,83 @@ teardown() {
   [[ "$output" == *"not found"* ]]
 }
 
+# strut#394: monitoring_deploy shelled out to the EOL `docker-compose` v1
+# binary while every other command in the engine uses the `docker compose`
+# v2 plugin — on a host with only v2, config-check failed with a swallowed
+# command-not-found and the operator saw a misleading "Invalid
+# docker-compose.yml" instead of the real problem.
+
+@test "monitoring_deploy: uses 'docker compose' (v2), never the standalone 'docker-compose' v1 binary" {
+  echo "REGISTRY_TYPE=none" > "$MONITORING_STACK_DIR/.env"
+  curl() { return 0; }
+  export -f curl
+  docker() { echo "docker $*" >> "$TEST_TMP/docker_calls"; return 0; }
+  export -f docker
+  # If monitor.sh regresses to the v1 binary, this stub makes that failure
+  # loud and attributable instead of just "command not found" from the
+  # missing real binary.
+  # shellcheck disable=SC2317
+  docker-compose() { echo "DEPRECATED v1 docker-compose invoked: $*" >&2; return 127; }
+  export -f docker-compose
+
+  run monitoring_deploy
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"DEPRECATED"* ]]
+
+  grep -q "^docker compose version" "$TEST_TMP/docker_calls"
+  grep -q "^docker compose config" "$TEST_TMP/docker_calls"
+  grep -q "^docker compose pull" "$TEST_TMP/docker_calls"
+  grep -q "^docker compose up -d" "$TEST_TMP/docker_calls"
+}
+
+@test "monitoring_deploy: missing docker compose plugin fails with a clear message, not 'Invalid docker-compose.yml'" {
+  echo "REGISTRY_TYPE=none" > "$MONITORING_STACK_DIR/.env"
+  docker() {
+    [ "$1" = "compose" ] && [ "$2" = "version" ] && return 1
+    return 0
+  }
+  export -f docker
+
+  run monitoring_deploy
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"Docker Compose plugin not found"* ]]
+  [[ "$output" != *"Invalid docker-compose.yml"* ]]
+}
+
+@test "monitoring_deploy: invalid docker-compose.yml still reports the config error distinctly" {
+  echo "REGISTRY_TYPE=none" > "$MONITORING_STACK_DIR/.env"
+  docker() {
+    [ "$1" = "compose" ] && [ "$2" = "version" ] && return 0
+    [ "$1" = "compose" ] && [ "$2" = "config" ] && return 1
+    return 0
+  }
+  export -f docker
+
+  run monitoring_deploy
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"Invalid docker-compose.yml"* ]]
+}
+
+# ── Alertmanager restart also switched from `docker-compose` to `docker compose` ──
+
+@test "monitoring_alert_channel_add_email: restarts a running Alertmanager via 'docker compose', not v1" {
+  echo "" > "$MONITORING_STACK_DIR/.env"
+  docker() {
+    echo "docker $*" >> "$TEST_TMP/docker_calls"
+    [ "$1" = "ps" ] && { echo "alertmanager"; return 0; }
+    return 0
+  }
+  export -f docker
+  # shellcheck disable=SC2317
+  docker-compose() { echo "DEPRECATED v1 docker-compose invoked: $*" >&2; return 127; }
+  export -f docker-compose
+
+  run monitoring_alert_channel_add_email --to a@example.com --from b@example.com --resend-api-key key123
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"DEPRECATED"* ]]
+  grep -q "^docker compose -f .*restart alertmanager$" "$TEST_TMP/docker_calls"
+}
+
 # ── monitoring_add_target ─────────────────────────────────────────────────────
 
 @test "monitoring_add_target: fails without stack name" {

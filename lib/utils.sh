@@ -795,6 +795,21 @@ env_apply_layers() {
   topology_apply_host_layer "$stack" "$_TOPO_ACTIVE_HOST_ALIAS" "$stack_dir"
 }
 
+# load_common_env
+#
+# Loads $CLI_ROOT/common.env, if present — shared, non-secret container env
+# values (a common WEB_URL base, a shared registry host, ...) that would
+# otherwise need to be duplicated in every stack's env file. Lowest
+# precedence in the env chain: applied first so the stack/project env file
+# (safe_load_env "$env_file") and the tracked per-host layer
+# (env_apply_layers) both override it on conflict. Silently a no-op when
+# common.env doesn't exist — most projects won't have one. (strut#176)
+load_common_env() {
+  local common_file="${CLI_ROOT:-}/common.env"
+  [ -n "${CLI_ROOT:-}" ] && [ -f "$common_file" ] && safe_load_env "$common_file"
+  return 0
+}
+
 # validate_env_file <env_file> <required_var1> [required_var2] ...
 #
 # Parses the env file safely (without executing) and validates that all listed
@@ -818,6 +833,7 @@ $hint"
   # [stacks] mapping or an explicit --host override) so a global VPS_* defined
   # in the env file can't clobber the intended target when we re-source. (LA-223)
   local _vh="${VPS_HOST:-}" _vu="${VPS_USER:-}" _vp="${VPS_PORT:-}" _vk="${VPS_SSH_KEY:-}" _vd="${VPS_DEPLOY_DIR:-}"
+  load_common_env
   safe_load_env "$env_file"
   [ -n "$_vh" ] && export VPS_HOST="$_vh"
   [ -n "$_vu" ] && export VPS_USER="$_vu"
