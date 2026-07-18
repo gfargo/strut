@@ -85,6 +85,8 @@ cmd_scaffold() {
 
     log "Scaffolding new stack from recipe '$recipe_flag': $new_name → $target"
     mkdir -p "$target"
+    mkdir -p "$target/env/hosts"
+    touch "$target/env/hosts/.gitkeep"
 
     # Copy everything except recipe.conf.
     # tar pipe preserves hidden files (.gitignore etc.) and subdirs.
@@ -138,6 +140,8 @@ cmd_scaffold() {
   # ── Default scaffold (backward compat, no recipe) ───
   log "Scaffolding new stack: $new_name → $target"
   mkdir -p "$target"
+  mkdir -p "$target/env/hosts"
+  touch "$target/env/hosts/.gitkeep"
 
   # Copy template env
   [ -f "$templates_dir/env.template" ] && cp "$templates_dir/env.template" "$target/.env.template"

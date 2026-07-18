@@ -227,6 +227,135 @@ EOF
   [ -z "${VPS_HOST:-}" ]
 }
 
+# ── topology_stack_host_alias ─────────────────────────────────────────────────
+
+@test "topology_stack_host_alias: echoes the mapped alias" {
+  cat > "$TEST_TMP/strut.conf" <<'EOF'
+[hosts]
+compass = gfargo@compass.local:22 ~/.ssh/id_rsa
+
+[stacks]
+plane = compass
+EOF
+  export PROJECT_ROOT="$TEST_TMP"
+  [ "$(topology_stack_host_alias "plane")" = "compass" ]
+}
+
+@test "topology_stack_host_alias: empty for unmapped stack" {
+  cat > "$TEST_TMP/strut.conf" <<'EOF'
+[hosts]
+compass = gfargo@compass.local:22 ~/.ssh/id_rsa
+EOF
+  export PROJECT_ROOT="$TEST_TMP"
+  [ -z "$(topology_stack_host_alias "unknown-stack")" ]
+}
+
+# ── tracked per-host env layer (env/hosts/<alias>.env) ─────────────────────────
+
+@test "topology_apply_to_env: applies tracked host layer on the normal path, overriding base" {
+  cat > "$TEST_TMP/strut.conf" <<'EOF'
+[hosts]
+compass = gfargo@compass.local:22 ~/.ssh/id_rsa
+
+[stacks]
+plane = compass
+EOF
+  export PROJECT_ROOT="$TEST_TMP"
+  unset VPS_HOST VPS_USER VPS_PORT VPS_SSH_KEY
+
+  mkdir -p "$TEST_TMP/stacks/plane/env/hosts"
+  cat > "$TEST_TMP/stacks/plane/env/hosts/compass.env" <<'EOF'
+WEB_URL=https://plane.compass.local
+MONITOR_REPLICAS=2
+EOF
+
+  export WEB_URL="https://base.example.com"
+  topology_apply_to_env "plane" "$TEST_TMP/stacks/plane"
+
+  [ "$WEB_URL" = "https://plane.compass.local" ]
+  [ "$MONITOR_REPLICAS" = "2" ]
+  # VPS_* connection defaults are still filled from topology
+  [ "$VPS_HOST" = "compass.local" ]
+}
+
+@test "topology_apply_to_env: keys absent from the host layer are preserved from base" {
+  cat > "$TEST_TMP/strut.conf" <<'EOF'
+[hosts]
+compass = gfargo@compass.local:22 ~/.ssh/id_rsa
+
+[stacks]
+plane = compass
+EOF
+  export PROJECT_ROOT="$TEST_TMP"
+  unset VPS_HOST VPS_USER VPS_PORT VPS_SSH_KEY
+
+  mkdir -p "$TEST_TMP/stacks/plane/env/hosts"
+  cat > "$TEST_TMP/stacks/plane/env/hosts/compass.env" <<'EOF'
+WEB_URL=https://plane.compass.local
+EOF
+
+  export SOME_BASE_ONLY_VAR="untouched"
+  topology_apply_to_env "plane" "$TEST_TMP/stacks/plane"
+
+  [ "$SOME_BASE_ONLY_VAR" = "untouched" ]
+  [ "$WEB_URL" = "https://plane.compass.local" ]
+}
+
+@test "topology_apply_to_env: no host layer file present is a no-op (no error)" {
+  cat > "$TEST_TMP/strut.conf" <<'EOF'
+[hosts]
+compass = gfargo@compass.local:22 ~/.ssh/id_rsa
+
+[stacks]
+plane = compass
+EOF
+  export PROJECT_ROOT="$TEST_TMP"
+  unset VPS_HOST VPS_USER VPS_PORT VPS_SSH_KEY
+
+  topology_apply_to_env "plane" "$TEST_TMP/stacks/plane"
+
+  [ "$VPS_HOST" = "compass.local" ]
+}
+
+@test "topology_apply_host_layer: rejects a path-unsafe alias without erroring" {
+  mkdir -p "$TEST_TMP/stacks/plane/env/hosts"
+  run topology_apply_host_layer "plane" "../../etc" "$TEST_TMP/stacks/plane"
+  [ "$status" -eq 0 ]
+}
+
+@test "topology_apply_host_override: tracked layer wins over legacy .<host>.env on overlapping keys" {
+  cat > "$TEST_TMP/strut.conf" <<'EOF'
+[hosts]
+compass = gfargo@compass.local:22 ~/.ssh/id_rsa
+EOF
+  export PROJECT_ROOT="$TEST_TMP"
+  mkdir -p "$TEST_TMP/stacks/plane/env/hosts"
+
+  echo "WEB_URL=https://legacy.example.com" > "$TEST_TMP/stacks/plane/.compass.env"
+  cat > "$TEST_TMP/stacks/plane/env/hosts/compass.env" <<'EOF'
+WEB_URL=https://tracked.example.com
+EOF
+
+  topology_apply_host_override "plane" "compass" "$TEST_TMP/stacks/plane"
+
+  [ "$WEB_URL" = "https://tracked.example.com" ]
+}
+
+@test "topology_apply_host_override: legacy .<host>.env still applied when tracked layer is absent" {
+  cat > "$TEST_TMP/strut.conf" <<'EOF'
+[hosts]
+compass = gfargo@compass.local:22 ~/.ssh/id_rsa
+EOF
+  export PROJECT_ROOT="$TEST_TMP"
+
+  mkdir -p "$TEST_TMP/stacks/plane"
+  echo "WEB_URL=https://legacy.example.com" > "$TEST_TMP/stacks/plane/.compass.env"
+
+  topology_apply_host_override "plane" "compass" "$TEST_TMP/stacks/plane"
+
+  [ "$WEB_URL" = "https://legacy.example.com" ]
+}
+
 # ── topology_list_* ───────────────────────────────────────────────────────────
 
 @test "topology_list_hosts: lists all host aliases" {

@@ -53,6 +53,12 @@ Per-stack:  deploy, stop, release, update, health, logs, status, shell, exec,
 - `volume.conf` — volume paths and ownership mappings
 - `repos.conf` — GitHub repos for key management
 - `backup.conf` — backup schedule and retention
+- `env/hosts/<alias>.env` — tracked, non-secret per-host env layer. Applied
+  on every deploy where the stack resolves to a host alias (via
+  `[stacks]`→`[hosts]` in `strut.conf`, or `--host <alias>`), last-wins over
+  the base env file. Unlike the legacy `stacks/<stack>/.<host>.env` override
+  (still supported, lower precedence), this path is **not** gitignored, so
+  it survives a clean git-redeploy.
 
 ## Design Principles
 

@@ -387,3 +387,32 @@ _hostile_names() {
   run grep -xF "public/" "$gi"
   [ "$status" -ne 0 ]
 }
+
+# ── Tracked per-host env layer (OSS-302 / strut #173) ─────────────────────────
+# stacks/<stack>/env/hosts/<alias>.env must be committed to git — it is NOT a
+# dotfile, so the .*.env secrets rule in gitignore.template must not sweep it.
+
+@test "scaffold: creates env/hosts/ with a .gitkeep so the layer dir is scaffolded" {
+  cmd_scaffold "plain-stack"
+  [ -d "$TEST_TMP/stacks/plain-stack/env/hosts" ]
+  [ -f "$TEST_TMP/stacks/plain-stack/env/hosts/.gitkeep" ]
+}
+
+@test "scaffold --recipe: creates env/hosts/ with a .gitkeep so the layer dir is scaffolded" {
+  source "$CLI_ROOT/lib/recipes.sh"
+  cmd_scaffold "recipe-stack" --recipe jellyfin
+  [ -d "$TEST_TMP/stacks/recipe-stack/env/hosts" ]
+  [ -f "$TEST_TMP/stacks/recipe-stack/env/hosts/.gitkeep" ]
+}
+
+@test "scaffold: git check-ignore does not sweep a tracked host-layer env file" {
+  cmd_scaffold "hostlayer-stack"
+  local target="$TEST_TMP/stacks/hostlayer-stack"
+  echo "WEB_URL=https://compass.local" > "$target/env/hosts/compass.env"
+  (
+    cd "$target"
+    git init -q
+    # git check-ignore exits 1 when the path is NOT ignored — that's the pass case.
+    ! git check-ignore "env/hosts/compass.env"
+  )
+}

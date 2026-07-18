@@ -32,6 +32,13 @@ declare -gA _TOPO_HOSTS=()       # alias → "user@host:port key_path"
 declare -gA _TOPO_STACK_HOST=()  # stack → host_alias
 _TOPO_LOADED=false
 
+# The host alias whose tracked env layer (env/hosts/<alias>.env) is currently
+# in effect for this process, set by topology_apply_to_env or
+# topology_apply_host_override. Read by env_apply_layers (lib/utils.sh) so
+# the layer can be re-applied after downstream code re-sources the base env
+# file (validate_env_file, pull_only_stack, bg_deploy_stack/bg_rollback_stack).
+declare -g _TOPO_ACTIVE_HOST_ALIAS=""
+
 # topology_load [config_file]
 #
 # topology_load [config_file]
@@ -123,6 +130,15 @@ topology_is_host_alias() {
   [ -n "${_TOPO_HOSTS[$name]:-}" ]
 }
 
+# topology_stack_host_alias <stack>
+#
+# Echoes the host alias a stack maps to in [stacks] (empty if unmapped).
+topology_stack_host_alias() {
+  local stack="$1"
+  topology_load
+  echo "${_TOPO_STACK_HOST[$stack]:-}"
+}
+
 # topology_list_hosts
 #
 # Lists all defined host aliases, one per line.
@@ -148,14 +164,19 @@ topology_list_stacks() {
   done | sort
 }
 
-# topology_apply_to_env <stack>
+# topology_apply_to_env <stack> [stack_dir]
 #
 # If the stack has a topology mapping, exports VPS_HOST, VPS_USER,
 # VPS_PORT, and VPS_SSH_KEY from the topology (unless already set
 # in the environment from the env file).
 # This allows topology to provide defaults that env files can override.
+#
+# When stack_dir is given, also applies the tracked per-host env layer
+# (env/hosts/<alias>.env) — see topology_apply_host_layer — on the normal
+# deploy path, not just when --host is passed explicitly.
 topology_apply_to_env() {
   local stack="$1"
+  local stack_dir="${2:-}"
   topology_load
 
   if ! topology_has_host "$stack"; then
@@ -170,12 +191,39 @@ topology_apply_to_env() {
   [ -z "${VPS_USER:-}" ] && export VPS_USER="$user"
   [ -z "${VPS_PORT:-}" ] && export VPS_PORT="$port"
   [ -z "${VPS_SSH_KEY:-}" ] && [ -n "$key_path" ] && export VPS_SSH_KEY="$key_path"
+
+  local host_alias="${_TOPO_STACK_HOST[$stack]}"
+  _TOPO_ACTIVE_HOST_ALIAS="$host_alias"
+  if [ -n "$stack_dir" ]; then
+    topology_apply_host_layer "$stack" "$host_alias" "$stack_dir"
+  fi
+}
+
+# topology_apply_host_layer <stack> <host_alias> <stack_dir>
+#
+# Applies the tracked per-host env layer at stacks/<stack>/env/hosts/<alias>.env,
+# if present, via safe_load_env (last-wins over whatever is already loaded).
+# This is the reusable cascade primitive: base env → host layer. Safe to call
+# repeatedly (idempotent) so callers can re-apply it after any downstream
+# re-source of the base env file.
+topology_apply_host_layer() {
+  local stack="$1" host_alias="$2" stack_dir="$3"
+
+  # host_alias ends up in a filesystem path — reject anything that isn't a
+  # plain identifier before building the path.
+  [[ "$host_alias" =~ ^[A-Za-z0-9_-]+$ ]] || return 0
+
+  local layer_file="$stack_dir/env/hosts/$host_alias.env"
+  [ -f "$layer_file" ] && safe_load_env "$layer_file"
+  return 0
 }
 
 # topology_apply_host_override <stack> <host_alias> <stack_dir>
 #
 # When --host is specified, overrides the topology target for this stack
-# and sources per-host env overrides from stacks/<stack>/.<host>.env if present.
+# and layers per-host env overrides on top. Applies (in last-wins order):
+#   1. legacy wholesale override: stacks/<stack>/.<host>.env (back-compat)
+#   2. tracked layer: stacks/<stack>/env/hosts/<host>.env (new path wins)
 #
 # This enables deploying the same stack to multiple hosts with different
 # env vars (e.g., different ports, hostnames) per host.
@@ -200,9 +248,14 @@ topology_apply_host_override() {
     [ -n "$CONN_DEPLOY_DIR" ] && export VPS_DEPLOY_DIR="$CONN_DEPLOY_DIR"
   fi
 
-  # Source per-host env override if it exists
-  local host_env="$stack_dir/.$host_alias.env"
-  if [ -f "$host_env" ]; then
-    safe_load_env "$host_env"
+  _TOPO_ACTIVE_HOST_ALIAS="$host_alias"
+
+  # Legacy wholesale override (gitignored, back-compat) — sourced first so
+  # the tracked layer below wins on any overlapping key.
+  local legacy_env="$stack_dir/.$host_alias.env"
+  if [ -f "$legacy_env" ]; then
+    safe_load_env "$legacy_env"
   fi
+
+  topology_apply_host_layer "$stack" "$host_alias" "$stack_dir"
 }

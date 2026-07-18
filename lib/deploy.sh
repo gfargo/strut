@@ -478,13 +478,16 @@ pull_only_stack() {
 $_hint"
     fail "$_msg"
   fi
+
+  local cli_root="${CLI_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+  local stack_dir="$cli_root/stacks/$stack"
+
   safe_load_env "$env_file"
+  env_apply_layers "$stack" "$stack_dir"
 
   local compose_cmd
   compose_cmd=$(resolve_compose_cmd "$stack" "$env_file" "$services_profile")
 
-  local cli_root="${CLI_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
-  local stack_dir="$cli_root/stacks/$stack"
   load_services_conf "$stack_dir"
   local build_mode="${BUILD_MODE:-registry}"
 

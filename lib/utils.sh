@@ -775,6 +775,26 @@ safe_load_env() {
   done < "$env_file"
 }
 
+# env_apply_layers <stack> <stack_dir>
+#
+# Re-applies the tracked per-host env layer (topology_apply_host_layer, from
+# lib/topology.sh) on top of whatever is currently loaded. Call this after
+# any re-source of the base env file so a host-layer override (WEB_URL,
+# ports, INSTALL_DIR, ...) isn't clobbered by the base file's value —
+# validate_env_file, pull_only_stack, and bg_rollback_stack all re-source the
+# base file downstream of the initial topology_apply_to_env/
+# topology_apply_host_override call that set the active alias.
+#
+# No-op when topology.sh hasn't been sourced or no host layer is active
+# (e.g. single-host projects with no [hosts]/[stacks] topology).
+env_apply_layers() {
+  local stack="$1" stack_dir="$2"
+  declare -F topology_apply_host_layer &>/dev/null || return 0
+  [ -n "${_TOPO_ACTIVE_HOST_ALIAS:-}" ] || return 0
+  [ -n "$stack" ] && [ -n "$stack_dir" ] || return 0
+  topology_apply_host_layer "$stack" "$_TOPO_ACTIVE_HOST_ALIAS" "$stack_dir"
+}
+
 # validate_env_file <env_file> <required_var1> [required_var2] ...
 #
 # Parses the env file safely (without executing) and validates that all listed
@@ -804,6 +824,7 @@ $hint"
   [ -n "$_vp" ] && export VPS_PORT="$_vp"
   [ -n "$_vk" ] && export VPS_SSH_KEY="$_vk"
   [ -n "$_vd" ] && export VPS_DEPLOY_DIR="$_vd"
+  env_apply_layers "${CMD_STACK:-}" "${CMD_STACK_DIR:-}"
   local var
   for var in "$@"; do
     if [ -z "${!var:-}" ]; then

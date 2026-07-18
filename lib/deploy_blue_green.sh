@@ -496,6 +496,7 @@ bg_rollback_stack() {
   fi
 
   safe_load_env "$env_file"
+  env_apply_layers "$stack" "$stack_dir"
   export_volume_paths "$stack_dir"
 
   local compose_file="$stack_dir/docker-compose.yml"

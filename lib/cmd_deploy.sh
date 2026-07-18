@@ -19,6 +19,12 @@ set -euo pipefail
 # (aborts the deploy) rather than silently behaving like "nothing to check" —
 # unless DRY_RUN or --confirm-data-move is in play, matching the guard's
 # other abort path.
+#
+# KNOWN GAP: this diffs the raw base env_file (grep/cat, not exported env),
+# so it does not see overrides from the tracked per-host layer
+# (env_apply_layers / stacks/<stack>/env/hosts/<alias>.env). A volume-
+# defining var overridden only in the host layer won't trigger this guard.
+# Tracked for the layered-env umbrella (#179).
 _deploy_volguard() {
   local stack="$1"
   local env_file="$2"
