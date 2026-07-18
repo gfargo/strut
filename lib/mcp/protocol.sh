@@ -7,6 +7,47 @@
 
 set -euo pipefail
 
+# _mcp_read_message — read one JSON-RPC message from stdin into $REPLY.
+# Supports both raw newline-delimited JSON (Claude Code) and Content-Length
+# HTTP-style framing (Kiro, VS Code MCP clients) per the MCP stdio transport
+# spec. Returns non-zero on EOF.
+_mcp_read_message() {
+  local header header_lc hdr len
+
+  if ! IFS= read -r header; then
+    return 1
+  fi
+  header="${header%$'\r'}"
+  header_lc="${header,,}"
+
+  if [[ "$header_lc" =~ ^content-length:[[:space:]]*([0-9]+)[[:space:]]*$ ]]; then
+    len="${BASH_REMATCH[1]}"
+
+    # Consume remaining headers up to the blank separator line
+    while IFS= read -r hdr; do
+      hdr="${hdr%$'\r'}"
+      [ -n "$hdr" ] || break
+    done
+
+    REPLY=""
+    if [ "$len" -gt 0 ]; then
+      # Content-Length is a BYTE count; force the C locale so `read -N`
+      # counts bytes instead of multi-byte characters (a UTF-8 locale would
+      # under-consume the body and desync the stream on non-ASCII content).
+      LC_ALL=C IFS= read -r -N "$len" REPLY || true
+    fi
+    return 0
+  fi
+
+  if [ -z "$header" ]; then
+    _mcp_read_message || return 1
+    return 0
+  fi
+
+  REPLY="$header"
+  return 0
+}
+
 # mcp_serve — main loop: read JSON-RPC messages from stdin, respond on stdout
 mcp_serve() {
   local strut_home="${STRUT_HOME:-${CLI_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}}"
@@ -14,8 +55,8 @@ mcp_serve() {
   # Source tool handlers
   source "$strut_home/lib/mcp/tools.sh"
 
-  while IFS= read -r line; do
-    [ -n "$line" ] || continue
+  while _mcp_read_message; do
+    local line="$REPLY"
 
     local method id params
     method=$(printf '%s' "$line" | jq -r '.method // empty' 2>/dev/null) || continue
