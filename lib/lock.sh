@@ -36,12 +36,15 @@ lock_local_dir() {
 
 _lock_write_info() {
   local dir="$1" cmd="$2"
+  local nonce="$$-$RANDOM-$RANDOM"
   {
     echo "pid=$$"
     echo "host=$(hostname 2>/dev/null || echo unknown)"
     echo "started=$(date -u +%FT%TZ)"
     echo "command=$cmd"
+    echo "nonce=$nonce"
   } > "$dir/info"
+  echo "$nonce"
 }
 
 # lock_read_info <info_file> <field>
@@ -55,7 +58,9 @@ lock_read_info() {
 # ── Acquire / release (local) ─────────────────────────────────────────────────
 
 # lock_acquire_local <stack> <env> <command>
-#   0 — acquired
+#   0 — acquired (echoes a nonce on stdout — pass it to lock_release_local
+#       so a later cleanup can't release a lock a *different* process has
+#       since acquired; see strut#383)
 #   1 — already held (prints holder to stderr)
 #   2 — filesystem error
 lock_acquire_local() {
@@ -86,13 +91,27 @@ lock_acquire_local() {
   return 1
 }
 
-# lock_release_local <stack> <env>
+# lock_release_local <stack> <env> [expected_nonce]
 #   Always returns 0. Safe to call from EXIT traps.
+#
+#   When expected_nonce is given and the lock currently held doesn't carry
+#   that nonce, the lock is left alone — it belongs to a different process
+#   than the one calling release (e.g. a deploy whose lock was force-broken
+#   and re-acquired by another deploy finishes and its EXIT cleanup fires;
+#   without this check it would delete the second deploy's live lock).
 lock_release_local() {
-  local stack="$1" env="${2:-default}"
+  local stack="$1" env="${2:-default}" expected_nonce="${3:-}"
   local dir
   dir=$(lock_local_dir "$stack" "$env")
-  [ -d "$dir" ] && rm -rf "$dir"
+  [ -d "$dir" ] || return 0
+
+  if [ -n "$expected_nonce" ]; then
+    local current_nonce
+    current_nonce=$(lock_read_info "$dir/info" nonce 2>/dev/null || echo "")
+    [ "$current_nonce" = "$expected_nonce" ] || return 0
+  fi
+
+  rm -rf "$dir"
   return 0
 }
 
@@ -117,14 +136,20 @@ lock_is_stale_local() {
   local current_host
   current_host=$(hostname 2>/dev/null || echo unknown)
 
-  # Same host + pid dead → definitely stale
+  # Same host + verifiable pid: this is authoritative, skip the age
+  # fallback entirely. A live long-running deploy (large image pull,
+  # --no-cache rebuild, blue-green drain/health poll) routinely exceeds
+  # STRUT_LOCK_STALE_SECONDS — the age check must never override a pid
+  # we can actually confirm is still running (strut#383).
   if [ "$host" = "$current_host" ] && [ -n "$pid" ]; then
-    if ! kill -0 "$pid" 2>/dev/null; then
-      return 0
+    if kill -0 "$pid" 2>/dev/null; then
+      return 1
     fi
+    return 0
   fi
 
-  # Age-based fallback (works for cross-host locks too)
+  # Age-based fallback — only reached when the pid can't be verified
+  # locally (cross-host lock, or missing pid in the info file).
   if [ -n "$started" ]; then
     local started_epoch now age
     # BSD date (macOS) uses -j -f; GNU date uses -d. Try both.

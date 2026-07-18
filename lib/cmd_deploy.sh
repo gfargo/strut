@@ -318,15 +318,16 @@ cmd_deploy() {
   # stale locks from a previous crashed deploy.
   if [ "$skip_lock" != "true" ] && [ "$DRY_RUN" != "true" ]; then
     local _env_key="${env_name:-default}"
+    local _lock_nonce=""
     if [ "$force_unlock" = "true" ]; then
       warn "Breaking any existing deploy lock (--force-unlock)"
       lock_force_break_local "$stack" "$_env_key" || true
     fi
-    if ! lock_acquire_local "$stack" "$_env_key" "deploy"; then
+    if ! _lock_nonce=$(lock_acquire_local "$stack" "$_env_key" "deploy"); then
       if lock_is_stale_local "$stack" "$_env_key"; then
         warn "Existing deploy lock is stale (owner process dead) — auto-breaking"
         lock_force_break_local "$stack" "$_env_key" || true
-        if ! lock_acquire_local "$stack" "$_env_key" "deploy"; then
+        if ! _lock_nonce=$(lock_acquire_local "$stack" "$_env_key" "deploy"); then
           fail "Deploy lock held — aborting (could not reacquire after breaking stale lock)"
         fi
       else
@@ -336,8 +337,11 @@ cmd_deploy() {
     fi
     # Ensure lock is released no matter how we exit. Register with the
     # entrypoint's unified cleanup chain so we don't clobber other traps.
+    # The nonce ensures this cleanup only removes the lock THIS process
+    # created — if it was force-broken and re-acquired by a different
+    # deploy in the meantime, the release becomes a safe no-op (strut#383).
     if declare -F strut_register_cleanup >/dev/null; then
-      strut_register_cleanup "lock_release_local '$stack' '$_env_key'"
+      strut_register_cleanup "lock_release_local '$stack' '$_env_key' '$_lock_nonce'"
     fi
   fi
 
@@ -417,8 +421,13 @@ cmd_health() {
   # Local path: run health checks against the local Docker daemon.
   [ -f "$env_file" ] && safe_load_env "$env_file" 2>/dev/null || true  # env file may not exist for local-only health checks
   local compose_file="$stack_dir/docker-compose.yml"
+  # Blue-green stacks run under a <stack>-<env>-<color> project — target
+  # the active color, not the plain <stack>-<env> project (strut#384).
+  declare -F _bg_active_project >/dev/null || source "$LIB/deploy_blue_green.sh"
+  local bg_project
+  bg_project="$(_bg_active_project "$stack" "$env_name")"
   local compose_cmd
-  compose_cmd=$(resolve_compose_cmd "$stack" "$env_file" "$services")
+  compose_cmd=$(resolve_compose_cmd "$stack" "$env_file" "$services" "$bg_project")
 
   local health_rc=0
   health_run_all "$stack" "$compose_cmd" "$compose_file" "$json_flag" || health_rc=$?
@@ -451,8 +460,13 @@ cmd_status() {
   fi
 
   # Local path: query the local Docker daemon and show where we're looking.
+  # Blue-green stacks run under a <stack>-<env>-<color> project — target
+  # the active color, not the plain <stack>-<env> project (strut#384).
+  declare -F _bg_active_project >/dev/null || source "$LIB/deploy_blue_green.sh"
+  local bg_project
+  bg_project="$(_bg_active_project "$stack" "$env_name")"
   local compose_cmd
-  compose_cmd=$(resolve_compose_cmd "$stack" "$env_file" "$services")
+  compose_cmd=$(resolve_compose_cmd "$stack" "$env_file" "$services" "$bg_project")
   # Extract the resolved project name for a clear "looking here" message.
   local project_name
   project_name=$(echo "$compose_cmd" | grep -oE '\-\-project\-name [^ ]+' | awk '{print $2}') || true

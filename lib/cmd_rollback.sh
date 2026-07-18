@@ -157,14 +157,18 @@ cmd_rollback() {
     return 0
   fi
 
-  # If the stack is in blue-green mode (state file present), delegate to
-  # the blue-green rollback path — it flips the active color back to the
+  # If the stack is in blue-green mode (per-env state file present, with a
+  # legacy per-stack fallback for deployments made before per-env state —
+  # see _bg_state_file in deploy_blue_green.sh), delegate to the
+  # blue-green rollback path — it flips the active color back to the
   # drained project. Standard rollback's image-restore flow doesn't apply
   # because the drained project is still defined with the last-known-good
   # images in its compose project namespace.
-  local bg_state_file="$stack_dir/.bluegreen"
-  if [ -f "$bg_state_file" ]; then
-    declare -F bg_rollback_stack >/dev/null || source "$LIB/deploy_blue_green.sh"
+  declare -F bg_rollback_stack >/dev/null || source "$LIB/deploy_blue_green.sh"
+  local bg_state_file bg_legacy_state_file
+  bg_state_file="$(_bg_state_file "$stack" "$env_name")"
+  bg_legacy_state_file="$stack_dir/.bluegreen"
+  if [ -f "$bg_state_file" ] || [ -f "$bg_legacy_state_file" ]; then
     bg_rollback_stack "$stack" "$env_file"
     return $?
   fi

@@ -12,6 +12,10 @@ setup() {
   source "$CLI_ROOT/lib/docker.sh"
   source "$CLI_ROOT/lib/cmd_stop.sh"
 
+  # LIB must point at the real repo (deploy_blue_green.sh lives there) —
+  # capture it before CLI_ROOT is repointed at the test fixture dir below.
+  export LIB="$CLI_ROOT/lib"
+
   # Create a minimal test stack
   mkdir -p "$TEST_TMP/stacks/test-stack"
   echo "services:" > "$TEST_TMP/stacks/test-stack/docker-compose.yml"
@@ -116,4 +120,80 @@ EOF
   [ "$status" -eq 0 ]
   [[ "$output" == *"standby-host.internal"* ]]
   [[ "$output" != *"primary-host.internal"* ]]
+}
+
+# strut#384: stop used to always target the plain <stack>-<env> project,
+# which blue-green deploys never use — after a blue-green deploy `stop`
+# would down an empty project and report success while the active color
+# kept serving.
+
+@test "cmd_stop: targets the blue-green active project when one is deployed" {
+  cat > "$TEST_TMP/.test.env" <<'EOF'
+VPS_HOST=
+EOF
+  echo "active_color=green" > "$TEST_TMP/stacks/test-stack/.bluegreen.test"
+  echo "active_project=test-stack-test-green" >> "$TEST_TMP/stacks/test-stack/.bluegreen.test"
+
+  resolve_compose_cmd() { echo "echo PROJECT=$4"; }
+  export -f resolve_compose_cmd
+  _set_stop_ctx "$TEST_TMP/.test.env"
+
+  run cmd_stop
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"PROJECT=test-stack-test-green"* ]]
+}
+
+@test "cmd_stop: no blue-green state → resolve_compose_cmd gets an empty project override" {
+  cat > "$TEST_TMP/.test.env" <<'EOF'
+VPS_HOST=
+EOF
+  resolve_compose_cmd() { echo "echo PROJECT=[$4]"; }
+  export -f resolve_compose_cmd
+  _set_stop_ctx "$TEST_TMP/.test.env"
+
+  run cmd_stop
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"PROJECT=[]"* ]]
+}
+
+# strut#384: remote stop built its down_args (--volumes/--timeout) but never
+# forwarded them to the SSH'd remote invocation — a VPS-mapped `stop
+# --volumes` silently dropped both flags.
+
+@test "cmd_stop: remote dispatch forwards --volumes and --timeout to the SSH command" {
+  cat > "$TEST_TMP/.test.env" <<'EOF'
+VPS_HOST=vps.example.com
+EOF
+  is_running_on_vps() { return 1; }
+  export -f is_running_on_vps
+  resolve_deploy_dir() { echo "/home/ubuntu/strut"; }
+  build_ssh_opts() { echo "-o BatchMode=yes"; }
+  export -f resolve_deploy_dir build_ssh_opts
+  ssh() { echo "ssh $*"; return 0; }
+  export -f ssh
+  _set_stop_ctx "$TEST_TMP/.test.env"
+
+  run cmd_stop --volumes --timeout 45
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"--volumes"* ]]
+  [[ "$output" == *"--timeout 45"* ]]
+}
+
+@test "cmd_stop: remote dry-run plan shows --volumes and --timeout" {
+  cat > "$TEST_TMP/.test.env" <<'EOF'
+VPS_HOST=vps.example.com
+EOF
+  export DRY_RUN=true
+  is_running_on_vps() { return 1; }
+  export -f is_running_on_vps
+  resolve_deploy_dir() { echo "/home/ubuntu/strut"; }
+  build_ssh_opts() { echo "-o BatchMode=yes"; }
+  export -f resolve_deploy_dir build_ssh_opts
+  _set_stop_ctx "$TEST_TMP/.test.env"
+
+  run cmd_stop --volumes --timeout 45
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"DRY-RUN"* ]]
+  [[ "$output" == *"--volumes"* ]]
+  [[ "$output" == *"--timeout 45"* ]]
 }
