@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.41.1](https://github.com/gfargo/strut/compare/v0.41.0...v0.41.1) (2026-07-18)
+
+
+### Bug Fixes
+
+* **backup:** data-integrity, PII, and fleet-auth fixes ([#434](https://github.com/gfargo/strut/issues/434)) ([5cea00b](https://github.com/gfargo/strut/commit/5cea00b70aecaa9e31a752075d1f1966518319af))
+* **security:** parse notifications.conf safely instead of sourcing it ([#436](https://github.com/gfargo/strut/issues/436)) ([98fd546](https://github.com/gfargo/strut/commit/98fd54639de3db8d50a8ad36027efd0b5cc10130))
+
 ## [0.41.0](https://github.com/gfargo/strut/compare/v0.40.1...v0.41.0) (2026-07-18)
 
 
