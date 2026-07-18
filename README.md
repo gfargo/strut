@@ -130,6 +130,8 @@ strut <stack> <command> [--env <env>] [options]
 | `deploy` | Deploy stack containers |
 | `stop` | Stop running containers |
 | `health` | Run health checks |
+| `briefing` | One-call situation report — posture + prioritized actions across every read-only check |
+| `preflight` | Deploy go/no-go verdict (GO / CAUTION / NO-GO) with reasons |
 | `logs` | View service logs |
 | `backup` / `restore` | Database backup and restore |
 | `db:pull` / `db:push` | Sync databases between VPS and local |
@@ -154,6 +156,8 @@ See [CLI Reference](https://github.com/gfargo/strut/wiki/CLI-Reference) for the 
 ```bash
 strut my-app release --env prod                              # Production release
 strut my-app health --env prod --json                        # Health checks
+strut my-app briefing --env prod                              # One-call situation report (posture + actions)
+strut my-app preflight --env prod                             # Deploy go/no-go verdict before releasing
 strut my-app logs api --follow --env prod                    # Follow logs
 strut my-app backup postgres --env prod                      # Backup database
 strut my-app restore backups/postgres-20260701.sql --env prod --dry-run  # Rehearse a restore
