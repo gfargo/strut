@@ -162,6 +162,7 @@ _all_stacks() {
   ls "$cli_root/stacks" 2>/dev/null | while read -r d; do
     [ -d "$cli_root/stacks/$d" ] && echo "$d"
   done
+  return 0
 }
 
 _webhook_release_stack() {
