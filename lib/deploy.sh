@@ -482,6 +482,7 @@ $_hint"
   local cli_root="${CLI_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
   local stack_dir="$cli_root/stacks/$stack"
 
+  load_common_env
   safe_load_env "$env_file"
   env_apply_layers "$stack" "$stack_dir"
 

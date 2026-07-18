@@ -40,3 +40,11 @@ logs/
 # sweep it — this is intentional. It holds non-secret per-host overrides
 # (WEB_URL, ports, INSTALL_DIR, ...) and must stay committed so it survives a
 # clean git-redeploy. Do not add an ignore rule for env/hosts/*.env here.
+
+# ── At-rest encrypted secrets (`secrets lock` / `secrets-filter`) ────────────
+# .prod.env.age / .prod.env.gpg don't end in literally ".env", so the .*.env
+# rule above already doesn't sweep them — these negations make that explicit
+# and future-proof rather than relying on the glob missing them by accident.
+# Both are ciphertext: safe, and meant, to commit.
+!*.env.age
+!*.env.gpg

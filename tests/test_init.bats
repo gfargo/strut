@@ -195,6 +195,28 @@ _hostile_org_names() {
   grep -q ".bluegreen" "$project_dir/.gitignore"
 }
 
+# strut#178: at-rest encrypted secrets (.<env>.env.age / .gpg) must stay
+# commit-safe — explicit negations, not just an accidental glob miss.
+@test "init: .gitignore explicitly allows committed at-rest encrypted secrets (strut#178)" {
+  local project_dir="$TEST_TMP/init_gitignore_encrypted"
+  mkdir -p "$project_dir"
+
+  (cd "$project_dir" && cmd_init)
+
+  grep -qxF "!*.env.age" "$project_dir/.gitignore"
+  grep -qxF "!*.env.gpg" "$project_dir/.gitignore"
+
+  # Prove it end-to-end against real git, not just the raw pattern text.
+  command -v git &>/dev/null || skip "git not installed"
+  git -C "$project_dir" init -q
+  touch "$project_dir/.prod.env.age" "$project_dir/.prod.env.gpg"
+
+  run git -C "$project_dir" check-ignore .prod.env.age
+  [ "$status" -ne 0 ]
+  run git -C "$project_dir" check-ignore .prod.env.gpg
+  [ "$status" -ne 0 ]
+}
+
 @test "init: generated .gitignore matches strut's actual secret-file naming (issue #396)" {
   local project_dir="$TEST_TMP/init_gitignore_secret_names"
   mkdir -p "$project_dir"
@@ -242,7 +264,7 @@ _hostile_org_names() {
 @test "init: does not duplicate strut rules already present as bare lines" {
   local project_dir="$TEST_TMP/init_gitignore_no_dupe"
   mkdir -p "$project_dir"
-  printf 'node_modules/\n.env\n.env.*\n.*.env\n!.env.template\n*.backup-*\nbackups/\ndata/\n.rollback/\n.bluegreen\n' > "$project_dir/.gitignore"
+  printf 'node_modules/\n.env\n.env.*\n.*.env\n!.env.template\n!*.env.age\n!*.env.gpg\n*.backup-*\nbackups/\ndata/\n.rollback/\n.bluegreen\n' > "$project_dir/.gitignore"
   local before
   before="$(cat "$project_dir/.gitignore")"
 

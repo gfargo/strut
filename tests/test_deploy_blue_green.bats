@@ -384,6 +384,25 @@ EOF
 
 # ── Rollback flip ────────────────────────────────────────────────────────────
 
+@test "bg_rollback_stack: loads common.env before the base env file (strut#176)" {
+  _bg_write_state "$STACK" "green" "demo-test-green"
+  cat > "$CLI_ROOT/common.env" <<'EOF'
+REGISTRY_HOST=ghcr.io/shared-org
+EOF
+
+  _bg_wait_healthy() { return 0; }
+  _bg_swap_proxy() { :; }
+  _bg_stop_color() { :; }
+  export -f _bg_wait_healthy _bg_swap_proxy _bg_stop_color
+  _bg_compose_for_color() { echo "true"; }
+  export -f _bg_compose_for_color
+
+  export DRY_RUN=false
+
+  bg_rollback_stack "$STACK" "$ENV_FILE" >/dev/null
+  [ "$REGISTRY_HOST" = "ghcr.io/shared-org" ]
+}
+
 @test "bg_rollback_stack: flips green → blue, brings blue up, stops green" {
   _bg_write_state "$STACK" "green" "demo-test-green"
 

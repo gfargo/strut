@@ -495,6 +495,7 @@ bg_rollback_stack() {
     return 0
   fi
 
+  load_common_env
   safe_load_env "$env_file"
   env_apply_layers "$stack" "$stack_dir"
   export_volume_paths "$stack_dir"
