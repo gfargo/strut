@@ -18,6 +18,8 @@ _mcp_tools_list() {
   {"name":"strut_drift_images","description":"Check for stale container image digests","inputSchema":{"type":"object","properties":{"stack":{"type":"string","description":"Stack name"}},"required":["stack"]}},
   {"name":"strut_diff","description":"Preview pending changes vs VPS for a stack","inputSchema":{"type":"object","properties":{"stack":{"type":"string","description":"Stack name"}},"required":["stack"]}},
   {"name":"strut_backup_health","description":"Show backup health scores for a stack","inputSchema":{"type":"object","properties":{"stack":{"type":"string","description":"Stack name"}},"required":["stack"]}},
+  {"name":"strut_briefing","description":"One-call operational situation report: aggregates health, config drift, image staleness, pending diff, and backup health into an overall posture plus prioritized actions","inputSchema":{"type":"object","properties":{"stack":{"type":"string","description":"Stack name"},"env":{"type":"string","description":"Environment name (default: prod)"}},"required":["stack"]}},
+  {"name":"strut_preflight","description":"Deploy go/no-go verdict (GO/CAUTION/NO-GO): fuses pending diff, config drift, current health, and backup freshness into a release-safety decision with reasons","inputSchema":{"type":"object","properties":{"stack":{"type":"string","description":"Stack name"},"env":{"type":"string","description":"Environment name (default: prod)"}},"required":["stack"]}},
   {"name":"strut_deploy","description":"Deploy/release a stack to VPS (requires approval)","inputSchema":{"type":"object","properties":{"stack":{"type":"string","description":"Stack name"},"env":{"type":"string","description":"Environment name (default: prod)"}},"required":["stack"]}},
   {"name":"strut_sync","description":"Bring a host checkout in sync with origin","inputSchema":{"type":"object","properties":{"host":{"type":"string","description":"Host alias from topology"}},"required":["host"]}},
   {"name":"strut_backup","description":"Create a backup for a stack","inputSchema":{"type":"object","properties":{"stack":{"type":"string","description":"Stack name"},"target":{"type":"string","description":"Backup target (postgres, neo4j, mysql, sqlite, all). Default: all"}},"required":["stack"]}},
@@ -122,6 +124,18 @@ _mcp_tools_call() {
       local stack
       stack=$(_mcp_arg "$args" stack) || { _mcp_reject "invalid 'stack' argument"; return 0; }
       output=$("$strut_bin" "$stack" backup health --env prod --json 2>&1) || rc=$?
+      ;;
+    strut_briefing)
+      local stack env
+      stack=$(_mcp_arg "$args" stack) || { _mcp_reject "invalid 'stack' argument"; return 0; }
+      env=$(_mcp_arg "$args" env prod) || { _mcp_reject "invalid 'env' argument"; return 0; }
+      output=$("$strut_bin" "$stack" briefing --env "$env" --json 2>&1) || rc=$?
+      ;;
+    strut_preflight)
+      local stack env
+      stack=$(_mcp_arg "$args" stack) || { _mcp_reject "invalid 'stack' argument"; return 0; }
+      env=$(_mcp_arg "$args" env prod) || { _mcp_reject "invalid 'env' argument"; return 0; }
+      output=$("$strut_bin" "$stack" preflight --env "$env" --json 2>&1) || rc=$?
       ;;
     strut_deploy)
       local stack env

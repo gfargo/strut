@@ -190,6 +190,9 @@ source "$LIB/cmd_upgrade.sh"
 source "$LIB/version_check.sh"
 source "$LIB/cmd_sync.sh"
 source "$LIB/cmd_fleet.sh"
+source "$LIB/briefing.sh"
+source "$LIB/cmd_briefing.sh"
+source "$LIB/cmd_preflight.sh"
 
 # Project-local plugins are discovered once PROJECT_ROOT is known. find_project_root
 # above populates it when strut is invoked inside a project; outside one this is a no-op.
@@ -290,6 +293,8 @@ usage() {
   echo "  remote:init [--env <name>] [--host <h>] [--user <u>]          Bootstrap strut on VPS"
   echo "  adopt    --host <h> [--env <name>] [--remote-dir <path>]       Adopt a hand-deployed stack"
   echo "  status   [--env <name>]                                        Stack status"
+  echo "  briefing [--env <name>] [--json]                               One-call situation report (posture + actions)"
+  echo "  preflight [--env <name>] [--json]                              Deploy go/no-go verdict (GO/CAUTION/NO-GO)"
   echo "  volumes  [--env <name>] [status|init|config]                   Volume management"
   echo "  local    start [--services <profile>]                          Start stack locally"
   echo "  local    stop                                                  Stop local stack"
@@ -910,6 +915,8 @@ if [ "$FLAGS_HELP" = "true" ]; then
     validate) _usage_validate ;;
     rollback) _usage_rollback ;;
     diff)     _usage_diff ;;
+    briefing) _usage_briefing ;;
+    preflight) _usage_preflight ;;
     remote:init) _usage_remote_init ;;
     adopt)    _usage_adopt ;;
     provision) _usage_provision ;;
@@ -956,6 +963,8 @@ case "$COMMAND" in
   cert:status)         cmd_cert_status "${CMD_ARGS[@]+"${CMD_ARGS[@]}"}" ;;
 
   status)              cmd_status ;;
+  briefing)            cmd_briefing "${CMD_ARGS[@]+"${CMD_ARGS[@]}"}" ;;
+  preflight)           cmd_preflight "${CMD_ARGS[@]+"${CMD_ARGS[@]}"}" ;;
   prune)               cmd_prune "${CMD_ARGS[@]+"${CMD_ARGS[@]}"}" ;;
   volumes)             cmd_volumes "${CMD_ARGS[@]+"${CMD_ARGS[@]}"}" ;;
   local|prod|staging|dev) cmd_local_env "$COMMAND" "${CMD_ARGS[@]+"${CMD_ARGS[@]}"}" ;;

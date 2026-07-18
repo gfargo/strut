@@ -97,7 +97,7 @@ _mcp_cmd_install() {
       echo "  Read-only tools (auto-approved where supported):"
       echo "    strut_list, strut_status, strut_health, strut_logs,"
       echo "    strut_fleet_status, strut_drift_detect, strut_drift_images,"
-      echo "    strut_diff, strut_backup_health"
+      echo "    strut_diff, strut_backup_health, strut_briefing, strut_preflight"
       echo ""
       echo "  Write tools (require approval):"
       echo "    strut_deploy, strut_sync, strut_backup, strut_stop"
@@ -131,7 +131,9 @@ _mcp_cmd_install() {
             "strut_drift_detect",
             "strut_drift_images",
             "strut_diff",
-            "strut_backup_health"
+            "strut_backup_health",
+            "strut_briefing",
+            "strut_preflight"
           ]
         }
       }
@@ -151,7 +153,7 @@ _mcp_cmd_install() {
   echo "  Read-only tools (auto-approved):"
   echo "    strut_list, strut_status, strut_health, strut_logs,"
   echo "    strut_fleet_status, strut_drift_detect, strut_drift_images,"
-  echo "    strut_diff, strut_backup_health"
+  echo "    strut_diff, strut_backup_health, strut_briefing, strut_preflight"
   echo ""
   echo "  Write tools (require approval):"
   echo "    strut_deploy, strut_sync, strut_backup, strut_stop"
