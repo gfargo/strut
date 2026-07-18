@@ -509,7 +509,7 @@ EOF
 # ── Rollback flip ────────────────────────────────────────────────────────────
 
 @test "bg_rollback_stack: loads common.env before the base env file (strut#176)" {
-  _bg_write_state "$STACK" "green" "demo-test-green"
+  _bg_write_state "$STACK" "test" "green" "demo-test-green"
   cat > "$CLI_ROOT/common.env" <<'EOF'
 REGISTRY_HOST=ghcr.io/shared-org
 EOF

@@ -58,7 +58,7 @@ wait_for_service() {
 # monitoring_deploy [env]
 #
 # Deploys the self-hosted monitoring stack (Prometheus, Grafana, Alertmanager)
-# using docker-compose in the monitoring stack directory.
+# using `docker compose` in the monitoring stack directory.
 #
 # Args:
 #   env — Environment name (default: "prod")
@@ -97,20 +97,28 @@ monitoring_deploy() {
     fi
   fi
 
+  # The engine elsewhere uses the `docker compose` v2 plugin exclusively
+  # (via resolve_compose_cmd); this stack still shelled out to the EOL v1
+  # `docker-compose` binary. On any host without it, `docker-compose
+  # config` fails with a swallowed command-not-found and the operator sees
+  # a misleading "Invalid docker-compose.yml" instead of the real problem
+  # (strut#394).
+  docker compose version &>/dev/null || fail "Docker Compose plugin not found — install: https://docs.docker.com/compose/install/"
+
   # Validate docker-compose.yml
   log "Validating docker-compose.yml..."
-  if ! docker-compose config > /dev/null 2>&1; then
+  if ! docker compose config > /dev/null 2>&1; then
     fail "Invalid docker-compose.yml"
   fi
   ok "Configuration valid"
 
   # Pull images
   log "Pulling Docker images..."
-  docker-compose pull || fail "Failed to pull images"
+  docker compose pull || fail "Failed to pull images"
 
   # Start services
   log "Starting monitoring services..."
-  docker-compose up -d || fail "Failed to start services"
+  docker compose up -d || fail "Failed to start services"
 
   # Load monitoring services config
   local monitoring_conf="$MONITORING_STACK_DIR/services.conf"
@@ -382,7 +390,7 @@ monitoring_alert_channel_add_email() {
   # Restart Alertmanager if running
   if docker ps | grep -q alertmanager; then
     log "Restarting Alertmanager..."
-    docker-compose -f "$MONITORING_STACK_DIR/docker-compose.yml" restart alertmanager
+    docker compose -f "$MONITORING_STACK_DIR/docker-compose.yml" restart alertmanager
     ok "Alertmanager restarted"
   fi
 
@@ -442,7 +450,7 @@ monitoring_alert_channel_add_slack() {
   # Restart Alertmanager if running
   if docker ps | grep -q alertmanager; then
     log "Restarting Alertmanager..."
-    docker-compose -f "$MONITORING_STACK_DIR/docker-compose.yml" restart alertmanager
+    docker compose -f "$MONITORING_STACK_DIR/docker-compose.yml" restart alertmanager
     ok "Alertmanager restarted"
   fi
 
@@ -495,7 +503,7 @@ monitoring_alert_channel_add_webhook() {
   # Restart Alertmanager if running
   if docker ps | grep -q alertmanager; then
     log "Restarting Alertmanager..."
-    docker-compose -f "$MONITORING_STACK_DIR/docker-compose.yml" restart alertmanager
+    docker compose -f "$MONITORING_STACK_DIR/docker-compose.yml" restart alertmanager
     ok "Alertmanager restarted"
   fi
 

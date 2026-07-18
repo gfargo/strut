@@ -70,15 +70,23 @@ _ssl_detect_domains() {
 
   local domains=""
 
-  # Source 1: compose labels (strut.domain)
+  # Source 1: compose labels (strut.domain). `docker compose config`
+  # renders labels inline on one line (`strut.domain: example.com`, or
+  # `"strut.domain": "example.com"` under --format json, or
+  # `strut.domain=example.com` for list-form labels) — the value is never
+  # on the line AFTER the key. Match "strut.domain" plus the run of
+  # non-alphanumeric separator chars after it (quotes/colon/equals/space,
+  # in any combination), then capture the trailing domain-shaped token.
+  # This intentionally avoids matching quote characters literally, which
+  # would need escaping across two more layers of quoting (this local
+  # double-quoted string, then the remote shell) (strut#395).
   # shellcheck disable=SC2029
   local label_domains
   label_domains=$(ssh $ssh_opts "$vps_user@$vps_host" "
     cd '$deploy_dir' 2>/dev/null || exit 0
     docker compose -f 'stacks/$stack/docker-compose.yml' config 2>/dev/null \
-      | grep -A1 'strut.domain' \
-      | grep -v 'strut.domain' \
-      | tr -d ' \"' || true
+      | grep -oE 'strut\.domain[^A-Za-z0-9]*[A-Za-z0-9.-]+' \
+      | grep -oE '[A-Za-z0-9.-]+\$' || true
   " 2>/dev/null) || true
   [ -n "$label_domains" ] && domains="$label_domains"
 
@@ -160,12 +168,21 @@ _ssl_provision_one() {
     return 0
   fi
 
-  # Provision the certificate
+  # Provision the certificate. The --webroot attempt used to omit -d/
+  # --email/--non-interactive/--agree-tos entirely, so it never actually
+  # succeeded (certbot either prompts interactively or refuses outright
+  # without a domain) — every provision silently fell through to
+  # --standalone, which needs port 80 free and so conflicts with a proxy
+  # that's already bound to it (strut#395).
   log "auto-ssl: provisioning cert for $domain..."
   # shellcheck disable=SC2029
   if ssh $ssh_opts "$vps_user@$vps_host" "
     certbot certonly --webroot \
-      -w /var/www/certbot 2>/dev/null || \
+      -w /var/www/certbot \
+      --non-interactive --agree-tos \
+      --email '$email' \
+      -d '$domain' \
+      2>/dev/null || \
     certbot certonly --standalone \
       --non-interactive --agree-tos \
       --email '$email' \
