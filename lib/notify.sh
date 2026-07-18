@@ -32,7 +32,9 @@ NOTIFY_CONFIG_LOADED="${NOTIFY_CONFIG_LOADED:-false}"
 
 # notify_load_config [path]
 #
-# Sources notifications.conf if present. Search order:
+# Parses notifications.conf if present via safe_load_env (KEY=value only,
+# no shell expansion — a webhook URL containing command substitution is
+# inert). Search order:
 #   1. Explicit path argument (if provided)
 #   2. $NOTIFICATIONS_CONF env var
 #   3. $PROJECT_ROOT/notifications.conf
@@ -54,10 +56,7 @@ notify_load_config() {
   fi
 
   if [ -f "$conf" ]; then
-    set -a
-    # shellcheck disable=SC1090
-    source "$conf"
-    set +a
+    safe_load_env "$conf"
   fi
 
   NOTIFY_CONFIG_LOADED=true
