@@ -303,7 +303,13 @@ _bg_swap_proxy() {
 
   # Built-in fallback: reload the new project's proxy container in place.
   # This is a no-op for routing unless the compose template is built for
-  # blue-green (pluggable upstream). The warn makes that contract visible.
+  # blue-green (pluggable upstream) — plenty of real stacks are a single
+  # app container with no nginx/caddy sidecar at all, so a failed/no-op
+  # reload here is expected, not a swap failure. Deliberately non-fatal
+  # (warn, not fail/return 1); the strut#375 guard on _bg_swap_proxy's
+  # return value is aimed at BLUE_GREEN_PROXY_HOOK, a user-supplied hook
+  # that can fail meaningfully (bad nginx config, container not ready) —
+  # see the caller in bg_deploy_stack/bg_rollback_stack.
   local proxy="${REVERSE_PROXY:-nginx}"
   local new_cmd
   new_cmd="$(resolve_compose_cmd "$stack" "$env_file" "" "$new_project")"
@@ -312,15 +318,12 @@ _bg_swap_proxy() {
   warn "  For true atomic swap, set BLUE_GREEN_PROXY_HOOK in strut.conf"
   local reload_cmd
   if reload_cmd=$(build_proxy_reload_cmd "$new_cmd" "$proxy"); then
-    if $reload_cmd 2>/dev/null; then
-      ok "$proxy reloaded on $new_project"
-    else
-      warn "$proxy reload failed (proxy may not be running yet)"
-      return 1
-    fi
+    $reload_cmd 2>/dev/null && ok "$proxy reloaded on $new_project" \
+      || warn "$proxy reload failed (proxy may not be running yet)"
   else
     warn "Unknown proxy '$proxy' — skipping reload"
   fi
+  return 0
 }
 
 # _bg_drain <seconds>

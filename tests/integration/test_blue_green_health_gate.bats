@@ -129,7 +129,7 @@ setup() {
   done
   [ "$code" = "200" ]
 
-  [ "$(_bg_read_state "$BG_STACK")" = "blue" ]
+  [ "$(_bg_read_state "$BG_STACK" "$BG_ENV")" = "blue" ]
 }
 
 # ── 2. Crash-looping green is rejected: blue stays up, green is torn down ─────
@@ -168,7 +168,7 @@ EOF
   [ -z "$output" ]
 
   # State never flipped — blue is still the active color.
-  [ "$(_bg_read_state "$BG_STACK")" = "blue" ]
+  [ "$(_bg_read_state "$BG_STACK" "$BG_ENV")" = "blue" ]
 
   # Blue is still serving (the closest proxy-observable signal available
   # without wiring an actual reverse proxy in this minimal fixture).
@@ -224,7 +224,7 @@ EOF
   rm -rf "$hook_dir"
 
   # State flipped from blue to green.
-  [ "$(_bg_read_state "$BG_STACK")" = "green" ]
+  [ "$(_bg_read_state "$BG_STACK" "$BG_ENV")" = "green" ]
 
   # Green is live and serving.
   run docker ps \
