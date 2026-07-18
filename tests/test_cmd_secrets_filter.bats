@@ -288,6 +288,37 @@ _init_git_repo() {
   ln -s "$BATS_TEST_DIRNAME/../lib" "$TEST_TMP/lib"
   ln -s "$BATS_TEST_DIRNAME/../templates" "$TEST_TMP/templates"
 
+  # `age` as a bash FUNCTION (the rest of this file's mock) doesn't reach
+  # here: git invokes the clean/smudge filter via its own `sh -c`, a real
+  # subprocess boundary that exported functions don't reliably cross (it
+  # happens to work on macOS, where /bin/sh is bash, but not on Linux CI
+  # where it's dash and has no concept of exported shell functions at
+  # all). A real executable on PATH crosses that boundary correctly under
+  # any shell.
+  local mock_bin="$TEST_TMP/mock-bin"
+  mkdir -p "$mock_bin"
+  cat > "$mock_bin/age" <<'EOF'
+#!/bin/sh
+output=""
+input=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -e|-d) shift ;;
+    -o) output="$2"; shift 2 ;;
+    -R) shift 2 ;;
+    -i) shift 2 ;;
+    *) input="$1"; shift ;;
+  esac
+done
+if [ -n "$input" ]; then
+  if [ -n "$output" ]; then cp "$input" "$output"; else cat "$input"; fi
+else
+  cat
+fi
+EOF
+  chmod +x "$mock_bin/age"
+  export PATH="$mock_bin:$PATH"
+
   echo "age1qtest" > "$TEST_TMP/.strut-recipients"
   cmd_secrets_filter install >/dev/null
 
