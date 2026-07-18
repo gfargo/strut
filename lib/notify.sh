@@ -180,11 +180,12 @@ _notify_payload_json() {
   local event="$1"
   shift || true
 
-  local payload="{\"event\":\"$event\""
+  local payload="{\"event\":\"$(json_escape "$event")\""
   local kv key val
   for kv in "$@"; do
     key="${kv%%=*}"
     val="${kv#*=}"
+    key="$(json_escape "$key")"
     val="$(json_escape "$val")"
     payload+=",\"$key\":\"$val\""
   done

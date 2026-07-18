@@ -44,7 +44,13 @@ EOF
   export CMD_STACK_DIR="$TEST_TMP/stacks/test-stack"
   export CMD_ENV_FILE="$TEST_TMP/.prod.env"
   export CMD_ENV_NAME="prod"
-  export CMD_JSON="false"
+  # CMD_JSON's real convention (set by flags.sh) is the literal string
+  # "--json" when the flag was passed, or unset/empty otherwise — never
+  # "true"/"false" (strut#380). "false" here used to be silently
+  # equivalent to unset against the old (broken) `= "true"` check; it is
+  # NOT equivalent under the fixed `[ -n "$CMD_JSON" ]` check, so tests
+  # must use the real convention too.
+  export CMD_JSON=""
   export CLI_ROOT="$CLI_ROOT"
 }
 
@@ -122,4 +128,42 @@ EOF
   run cmd_diff
   [ "$status" -eq 0 ]
   [[ "$output" == *"No changes"* ]]
+}
+
+# strut#380: --json is consumed by the top-level flag parser before
+# cmd_diff ever sees it (CMD_JSON is set to the literal string "--json",
+# never "true") — this test goes through the REAL flag convention rather
+# than a hand-set "true"/"false" that the old bug was invisible to.
+
+@test "cmd_diff: --json (via CMD_JSON, the real flag-parser convention) emits valid JSON" {
+  export CMD_JSON="--json"
+  ssh() { return 0; }
+  export -f ssh
+
+  diff_fetch_remote() {
+    case "$1" in
+      *.env) cat "$TEST_TMP/.prod.env" ;;
+      *docker-compose.yml) cat "$TEST_TMP/stacks/test-stack/docker-compose.yml" ;;
+    esac
+  }
+  export -f diff_fetch_remote
+
+  run cmd_diff
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"No changes"* ]]  # text-mode phrasing must NOT appear
+
+  command -v jq &>/dev/null || skip "jq not available"
+  echo "$output" | jq -e . >/dev/null
+  [ "$(echo "$output" | jq -r '.stack')" = "test-stack" ]
+  [ "$(echo "$output" | jq -r '.has_changes')" = "false" ]
+}
+
+@test "cmd_diff: without --json, output is text even though changes exist under --json elsewhere" {
+  # Guards the other direction: CMD_JSON unset must stay in text mode.
+  ssh() { return 255; }
+  export -f ssh
+
+  run cmd_diff
+  [ "$status" -eq 2 ]
+  [[ "$output" != "{"* ]]
 }

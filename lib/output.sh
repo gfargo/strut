@@ -29,6 +29,12 @@
 
 set -euo pipefail
 
+# json_escape is the shared JSON-string escaper (lib/utils.sh); the strut
+# entrypoint always sources utils.sh first, but output.sh is also sourced
+# standalone (tests, other tooling) — fall back to sourcing it directly so
+# _out_json_escape below doesn't depend on caller order.
+declare -F json_escape >/dev/null || source "$(dirname "${BASH_SOURCE[0]}")/utils.sh"
+
 # ── Internal state ────────────────────────────────────────────────────────────
 _OUT_TABLE_COLS=()
 _OUT_TABLE_ROWS=()       # Rows stored TSV-encoded (fields joined by \t)
@@ -97,9 +103,20 @@ out_table_row() {
     fi
     i=$((i + 1))
   done
-  # Join with tab — tab is safe since we don't expect tabs in cell values
-  local IFS=$'\t'
-  _OUT_TABLE_ROWS+=("${row[*]}")
+  # Join with the ASCII unit separator (0x1F), not a tab: IFS word-splitting
+  # collapses runs of *whitespace* IFS characters (tab included), which
+  # silently drops empty cells (out_table_row "a" "" "c" would re-split
+  # back into 2 fields, shifting "c" into the middle column). 0x1F isn't
+  # whitespace, so `read -a` below treats each separator as a real
+  # boundary and preserves empties.
+  #
+  # A trailing empty cell needs one more trick: IFS splitting (any
+  # delimiter, not just whitespace) always drops a trailing empty field
+  # ("a\x1f" splits to one field, not two). Appending one extra trailing
+  # separator absorbs that drop, so a real trailing-empty cell round-trips
+  # correctly — see out_table_render.
+  local IFS=$'\x1f'
+  _OUT_TABLE_ROWS+=("${row[*]}$IFS")
 }
 
 # out_table_render — emit the buffered table to stdout and reset
@@ -114,10 +131,10 @@ out_table_render() {
 
   # Rows
   local row
-  local IFS=$'\t'
+  local IFS=$'\x1f'
   for row in "${_OUT_TABLE_ROWS[@]+"${_OUT_TABLE_ROWS[@]}"}"; do
     local -a fields
-    read -r -a fields <<<"$row"
+    IFS=$'\x1f' read -r -a fields <<<"$row"
     _out_print_row "$(output_use_color && echo 1 || echo 0)" "cell" "${fields[@]}"
   done
 
@@ -188,15 +205,12 @@ _out_json_enabled() {
   [ "$(output_mode)" = "json" ]
 }
 
-# _out_json_escape <string> — escape for JSON string literal (stdin passthrough)
+# _out_json_escape <string> — escape for JSON string literal
+#
+# Thin wrapper over the shared json_escape() (lib/utils.sh) so there's one
+# escaping implementation, not two near-identical ones drifting apart.
 _out_json_escape() {
-  local s="$1"
-  s="${s//\\/\\\\}"
-  s="${s//\"/\\\"}"
-  s="${s//$'\n'/\\n}"
-  s="${s//$'\r'/\\r}"
-  s="${s//$'\t'/\\t}"
-  printf '%s' "$s"
+  json_escape "$1"
 }
 
 _out_json_comma_if_needed() {
@@ -223,8 +237,13 @@ out_json_object() {
 out_json_close_object() {
   _out_json_enabled || return 0
   printf '}'
-  unset '_OUT_JSON_STACK[-1]'
-  unset '_OUT_JSON_FIRST[-1]'
+  # Guard against an unbalanced close (caller bug, or a container already
+  # closed) — unset on an empty array throws "bad array subscript" and
+  # would abort under set -e. `if` (not `&&`) so the false branch itself
+  # doesn't trip errexit.
+  if [ "${#_OUT_JSON_STACK[@]}" -gt 0 ]; then unset '_OUT_JSON_STACK[-1]'; fi
+  if [ "${#_OUT_JSON_FIRST[@]}" -gt 0 ]; then unset '_OUT_JSON_FIRST[-1]'; fi
+  return 0
 }
 
 # out_json_array <key> — open a keyed array inside an object
@@ -241,8 +260,9 @@ out_json_array() {
 out_json_close_array() {
   _out_json_enabled || return 0
   printf ']'
-  unset '_OUT_JSON_STACK[-1]'
-  unset '_OUT_JSON_FIRST[-1]'
+  if [ "${#_OUT_JSON_STACK[@]}" -gt 0 ]; then unset '_OUT_JSON_STACK[-1]'; fi
+  if [ "${#_OUT_JSON_FIRST[@]}" -gt 0 ]; then unset '_OUT_JSON_FIRST[-1]'; fi
+  return 0
 }
 
 # out_json_field <key> <value>

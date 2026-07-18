@@ -190,10 +190,11 @@ EOF
 
 # ── drift_generate_diff ──────────────────────────────────────────────────────
 
-@test "drift_generate_diff: reports missing VPS file" {
-  run drift_generate_diff "$TEST_TMP/git-file" "$TEST_TMP/nonexistent"
+@test "drift_generate_diff: reports untracked file" {
+  mkdir -p "$TEST_TMP/stack_dir"
+  run drift_generate_diff "demo" "nonexistent" "$TEST_TMP/stack_dir"
   [ "$status" -eq 1 ]
-  [[ "$output" == *"VPS file missing"* ]]
+  [[ "$output" == *"not tracked"* ]]
 }
 
 # ── drift_fix ──────────────────────────────────────────────────────────────────
@@ -354,6 +355,152 @@ _drift_fixture_init() {
   [ "$fix_status" -ne 0 ]
   [[ "$fix_output" == *"Failed to restore"* ]]
   [ "$content_after" = "drifted content" ]
+}
+
+# ── strut#182: compare against the real VPS file, not a second local copy ──
+# drift_get_vps_hash/drift_generate_diff used to be handed the SAME local
+# path as both "git_file" and "vps_file" — comparing the working tree
+# against itself always reports clean, hiding real VPS-side drift. `ssh` is
+# stubbed to simulate diff_fetch_remote's `cat <remote_path>` call.
+
+@test "drift_detect: reports drift when the VPS file differs from git, even though local matches git exactly" {
+  local stack="test-drift-remote-$$"
+  local fixture_root="$TEST_TMP/fixture-remote"
+  local committed_content='{"services":{"web":{"image":"nginx:alpine"}}}'
+  _drift_fixture_init "$fixture_root" "$stack" "$committed_content"
+
+  local orig_cli_root="$CLI_ROOT"
+  export CLI_ROOT="$fixture_root"
+  # Local working tree is left untouched — it matches git exactly. Before
+  # the fix, drift_detect compared this local copy against ITSELF, so it
+  # always reported clean regardless of what was actually deployed.
+  export VPS_HOST="vps.example.com"
+  export VPS_DEPLOY_DIR="/opt/deploy"
+  ssh() { echo '{"services":{"web":{"image":"nginx:latest"}}}'; }
+  export -f ssh
+
+  run drift_detect "$stack" "prod"
+  local rc="$status"
+  local out="$output"
+
+  unset VPS_HOST VPS_DEPLOY_DIR
+  export CLI_ROOT="$orig_cli_root"
+
+  [ "$rc" -eq 1 ]
+  [[ "$out" == *"docker-compose.yml"* ]]
+}
+
+@test "drift_detect: no drift when the VPS file matches git exactly" {
+  local stack="test-drift-remote-clean-$$"
+  local fixture_root="$TEST_TMP/fixture-remote-clean"
+  local committed_content='{"services":{"web":{"image":"nginx:alpine"}}}'
+  _drift_fixture_init "$fixture_root" "$stack" "$committed_content"
+
+  local orig_cli_root="$CLI_ROOT"
+  export CLI_ROOT="$fixture_root"
+  export VPS_HOST="vps.example.com"
+  export VPS_DEPLOY_DIR="/opt/deploy"
+  ssh() { echo '{"services":{"web":{"image":"nginx:alpine"}}}'; }
+  export -f ssh
+
+  run drift_detect "$stack" "prod"
+  local rc="$status"
+
+  unset VPS_HOST VPS_DEPLOY_DIR
+  export CLI_ROOT="$orig_cli_root"
+
+  [ "$rc" -eq 0 ]
+}
+
+@test "drift_get_vps_hash: SSH unreachable returns 'unreachable' (rc=2)" {
+  local stack="test-drift-unreachable-$$"
+  local fixture_root="$TEST_TMP/fixture-unreachable"
+  _drift_fixture_init "$fixture_root" "$stack" '{"services":{"web":{"image":"nginx:alpine"}}}'
+
+  local orig_cli_root="$CLI_ROOT"
+  export CLI_ROOT="$fixture_root"
+  export VPS_HOST="vps.example.com"
+  export VPS_DEPLOY_DIR="/opt/deploy"
+  ssh() { return 255; }  # OpenSSH's own connect/auth failure exit code
+  export -f ssh
+
+  run drift_get_vps_hash "$stack" "docker-compose.yml" "$fixture_root/stacks/$stack"
+
+  unset VPS_HOST VPS_DEPLOY_DIR
+  export CLI_ROOT="$orig_cli_root"
+
+  [ "$status" -eq 2 ]
+  [ "$output" = "unreachable" ]
+}
+
+@test "drift_detect: SSH unreachable is skipped, not reported as drift" {
+  local stack="test-drift-unreachable-detect-$$"
+  local fixture_root="$TEST_TMP/fixture-unreachable-detect"
+  _drift_fixture_init "$fixture_root" "$stack" '{"services":{"web":{"image":"nginx:alpine"}}}'
+
+  local orig_cli_root="$CLI_ROOT"
+  export CLI_ROOT="$fixture_root"
+  export VPS_HOST="vps.example.com"
+  export VPS_DEPLOY_DIR="/opt/deploy"
+  ssh() { return 255; }
+  export -f ssh
+
+  run drift_detect "$stack" "prod"
+  local rc="$status"
+  local out="$output"
+
+  unset VPS_HOST VPS_DEPLOY_DIR
+  export CLI_ROOT="$orig_cli_root"
+
+  [ "$rc" -eq 0 ]
+  [[ "$out" == *"No configuration drift"* ]]
+}
+
+@test "drift_generate_diff: shows a real diff against VPS content, not an empty self-comparison" {
+  local stack="test-drift-diff-remote-$$"
+  local fixture_root="$TEST_TMP/fixture-diff-remote"
+  local committed_content='{"services":{"web":{"image":"nginx:alpine"}}}'
+  _drift_fixture_init "$fixture_root" "$stack" "$committed_content"
+
+  local orig_cli_root="$CLI_ROOT"
+  export CLI_ROOT="$fixture_root"
+  export VPS_HOST="vps.example.com"
+  export VPS_DEPLOY_DIR="/opt/deploy"
+  ssh() { echo '{"services":{"web":{"image":"nginx:latest"}}}'; }
+  export -f ssh
+
+  run drift_generate_diff "$stack" "docker-compose.yml" "$fixture_root/stacks/$stack"
+
+  unset VPS_HOST VPS_DEPLOY_DIR
+  export CLI_ROOT="$orig_cli_root"
+
+  [[ "$output" == *"nginx:alpine"* ]]
+  [[ "$output" == *"nginx:latest"* ]]
+  [[ "$output" == *"vps-runtime"* ]]
+}
+
+@test "drift_fix: with VPS_HOST set, success message hints that deploy/release is needed to push the fix" {
+  local stack="test-drift-fix-vps-hint-$$"
+  local fixture_root="$TEST_TMP/fixture-vps-hint"
+  local committed_content='{"services":{"web":{"image":"nginx:alpine"}}}'
+  _drift_fixture_init "$fixture_root" "$stack" "$committed_content"
+
+  local orig_cli_root="$CLI_ROOT"
+  export CLI_ROOT="$fixture_root"
+  export VPS_HOST="vps.example.com"
+  export VPS_DEPLOY_DIR="/opt/deploy"
+  ssh() { echo '{"services":{"web":{"image":"nginx:latest"}}}'; }
+  export -f ssh
+
+  run drift_fix "$stack" "prod"
+  local fix_status="$status"
+  local fix_output="$output"
+
+  unset VPS_HOST VPS_DEPLOY_DIR
+  export CLI_ROOT="$orig_cli_root"
+
+  [ "$fix_status" -eq 0 ]
+  [[ "$fix_output" == *"push it to the VPS"* ]]
 }
 
 # ── Property: drift_store_event always creates valid JSON ─────────────────────
