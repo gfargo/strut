@@ -102,3 +102,45 @@ backup_engine_label() {
     *) error "Unknown backup engine: $engine"; return 1 ;;
   esac
 }
+
+# validate_backup_artifact <engine> <file>
+#
+# Sanity-checks a backup artifact BEFORE it's used as input to a restore,
+# push, or offsite-sync — catches a truncated/corrupt file left behind by a
+# backup that died mid-write, so it can never silently masquerade as the
+# "latest" good backup. Checks existence/size for every engine, plus an
+# engine-specific structural check (completion-marker trailer for the
+# plain-text SQL dumps, PRAGMA integrity_check for SQLite). Neo4j dumps get
+# real structural validation at load time (neo4j-admin database load /
+# restore_neo4j's scratch-volume check), so only existence/size is checked
+# here.
+validate_backup_artifact() {
+  local engine="$1"
+  local file="$2"
+
+  [ -f "$file" ] || { error "Backup artifact not found: $file"; return 1; }
+  [ -s "$file" ] || { error "Backup artifact is empty: $file"; return 1; }
+
+  case "$engine" in
+    postgres)
+      if [[ "$file" == *.gz ]]; then
+        gzip -t "$file" 2>/dev/null || { error "Backup artifact failed gzip integrity check: $file"; return 1; }
+        zgrep -q -- '-- PostgreSQL database dump complete' "$file" || { error "Backup artifact is truncated (missing completion marker): $file"; return 1; }
+      else
+        grep -q -- '-- PostgreSQL database dump complete' "$file" || { error "Backup artifact is truncated (missing completion marker): $file"; return 1; }
+      fi
+      ;;
+    mysql)
+      grep -q -- '-- Dump completed on' "$file" || { error "Backup artifact is truncated (missing completion marker): $file"; return 1; }
+      ;;
+    sqlite)
+      if command -v sqlite3 &>/dev/null; then
+        local integrity
+        integrity=$(sqlite3 "$file" "PRAGMA integrity_check;" 2>/dev/null | head -1 || true)
+        [ "$integrity" = "ok" ] || { error "Backup artifact failed SQLite integrity check: $file"; return 1; }
+      fi
+      ;;
+    neo4j) ;;
+    *) error "Unknown backup engine: $engine"; return 1 ;;
+  esac
+}

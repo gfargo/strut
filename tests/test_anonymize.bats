@@ -90,10 +90,10 @@ teardown() {
   [ -z "$sql" ]
 }
 
-@test "unknown strategy: returns empty string" {
-  local sql
-  sql=$(_anon_generate_sql "unknown_strategy" "users" "email" "postgres")
-  [ -z "$sql" ]
+@test "unknown strategy: fails loudly instead of silently skipping (issue #391)" {
+  run _anon_generate_sql "unknown_strategy" "users" "email" "postgres"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"Unknown anonymization strategy"* ]]
 }
 
 # ── anon_parse_config ─────────────────────────────────────────────────────────
@@ -133,12 +133,13 @@ EOF
   [ "$status" -eq 1 ]
 }
 
-@test "anon_parse_config: warns on invalid format" {
+@test "anon_parse_config: fails on invalid format instead of silently dropping the rule (issue #391)" {
   cat > "$TEST_TMP/anonymize.conf" <<'EOF'
 invalid_no_dot=fake_email
 EOF
 
   run anon_parse_config "$TEST_TMP/anonymize.conf"
+  [ "$status" -ne 0 ]
   [[ "$output" == *"Invalid"* ]]
 }
 
@@ -180,6 +181,16 @@ EOF
   run anon_build_sql "$TEST_TMP/anonymize.conf" "postgres"
   [ "$status" -eq 0 ]
   [[ "$output" == *"1 anonymization rules"* ]]
+}
+
+@test "anon_build_sql: fails on a typo'd strategy instead of silently producing a shorter script (issue #391)" {
+  cat > "$TEST_TMP/anonymize.conf" <<'EOF'
+users.email=fake_emial
+EOF
+
+  run anon_build_sql "$TEST_TMP/anonymize.conf" "postgres"
+  [ "$status" -ne 0 ]
+  [[ "$output" != *"anonymization rules applied"* ]]
 }
 
 # ── anon_dry_run ──────────────────────────────────────────────────────────────

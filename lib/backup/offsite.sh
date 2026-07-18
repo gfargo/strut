@@ -172,7 +172,7 @@ offsite_sync_latest() {
   [ -d "$dir" ] || return 0
 
   # Newest match wins. Null-glob via conditional guard.
-  latest=$(ls -t "$dir"/$pattern 2>/dev/null | head -1)
+  latest=$(ls -t "$dir"/$pattern 2>/dev/null | head -1 || true)
   [ -z "$latest" ] && return 0
 
   # Non-fatal — never abort the enclosing backup if sync fails.

@@ -99,7 +99,7 @@ clone_with_pat() {
   # mode-600 remote credential file — see remote_ssh_with_pat (lib/fleet.sh).
   local ssh_opts
   ssh_opts=$(build_ssh_opts -p "$ssh_port" -k "$ssh_key")
-  local clone_script="git clone \$GIT_CRED_OPT $https_url $dest_dir"
+  local clone_script="git_cred clone $https_url $dest_dir"
   remote_ssh_with_pat "$ssh_opts" "$vps_user@$vps_host" "$pat" "$clone_script"
 
   # Configure a persistent credential helper for future fetches — store

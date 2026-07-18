@@ -262,3 +262,69 @@ EOF
     fi
   done
 }
+
+@test "every backup-enabled recipe: .env.template defines the DB vars the backup engine reads (issue #397)" {
+  for dir in "$CLI_ROOT"/templates/recipes/*/; do
+    local name; name="$(basename "$dir")"
+    [ -f "$dir/backup.conf" ] || continue
+    [ -f "$dir/.env.template" ] || continue
+
+    if grep -qE '^BACKUP_POSTGRES=true' "$dir/backup.conf"; then
+      grep -qE '^POSTGRES_USER=' "$dir/.env.template" || {
+        echo "recipe $name: BACKUP_POSTGRES=true but .env.template has no POSTGRES_USER (backup would dump the wrong role)" >&2
+        return 1
+      }
+      grep -qE '^POSTGRES_DB=' "$dir/.env.template" || {
+        echo "recipe $name: BACKUP_POSTGRES=true but .env.template has no POSTGRES_DB (backup would dump the wrong database)" >&2
+        return 1
+      }
+    fi
+
+    if grep -qE '^BACKUP_MYSQL=true' "$dir/backup.conf"; then
+      grep -qE '^MYSQL_DATABASE=' "$dir/.env.template" || {
+        echo "recipe $name: BACKUP_MYSQL=true but .env.template has no MYSQL_DATABASE (backup would hard-fail)" >&2
+        return 1
+      }
+      grep -qE '^MYSQL_USER=' "$dir/.env.template" || {
+        echo "recipe $name: BACKUP_MYSQL=true but .env.template has no MYSQL_USER (backup would fall back to root, whose password is unknown to strut)" >&2
+        return 1
+      }
+    fi
+  done
+}
+
+@test "every official recipe: services.conf uses the health engine schema, not dead SERVICE_* keys (issue #398)" {
+  for dir in "$CLI_ROOT"/templates/recipes/*/; do
+    local name; name="$(basename "$dir")"
+    [ -f "$dir/services.conf" ] || continue
+
+    # lib/health.sh has zero consumers for SERVICE_* — confirmed by
+    # `grep -rn "SERVICE_" lib/` returning nothing.
+    if grep -qE '^SERVICE_' "$dir/services.conf"; then
+      echo "recipe $name: services.conf still uses the dead SERVICE_* schema" >&2
+      return 1
+    fi
+
+    # DB_<TYPE>=true only recognizes a fixed set — health.sh warns
+    # "unknown database type" for anything else, so this is worth catching
+    # at the recipe level rather than only at deploy time.
+    while IFS='=' read -r key _; do
+      [[ "$key" =~ ^DB_(POSTGRES|NEO4J|MYSQL|REDIS)$ ]] || {
+        echo "recipe $name: services.conf declares unsupported DB flag '$key' (health.sh only recognizes DB_POSTGRES/DB_NEO4J/DB_MYSQL/DB_REDIS)" >&2
+        return 1
+      }
+    done < <(grep -E '^DB_[A-Z0-9_]+=true' "$dir/services.conf")
+
+    # Every <NAME>_PORT must be a host-published port, not a container-
+    # internal-only one (docker-compose `expose:` never reaches localhost on
+    # the host, so a health probe against it always fails).
+    [ -f "$dir/docker-compose.yml" ] || continue
+    while IFS='=' read -r _ port; do
+      [ -n "$port" ] || continue
+      grep -qE "\"[^\"]*${port}:" "$dir/docker-compose.yml" || {
+        echo "recipe $name: services.conf port $port does not match any host-published port in docker-compose.yml" >&2
+        return 1
+      }
+    done < <(grep -E '^[A-Z0-9_]+_PORT=' "$dir/services.conf")
+  done
+}

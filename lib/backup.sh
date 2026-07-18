@@ -113,7 +113,7 @@ backup_neo4j() {
 
   local neo4j_service="${BACKUP_NEO4J_SERVICE:-neo4j}"
   local container_name
-  container_name=$(${_sudo}docker ps --filter "name=$neo4j_service" --format "{{.Names}}" | grep "$stack" | head -1)
+  container_name=$(${_sudo}docker ps --filter "name=$neo4j_service" --format "{{.Names}}" | grep "$stack" | head -1 || true)
   [ -n "$container_name" ] || { error "Neo4j container not found for stack: $stack (service: $neo4j_service)"; return 1; }
 
   log "Using container: $container_name"
@@ -162,9 +162,17 @@ backup_neo4j() {
   log "Restarting Neo4j..."
   ${_sudo}docker start "$container_name" >/dev/null 2>&1 || { error "Failed to restart Neo4j"; return 1; }
 
-  # Copy dump to backup directory
+  # Copy dump to backup directory. Copy to a temp name and mv into place on
+  # success — an interrupted docker cp must never leave a truncated file at
+  # the exact name every "latest" selector looks for.
   log "Copying dump to backup directory..."
-  ${_sudo}docker cp "$container_name:/var/lib/neo4j/import/neo4j.dump" "$out" 2>/dev/null || { error "Failed to copy Neo4j dump"; return 1; }
+  if ${_sudo}docker cp "$container_name:/var/lib/neo4j/import/neo4j.dump" "$out.tmp" 2>/dev/null; then
+    mv "$out.tmp" "$out"
+  else
+    rm -f "$out.tmp"
+    error "Failed to copy Neo4j dump"
+    return 1
+  fi
   ${_sudo}docker exec "$container_name" rm -f /var/lib/neo4j/import/neo4j.dump 2>/dev/null || true
 
   # Wait for healthy
@@ -202,11 +210,20 @@ backup_postgres() {
   local _sudo
   _sudo="$(vps_sudo_prefix 2>/dev/null || echo "")"
 
-  ${_sudo}$compose_cmd exec -T "$pg_service" \
-    pg_dump -U "${POSTGRES_USER:-postgres}" "${POSTGRES_DB:-${POSTGRES_USER:-postgres}}" > "$out" \
-  && ok "PostgreSQL backup saved: $out" \
-  && create_backup_metadata "$stack" "$out" "postgres" "" \
-  || { error "PostgreSQL backup failed"; return 1; }
+  # Write to a temp name and mv into place on success — a dump killed
+  # mid-write (OOM, disk-full, SIGKILL) must never leave a truncated file at
+  # the exact name every "latest" selector (db:pull/db:push/offsite-sync)
+  # looks for.
+  if ${_sudo}$compose_cmd exec -T "$pg_service" \
+    pg_dump -U "${POSTGRES_USER:-postgres}" "${POSTGRES_DB:-${POSTGRES_USER:-postgres}}" > "$out.tmp"; then
+    mv "$out.tmp" "$out"
+    ok "PostgreSQL backup saved: $out"
+    create_backup_metadata "$stack" "$out" "postgres" ""
+  else
+    rm -f "$out.tmp"
+    error "PostgreSQL backup failed"
+    return 1
+  fi
 }
 
 # restore_neo4j <stack> <compose_cmd> <dump_file> [target_env]
@@ -261,7 +278,7 @@ restore_neo4j() {
   # Get container name for direct docker operations
   # Try to find the neo4j container by searching docker ps
   local container_name
-  container_name=$(docker ps -a --format "{{.Names}}" | grep -E "^${stack}.*${neo4j_service}" | head -1)
+  container_name=$(docker ps -a --format "{{.Names}}" | grep -E "^${stack}.*${neo4j_service}" | head -1 || true)
 
   if [ -z "$container_name" ]; then
     # Fallback: derive from compose project name
@@ -373,7 +390,7 @@ restore_neo4j_from_targz() {
   # Get container name
   local neo4j_service="${BACKUP_NEO4J_SERVICE:-neo4j}"
   local container_name
-  container_name=$(docker ps -a --filter "name=$neo4j_service" --format "{{.Names}}" | grep "$stack" | head -1)
+  container_name=$(docker ps -a --filter "name=$neo4j_service" --format "{{.Names}}" | grep "$stack" | head -1 || true)
 
   if [ -z "$container_name" ]; then
     error "Neo4j container not found for stack: $stack"
@@ -563,7 +580,7 @@ _db_pull_postgres() {
 
   log "Finding latest PostgreSQL backup on VPS..."
   local sf=""
-  [ -n "$specific_file" ] && [[ "$specific_file" == *.sql ]] && sf="$specific_file"
+  [ -n "$specific_file" ] && [[ "$specific_file" == postgres-*.sql ]] && sf="$specific_file"
 
   local local_file
   local_file=$(_db_pull_find_and_download "$ssh_opts" "$vps_user" "$vps_host" \
@@ -739,15 +756,23 @@ _db_push_upload() {
   || { error "Failed to upload backup"; return 1; }
 }
 
-# _db_push_postgres <stack> <ssh_opts> <vps_user> <vps_host> <remote_dir> <backup_dir> <project_name> <_sudo> <upload_only> <specific_file>
+# _db_push_postgres <stack> <ssh_opts> <vps_user> <vps_host> <remote_dir> <backup_dir> <project_name> <_sudo> <upload_only> <target> <specific_file>
 _db_push_postgres() {
   local stack="$1" ssh_opts="$2" vps_user="$3" vps_host="$4"
   local remote_dir="$5" backup_dir="$6" project_name="$7"
-  local _sudo="$8" upload_only="$9" specific_file="${10:-}"
+  local _sudo="$8" upload_only="$9" target="${10}" specific_file="${11:-}"
 
   local local_file="$specific_file"
+  # A --file for a different engine (e.g. a mysql-*.sql fed with target=all)
+  # must never be attempted against this engine — skip silently when this
+  # engine was only pulled in via "all"; fail loudly when explicitly
+  # requested with a mismatched file.
+  if [ -n "$local_file" ] && [[ "$(basename "$local_file")" != postgres-*.sql ]]; then
+    [ "$target" = "all" ] && return 0
+    fail "File does not match PostgreSQL backup naming (postgres-*.sql): $local_file"
+  fi
   if [ -z "$local_file" ]; then
-    local_file=$(ls -t "$backup_dir"/postgres-*.sql 2>/dev/null | head -1)
+    local_file=$(ls -t "$backup_dir"/postgres-*.sql 2>/dev/null | head -1 || true)
     [ -n "$local_file" ] || fail "No local PostgreSQL backups found in $backup_dir"
   fi
   [ -f "$local_file" ] || fail "Backup file not found: $local_file"
@@ -796,15 +821,22 @@ _db_push_postgres() {
   fi
 }
 
-# _db_push_neo4j <stack> <ssh_opts> <vps_user> <vps_host> <remote_dir> <backup_dir> <project_name> <_sudo> <upload_only> <specific_file>
+# _db_push_neo4j <stack> <ssh_opts> <vps_user> <vps_host> <remote_dir> <backup_dir> <project_name> <_sudo> <upload_only> <target> <specific_file>
 _db_push_neo4j() {
   local stack="$1" ssh_opts="$2" vps_user="$3" vps_host="$4"
   local remote_dir="$5" backup_dir="$6" project_name="$7"
-  local _sudo="$8" upload_only="$9" specific_file="${10:-}"
+  local _sudo="$8" upload_only="$9" target="${10}" specific_file="${11:-}"
 
   local local_file="$specific_file"
+  # A --file for a different engine must never be attempted against this
+  # engine — skip silently when only pulled in via "all"; fail loudly when
+  # this engine was explicitly requested with a mismatched file.
+  if [ -n "$local_file" ] && [[ "$(basename "$local_file")" != neo4j-*.dump ]]; then
+    [ "$target" = "all" ] && return 0
+    fail "File does not match Neo4j backup naming (neo4j-*.dump): $local_file"
+  fi
   if [ -z "$local_file" ]; then
-    local_file=$(ls -t "$backup_dir"/neo4j-*.dump 2>/dev/null | head -1)
+    local_file=$(ls -t "$backup_dir"/neo4j-*.dump 2>/dev/null | head -1 || true)
     [ -n "$local_file" ] || fail "No local Neo4j backups found in $backup_dir"
   fi
   [ -f "$local_file" ] || fail "Backup file not found: $local_file"
@@ -832,14 +864,27 @@ _db_push_neo4j() {
     2>/dev/null && ok "Safety backup created" \
     || warn "Failed to create safety backup (continuing anyway)"
 
+    # `start` runs as a SEPARATE ssh call, after the cp/stop/load chain,
+    # regardless of whether the load succeeded — a failed load must never
+    # leave Neo4j stopped on prod. --from-path is a directory (not the dump
+    # file itself): neo4j-admin expects a directory containing a file named
+    # exactly "neo4j.dump", mirroring the local restore's pattern.
     log "Restoring Neo4j on VPS (stopping service)..."
-    if ssh $ssh_opts "$vps_user@$vps_host" \
+    local neo4j_load_ok=true
+    ssh $ssh_opts "$vps_user@$vps_host" \
       "cd $(resolve_deploy_dir) && \
-       ${_sudo}docker compose --project-name $project_name cp $remote_dir/$filename $neo4j_service:/var/lib/neo4j/import/restore.dump && \
+       ${_sudo}docker compose --project-name $project_name cp $remote_dir/$filename $neo4j_service:/var/lib/neo4j/import/neo4j.dump && \
        ${_sudo}docker compose --project-name $project_name stop $neo4j_service && \
        ${_sudo}docker compose --project-name $project_name run --rm --entrypoint neo4j-admin $neo4j_service \
-         database load neo4j --from-path=/var/lib/neo4j/import/restore.dump --overwrite-destination && \
-       ${_sudo}docker compose --project-name $project_name start $neo4j_service"; then
+         database load neo4j --from-path=/var/lib/neo4j/import --overwrite-destination" \
+      || neo4j_load_ok=false
+
+    log "Restarting Neo4j..."
+    ssh $ssh_opts "$vps_user@$vps_host" \
+      "cd $(resolve_deploy_dir) && ${_sudo}docker compose --project-name $project_name start $neo4j_service" \
+      || warn "Failed to restart Neo4j on VPS — may need manual intervention"
+
+    if $neo4j_load_ok; then
       ok "Neo4j restore complete on VPS"
     else
       error "Neo4j restore failed on VPS"
@@ -856,8 +901,15 @@ _db_push_mysql() {
   local upload_only="$8" target="$9" specific_file="${10:-}"
 
   local local_file="$specific_file"
+  # A --file for a different engine must never be attempted against this
+  # engine — skip silently when only pulled in via "all"; fail loudly when
+  # this engine was explicitly requested with a mismatched file.
+  if [ -n "$local_file" ] && [[ "$(basename "$local_file")" != mysql-*.sql ]]; then
+    [ "$target" = "all" ] && return 0
+    fail "File does not match MySQL backup naming (mysql-*.sql): $local_file"
+  fi
   if [ -z "$local_file" ]; then
-    local_file=$(ls -t "$backup_dir"/mysql-*.sql 2>/dev/null | head -1)
+    local_file=$(ls -t "$backup_dir"/mysql-*.sql 2>/dev/null | head -1 || true)
     if [ -z "$local_file" ] && [ "$target" = "all" ]; then
       return 0  # skip silently for 'all'
     fi
@@ -903,8 +955,15 @@ _db_push_sqlite() {
   local upload_only="$8" target="$9" specific_file="${10:-}"
 
   local local_file="$specific_file"
+  # A --file for a different engine must never be attempted against this
+  # engine — skip silently when only pulled in via "all"; fail loudly when
+  # this engine was explicitly requested with a mismatched file.
+  if [ -n "$local_file" ] && [[ "$(basename "$local_file")" != sqlite-*.db ]]; then
+    [ "$target" = "all" ] && return 0
+    fail "File does not match SQLite backup naming (sqlite-*.db): $local_file"
+  fi
   if [ -z "$local_file" ]; then
-    local_file=$(ls -t "$backup_dir"/sqlite-*.db 2>/dev/null | head -1)
+    local_file=$(ls -t "$backup_dir"/sqlite-*.db 2>/dev/null | head -1 || true)
     if [ -z "$local_file" ] && [ "$target" = "all" ]; then
       return 0  # skip silently for 'all'
     fi
@@ -985,10 +1044,10 @@ db_push() {
   fi
 
   [[ "$target" == "postgres" || "$target" == "all" ]] && \
-    _db_push_postgres "$stack" "$ssh_opts" "$vps_user" "$vps_host" "$remote_backup_dir" "$backup_dir" "$project_name" "$_sudo" "$upload_only" "$specific_file"
+    _db_push_postgres "$stack" "$ssh_opts" "$vps_user" "$vps_host" "$remote_backup_dir" "$backup_dir" "$project_name" "$_sudo" "$upload_only" "$target" "$specific_file"
 
   [[ "$target" == "neo4j" || "$target" == "all" ]] && \
-    _db_push_neo4j "$stack" "$ssh_opts" "$vps_user" "$vps_host" "$remote_backup_dir" "$backup_dir" "$project_name" "$_sudo" "$upload_only" "$specific_file"
+    _db_push_neo4j "$stack" "$ssh_opts" "$vps_user" "$vps_host" "$remote_backup_dir" "$backup_dir" "$project_name" "$_sudo" "$upload_only" "$target" "$specific_file"
 
   [[ "$target" == "mysql" || "$target" == "all" ]] && \
     _db_push_mysql "$stack" "$ssh_opts" "$vps_user" "$vps_host" "$remote_backup_dir" "$backup_dir" "$_sudo" "$upload_only" "$target" "$specific_file"

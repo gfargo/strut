@@ -131,13 +131,17 @@ _backup_sqlite_remote() {
     fi
   fi
 
-  # Download
+  # Download to a temp name and mv into place on success — an interrupted
+  # rsync must never leave a truncated file at the exact name every "latest"
+  # selector looks for.
   rsync -avz -e "ssh $ssh_opts" \
-    "$vps_user@$vps_host:$remote_tmp" "$out" \
+    "$vps_user@$vps_host:$remote_tmp" "$out.tmp" \
     || {
+      rm -f "$out.tmp"
       error "Failed to download SQLite backup"
       return 1
     }
+  mv "$out.tmp" "$out"
 
   # Cleanup remote temp
   ssh $ssh_opts "$vps_user@$vps_host" "${_sudo}rm -f '$remote_tmp'" 2>/dev/null
@@ -156,20 +160,27 @@ _backup_sqlite_local() {
 
   log "Backing up SQLite (local) → $out"
 
+  # Write to a temp name and mv into place on success — an interrupted
+  # .backup/cp must never leave a truncated file at the exact name every
+  # "latest" selector looks for.
   if command -v sqlite3 &>/dev/null; then
-    sqlite3 "$sqlite_path" ".backup '$out'" \
-      && ok "SQLite backup saved: $out" \
-      || {
-        error "SQLite .backup failed"
-        return 1
-      }
+    if sqlite3 "$sqlite_path" ".backup '$out.tmp'"; then
+      mv "$out.tmp" "$out"
+      ok "SQLite backup saved: $out"
+    else
+      rm -f "$out.tmp"
+      error "SQLite .backup failed"
+      return 1
+    fi
   else
-    cp "$sqlite_path" "$out" \
-      && ok "SQLite backup saved (file copy): $out" \
-      || {
-        error "SQLite copy failed"
-        return 1
-      }
+    if cp "$sqlite_path" "$out.tmp"; then
+      mv "$out.tmp" "$out"
+      ok "SQLite backup saved (file copy): $out"
+    else
+      rm -f "$out.tmp"
+      error "SQLite copy failed"
+      return 1
+    fi
   fi
 }
 
@@ -183,14 +194,16 @@ restore_sqlite() {
 
   [ -f "$db_file" ] || fail "SQLite backup file not found: $db_file"
 
+  # Refuse an empty/corrupt backup BEFORE any destructive action, mirroring
+  # restore_postgres's pre-restore gate.
+  validate_backup_artifact "sqlite" "$db_file" || fail "Refusing to restore: invalid SQLite backup: $db_file"
+
   # Load config
   if [ -n "$target_env" ]; then
     local cli_root="${CLI_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
     local target_env_file="$cli_root/.${target_env}.env"
     [ -f "$target_env_file" ] || fail "Target env file not found: $target_env_file"
-    set -a
-    source "$target_env_file"
-    set +a
+    safe_load_env "$target_env_file"
   fi
 
   load_backup_conf "$stack" || return 1
@@ -270,6 +283,11 @@ _restore_sqlite_remote() {
         return 1
       }
 
+    # Stale -wal/-shm sidecars from the *previous* database can get replayed
+    # against the newly-restored file on next open, corrupting it.
+    ssh $ssh_opts "$vps_user@$vps_host" \
+      "${_sudo}docker exec $sqlite_container rm -f '${sqlite_path}-wal' '${sqlite_path}-shm'" 2>/dev/null
+
     # Restart the container
     ssh $ssh_opts "$vps_user@$vps_host" \
       "${_sudo}docker start $sqlite_container" \
@@ -283,6 +301,11 @@ _restore_sqlite_remote() {
         error "SQLite restore failed"
         return 1
       }
+
+    # Stale -wal/-shm sidecars from the *previous* database can get replayed
+    # against the newly-restored file on next open, corrupting it.
+    ssh $ssh_opts "$vps_user@$vps_host" \
+      "${_sudo}rm -f '${sqlite_path}-wal' '${sqlite_path}-shm'" 2>/dev/null
   fi
 
   # Cleanup remote temp
@@ -303,4 +326,8 @@ _restore_sqlite_local() {
       error "SQLite restore failed"
       return 1
     }
+
+  # Stale -wal/-shm sidecars from the *previous* database can get replayed
+  # against the newly-restored file on next open, corrupting it.
+  rm -f "${sqlite_path}-wal" "${sqlite_path}-shm"
 }

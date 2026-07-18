@@ -132,15 +132,19 @@ calculate_backup_health_score() {
   local stack="$1"
   local service="$2"
 
-  # Get success rates for different periods
+  # Get success rates for different periods. calculate_backup_success_rate/
+  # calculate_verification_rate intentionally echo "0" + return 1 as a
+  # soft-fail signal (no metadata dir yet) — `|| true` lets that "0"
+  # fallback reach us instead of errexit killing the health score before it
+  # can be computed.
   local success_7d
-  success_7d=$(calculate_backup_success_rate "$stack" "$service" 7)
+  success_7d=$(calculate_backup_success_rate "$stack" "$service" 7 || true)
 
   local success_30d
-  success_30d=$(calculate_backup_success_rate "$stack" "$service" 30)
+  success_30d=$(calculate_backup_success_rate "$stack" "$service" 30 || true)
 
   local verification_7d
-  verification_7d=$(calculate_verification_rate "$stack" "$service" 7)
+  verification_7d=$(calculate_verification_rate "$stack" "$service" 7 || true)
 
   # Calculate weighted health score
   # 40% weight on 7-day success rate

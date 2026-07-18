@@ -304,3 +304,91 @@ teardown() {
   grep -q "^stop " "$DOCKER_CALL_LOG"
   grep -q "restore.dump /var/lib/neo4j/import/neo4j.dump" "$DOCKER_CALL_LOG"
 }
+
+# ── restore_mysql (issue #405) ────────────────────────────────────────────────
+
+@test "restore_mysql: refuses an empty dump without touching the database" {
+  local f="$TEST_TMP/mysql-empty.sql"
+  : > "$f"
+
+  export MYSQL_DATABASE="appdb"
+  run restore_mysql "test-stack" "fake_compose" "$f"
+  [ "$status" -ne 0 ]
+  [ ! -s "$COMPOSE_CALL_LOG" ]
+  unset MYSQL_DATABASE
+}
+
+@test "restore_mysql: refuses a dump missing the completion marker without touching the database" {
+  local f="$TEST_TMP/mysql-truncated.sql"
+  echo "INSERT INTO widgets VALUES (1);" > "$f"
+
+  export MYSQL_DATABASE="appdb"
+  run restore_mysql "test-stack" "fake_compose" "$f"
+  [ "$status" -ne 0 ]
+  [ ! -s "$COMPOSE_CALL_LOG" ]
+  unset MYSQL_DATABASE
+}
+
+@test "restore_mysql: restores a complete dump" {
+  local f="$TEST_TMP/mysql-complete.sql"
+  cat > "$f" <<'EOF'
+INSERT INTO widgets VALUES (1);
+-- Dump completed on 2026-01-01 00:00:00
+EOF
+
+  export MYSQL_DATABASE="appdb"
+  run restore_mysql "test-stack" "fake_compose" "$f"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"restore complete"* ]]
+  unset MYSQL_DATABASE
+}
+
+# ── restore_sqlite (issue #405) ───────────────────────────────────────────────
+
+@test "restore_sqlite: refuses an empty backup without touching the live database" {
+  local f="$TEST_TMP/sqlite-empty.db"
+  : > "$f"
+  local live="$TEST_TMP/live.db"
+  echo "not empty" > "$live"
+
+  export BACKUP_SQLITE_PATH="$live"
+  run restore_sqlite "test-stack" "fake_compose" "$f"
+  [ "$status" -ne 0 ]
+  [ "$(cat "$live")" = "not empty" ]
+  unset BACKUP_SQLITE_PATH
+}
+
+@test "restore_sqlite: refuses a corrupt database without touching the live database" {
+  command -v sqlite3 >/dev/null 2>&1 || skip "sqlite3 not installed"
+
+  local f="$TEST_TMP/sqlite-corrupt.db"
+  sqlite3 "$f" "CREATE TABLE widgets (id INTEGER PRIMARY KEY); INSERT INTO widgets VALUES (1);"
+  dd if=/dev/zero of="$f" bs=1 seek=100 count=300 conv=notrunc 2>/dev/null
+  local live="$TEST_TMP/live.db"
+  echo "not empty" > "$live"
+
+  export BACKUP_SQLITE_PATH="$live"
+  run restore_sqlite "test-stack" "fake_compose" "$f"
+  [ "$status" -ne 0 ]
+  [ "$(cat "$live")" = "not empty" ]
+  unset BACKUP_SQLITE_PATH
+}
+
+@test "restore_sqlite: restores a valid database and cleans up stale -wal/-shm sidecars" {
+  command -v sqlite3 >/dev/null 2>&1 || skip "sqlite3 not installed"
+
+  local f="$TEST_TMP/sqlite-valid.db"
+  sqlite3 "$f" "CREATE TABLE widgets (id INTEGER PRIMARY KEY); INSERT INTO widgets VALUES (1);"
+  local live="$TEST_TMP/live.db"
+  echo "old data" > "$live"
+  echo "stale wal" > "$live-wal"
+  echo "stale shm" > "$live-shm"
+
+  export BACKUP_SQLITE_PATH="$live"
+  run restore_sqlite "test-stack" "fake_compose" "$f"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"restore complete"* ]]
+  [ ! -f "$live-wal" ]
+  [ ! -f "$live-shm" ]
+  unset BACKUP_SQLITE_PATH
+}
