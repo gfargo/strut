@@ -53,6 +53,11 @@ _usage_secrets() {
   echo "  Identity:    --identity <file> or STRUT_AGE_IDENTITY env var"
   echo "               defaults to ~/.age/key.txt, ~/.ssh/id_ed25519, ~/.ssh/id_rsa"
   echo ""
+  echo "  Prefer not to run lock/unlock by hand before every commit? 'strut"
+  echo "  secrets-filter install' wires up a transparent git filter (age-only)"
+  echo "  so plaintext stays in your working tree but ciphertext in git history —"
+  echo "  see 'strut secrets-filter --help'."
+  echo ""
   echo "Secret references (in a .env template, resolved by 'hydrate'):"
   echo "  KEY=vault://<item>     Vaultwarden/Bitwarden item (via 'bw')"
   echo "  KEY=exec://<command>   Stdout of a command"
@@ -1733,6 +1738,245 @@ _secrets_unlock() {
 
   echo ""
   ok "Secrets unlocked — run 'strut $stack secrets push --env $env_name' to sync."
+}
+
+# ── Transparent git filter (strut#178) ───────────────────────────────────────
+#
+# Lock/unlock above is a manual, two-file workflow (.env <-> .env.age) —
+# easy to forget before a commit or after a pull. The filter driver below
+# makes committed secrets the default: the plaintext .env path is committed
+# directly, but git transparently encrypts its content on `git add`/commit
+# (clean) and decrypts it into the working tree on checkout (smudge). One
+# `strut secrets-filter install` per clone wires it up — git filter drivers
+# are local-only by design (a committed .gitattributes can declare which
+# files use a filter, but never the command it runs, since that would let a
+# repo execute arbitrary code on checkout).
+#
+# age only (not gpg) — one encryption backend keeps the recipients/identity
+# resolution below in sync with _secrets_lock/_secrets_unlock without a
+# second implementation to drift.
+
+_usage_secrets_filter() {
+  echo ""
+  echo "Usage: strut secrets-filter <install|uninstall|status> [--env <name>]"
+  echo "       strut secrets-filter <clean|smudge> <path>   (invoked by git — not for manual use)"
+  echo ""
+  echo "Transparent git filter for committed secrets: plaintext in the working"
+  echo "tree, age-encrypted in git history. Alternative to 'secrets lock/unlock'"
+  echo "for projects that want commits to just work without a manual encrypt step."
+  echo ""
+  echo "Subcommands:"
+  echo "  install     Wire up .gitattributes + local git config for this repo"
+  echo "  uninstall   Remove the local git config (leaves .gitattributes)"
+  echo "  status      Show whether the filter is installed and configured"
+  echo ""
+  echo "Options:"
+  echo "  --env <name>   Scope .gitattributes to one env (.{name}.env) instead"
+  echo "                 of every env file (.*.env). Default: every env."
+  echo ""
+  echo "Setup (once per clone):"
+  echo "  1. Create .strut-recipients (project root or per-stack) with age/SSH"
+  echo "     public keys, one per line — same as 'secrets lock'."
+  echo "  2. strut secrets-filter install"
+  echo "  3. git add / commit as normal — .env files are encrypted at rest,"
+  echo "     plaintext in your working tree."
+  echo ""
+  echo "A clone without your age identity still checks out cleanly — smudge"
+  echo "falls back to leaving the file encrypted rather than failing checkout."
+  echo "Install your identity (~/.age/key.txt or ~/.ssh/id_ed25519) and run"
+  echo "'git checkout -- <file>' to decrypt it."
+  echo ""
+}
+
+# _secrets_filter_recipients_for <dir> — echoes a recipients file path, or a
+# temp file for the self-via-pubkey fallback (caller must track/clean up).
+# Mirrors _secrets_lock's resolution order exactly (stack dir -> project
+# root -> self).
+_secrets_filter_recipients_for() {
+  local dir="$1"
+  if [ -f "$dir/.strut-recipients" ]; then
+    echo "$dir/.strut-recipients"
+  elif [ -f "$CLI_ROOT/.strut-recipients" ]; then
+    echo "$CLI_ROOT/.strut-recipients"
+  elif [ -f "$HOME/.ssh/id_ed25519.pub" ]; then
+    local tmp; tmp=$(mktemp)
+    cp "$HOME/.ssh/id_ed25519.pub" "$tmp"
+    echo "$tmp"
+  elif [ -f "$HOME/.ssh/id_rsa.pub" ]; then
+    local tmp; tmp=$(mktemp)
+    cp "$HOME/.ssh/id_rsa.pub" "$tmp"
+    echo "$tmp"
+  fi
+}
+
+# _secrets_git_clean <path> — git clean filter. Reads plaintext on stdin,
+# writes age ciphertext to stdout. Fails loudly (nonzero) on any problem —
+# `filter.strutsecrets.required=true` (set by filter-install) makes a
+# failure here abort the `git add`/commit rather than risk silently staging
+# plaintext.
+_secrets_git_clean() {
+  local path="${1:-}"
+  [ -n "$path" ] || { echo "strut secrets-filter clean: missing path argument" >&2; return 1; }
+  command -v age &>/dev/null || { echo "strut secrets-filter clean: 'age' not installed" >&2; return 1; }
+
+  # git invokes filters with a repo-root-relative path (its documented %f
+  # contract) and a CWD that should already be the repo root — but anchor
+  # explicitly to $CLI_ROOT rather than trust ambient CWD, since nothing
+  # about this codepath is dispatched through the normal stack context.
+  local dir; dir="$(dirname -- "$path")"
+  if [ "$dir" = "." ]; then
+    dir="$CLI_ROOT"
+  elif [[ "$dir" != /* ]]; then
+    dir="$CLI_ROOT/$dir"
+  fi
+  local rcpts; rcpts="$(_secrets_filter_recipients_for "$dir")"
+  if [ -z "$rcpts" ]; then
+    echo "strut secrets-filter clean: no age recipients for $path — create .strut-recipients (see 'strut secrets-filter --help')" >&2
+    return 1
+  fi
+
+  age -e -R "$rcpts"
+  local rc=$?
+  # Self-via-pubkey fallback writes a temp file; a real .strut-recipients
+  # does not — only clean up what we created.
+  [[ "$rcpts" == "$dir/.strut-recipients" || "$rcpts" == "$CLI_ROOT/.strut-recipients" ]] || rm -f "$rcpts"
+  return "$rc"
+}
+
+# _secrets_git_smudge <path> — git smudge filter. Reads whatever git has
+# stored (ciphertext, or plaintext for a file added before the filter was
+# installed) on stdin, writes plaintext to stdout when it can. ALWAYS exits
+# 0: a clone without the age identity — or content that isn't actually
+# age-encrypted — falls back to passing the input through unchanged rather
+# than failing `git checkout` for everyone who doesn't hold the key.
+_secrets_git_smudge() {
+  local tmp_in tmp_out
+  tmp_in=$(mktemp)
+  tmp_out=$(mktemp)
+  cat > "$tmp_in"
+
+  local id_file="${STRUT_AGE_IDENTITY:-}"
+  if [ -z "$id_file" ]; then
+    local candidate
+    for candidate in "$HOME/.age/key.txt" "$HOME/.ssh/id_ed25519" "$HOME/.ssh/id_rsa"; do
+      [ -f "$candidate" ] && { id_file="$candidate"; break; }
+    done
+  fi
+
+  if [ -n "$id_file" ] && command -v age &>/dev/null \
+     && age -d -i "$id_file" -o "$tmp_out" "$tmp_in" 2>/dev/null; then
+    cat "$tmp_out"
+  else
+    cat "$tmp_in"
+  fi
+  rm -f "$tmp_in" "$tmp_out"
+  return 0
+}
+
+# _secrets_filter_gitattributes_line <env_name>
+_secrets_filter_gitattributes_line() {
+  local env_name="$1"
+  if [ -n "$env_name" ]; then
+    echo ".${env_name}.env filter=strutsecrets diff=strutsecrets -text"
+  else
+    echo ".*.env filter=strutsecrets diff=strutsecrets -text"
+  fi
+}
+
+_secrets_filter_install() {
+  local env_name="${CMD_ENV_NAME:-}"
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --env) env_name="$2"; shift 2 ;;
+      *) shift ;;
+    esac
+  done
+
+  git -C "$CLI_ROOT" rev-parse --git-dir &>/dev/null || { fail "Not inside a git repository ($CLI_ROOT)"; return 1; }
+  command -v age &>/dev/null || { fail "strut secrets-filter: 'age' not installed (the transparent filter is age-only — use 'secrets lock/unlock' for gpg)"; return 1; }
+
+  local entrypoint="${STRUT_HOME:-$CLI_ROOT}/strut"
+  [ -x "$entrypoint" ] || { fail "strut entrypoint not found/executable at $entrypoint"; return 1; }
+
+  git -C "$CLI_ROOT" config filter.strutsecrets.clean  "'$entrypoint' secrets-filter clean %f"
+  git -C "$CLI_ROOT" config filter.strutsecrets.smudge "'$entrypoint' secrets-filter smudge %f"
+  git -C "$CLI_ROOT" config filter.strutsecrets.required true
+
+  local attr_line
+  attr_line="$(_secrets_filter_gitattributes_line "$env_name")"
+  local attrs_file="$CLI_ROOT/.gitattributes"
+  if [ -f "$attrs_file" ] && grep -qxF "$attr_line" "$attrs_file"; then
+    log ".gitattributes already has: $attr_line"
+  else
+    local need_blank_line=false
+    [ -f "$attrs_file" ] && [ -s "$attrs_file" ] && need_blank_line=true
+    {
+      [ "$need_blank_line" = "true" ] && echo ""
+      echo "# strut secrets-filter — transparent at-rest encryption (strut#178)"
+      echo "$attr_line"
+    } >> "$attrs_file"
+    log "Added to .gitattributes: $attr_line"
+  fi
+
+  echo ""
+  ok "Git filter installed (local to this clone)"
+  echo "  Recipients: .strut-recipients (project root or per-stack), else ~/.ssh/id_ed25519.pub"
+  echo "  Identity:   STRUT_AGE_IDENTITY, ~/.age/key.txt, or ~/.ssh/id_ed25519"
+  echo ""
+  warn "Re-run 'strut secrets-filter install' on every other clone/checkout of this repo — git filter drivers are never stored in .gitattributes itself."
+}
+
+_secrets_filter_uninstall() {
+  git -C "$CLI_ROOT" rev-parse --git-dir &>/dev/null || { fail "Not inside a git repository ($CLI_ROOT)"; return 1; }
+  git -C "$CLI_ROOT" config --unset filter.strutsecrets.clean 2>/dev/null || true
+  git -C "$CLI_ROOT" config --unset filter.strutsecrets.smudge 2>/dev/null || true
+  git -C "$CLI_ROOT" config --unset filter.strutsecrets.required 2>/dev/null || true
+  ok "Removed local git filter config (filter.strutsecrets.*)"
+  warn ".gitattributes was left as-is — remove its 'filter=strutsecrets' lines by hand if you're dropping this permanently"
+}
+
+_secrets_filter_status() {
+  git -C "$CLI_ROOT" rev-parse --git-dir &>/dev/null || { fail "Not inside a git repository ($CLI_ROOT)"; return 1; }
+  local clean smudge required
+  clean=$(git -C "$CLI_ROOT" config filter.strutsecrets.clean 2>/dev/null || echo "")
+  smudge=$(git -C "$CLI_ROOT" config filter.strutsecrets.smudge 2>/dev/null || echo "")
+  required=$(git -C "$CLI_ROOT" config filter.strutsecrets.required 2>/dev/null || echo "")
+
+  if [ -z "$clean" ] && [ -z "$smudge" ]; then
+    echo "Filter: not installed (run 'strut secrets-filter install')"
+    return 1
+  fi
+
+  echo "Filter: installed"
+  echo "  clean:    $clean"
+  echo "  smudge:   $smudge"
+  echo "  required: ${required:-false}"
+  if [ -f "$CLI_ROOT/.gitattributes" ]; then
+    echo "  .gitattributes rules:"
+    grep "filter=strutsecrets" "$CLI_ROOT/.gitattributes" 2>/dev/null | sed 's/^/    /' || echo "    (none found)"
+  else
+    warn "  No .gitattributes found — nothing will actually route through the filter"
+  fi
+  return 0
+}
+
+cmd_secrets_filter() {
+  local subcmd="${1:-}"
+  shift 2>/dev/null || true
+
+  case "$subcmd" in
+    install)   _secrets_filter_install "$@" ;;
+    uninstall) _secrets_filter_uninstall "$@" ;;
+    status)    _secrets_filter_status "$@" ;;
+    clean)     _secrets_git_clean "$@" ;;
+    smudge)    _secrets_git_smudge "$@" ;;
+    ""|help|--help|-h) _usage_secrets_filter ;;
+    *)
+      error "Unknown secrets-filter subcommand: $subcmd"
+      _usage_secrets_filter
+      return 1
+      ;;
+  esac
 }
 
 # ── Dispatch ──────────────────────────────────────────────────────────────────

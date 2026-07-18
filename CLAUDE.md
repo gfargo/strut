@@ -40,7 +40,8 @@ strut <stack> <command> [--env <name>] [--dry-run] [--services <profile>]
 strut                                             # interactive TUI (fzf+select)
 strut --no-tui | STRUT_NO_TUI=1                   # disable TUI
 
-Top-level:  init, upgrade, --version, list, scaffold, audit, migrate, monitoring
+Top-level:  init, upgrade, --version, list, scaffold, audit, migrate, monitoring,
+            secrets-filter (transparent git clean/smudge for at-rest secrets)
 Per-stack:  deploy, stop, release, update, health, logs, status, shell, exec,
             backup, restore, db:pull, db:push, db:schema, drift, volumes, keys, domain
 ```
@@ -59,6 +60,11 @@ Per-stack:  deploy, stop, release, update, health, logs, status, shell, exec,
   the base env file. Unlike the legacy `stacks/<stack>/.<host>.env` override
   (still supported, lower precedence), this path is **not** gitignored, so
   it survives a clean git-redeploy.
+- `common.env` (project root, optional) — shared, non-secret env values
+  across every stack (`load_common_env`, `lib/utils.sh`). Lowest precedence:
+  loaded before the stack/project env file and the per-host layer, both of
+  which override it. Not swept by the `.env`/`.*.env` gitignore rules (no
+  leading dot) — meant to be committed. See `templates/common.env.template`.
 
 ## Design Principles
 
