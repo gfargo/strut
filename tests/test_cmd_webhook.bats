@@ -204,17 +204,36 @@ REQ
 
 @test "_all_stacks: lists stack directories" {
   mkdir -p "$TEST_TMP/stacks/alpha" "$TEST_TMP/stacks/beta"
-  # A non-directory entry deliberately NOT last alphabetically — a known,
-  # separately-tracked bug makes _all_stacks return the last `ls` entry's
-  # own [ -d ] result as its exit code, so a stray file sorting after every
-  # real stack dir currently makes the function report failure even though
-  # its output is correct. Not this test's concern; just avoid tripping it.
   touch "$TEST_TMP/stacks/00-not-a-dir.txt"
   run _all_stacks "$TEST_TMP"
   [ "$status" -eq 0 ]
   [[ "$output" == *"alpha"* ]]
   [[ "$output" == *"beta"* ]]
   [[ "$output" != *"00-not-a-dir.txt"* ]]
+}
+
+# _all_stacks used to return the last `ls` entry's own [ -d ] result as its
+# exit code, so a stray non-directory file sorting AFTER every real stack
+# dir (e.g. a README, .DS_Store, editor swap file) made the function report
+# failure even though its stdout output was correct. Under set -euo
+# pipefail, the plain assignment `changed_stacks=$(_all_stacks ...)` in
+# _poll_cycle would then trip errexit and silently abort the whole poll
+# cycle. Fixed with an explicit `return 0` at the end of the function.
+
+@test "_all_stacks: returns 0 when a non-dir file sorts AFTER every stack dir" {
+  mkdir -p "$TEST_TMP/stacks/alpha" "$TEST_TMP/stacks/beta"
+  touch "$TEST_TMP/stacks/zzz-not-a-dir.txt"
+  run _all_stacks "$TEST_TMP"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"alpha"* ]]
+  [[ "$output" == *"beta"* ]]
+  [[ "$output" != *"zzz-not-a-dir.txt"* ]]
+}
+
+@test "_all_stacks: returns 0 and empty output when the stacks dir is missing" {
+  run _all_stacks "$TEST_TMP/nonexistent"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
 }
 
 @test "_detect_changed_stacks: maps changed files under stacks/ to stack names" {
