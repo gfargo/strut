@@ -48,12 +48,11 @@ _strut_sudo() {
   fi
 }
 
-# _strut_exec <cmd...> — runs (or DRY-RUN prints) a privileged command.
+# _strut_exec <cmd...> — runs a privileged command, sudo-prefixed if needed.
+# Callers are expected to branch on _strut_dry_run() themselves before
+# reaching here (every public helper does) — this has no DRY_RUN branch of
+# its own.
 _strut_exec() {
-  if _strut_dry_run; then
-    echo -e "  ${YELLOW:-}[DRY-RUN]${NC:-} Would run: $*"
-    return 0
-  fi
   if [ -n "$(_strut_sudo)" ]; then
     sudo "$@"
   else
@@ -101,6 +100,10 @@ _strut_record() {
 # ── Public helpers ────────────────────────────────────────────────────────────
 
 # strut::require_pkg <pkg...> — install-if-missing via apt/dnf/yum.
+# Deliberately NOT recorded to the per-stack manifest: packages are shared
+# system-wide state, not stack-owned files, so a future generic uninstall
+# must not remove them on a whim (another stack, or the host itself, may
+# depend on them).
 strut::require_pkg() {
   local pkg
   for pkg in "$@"; do

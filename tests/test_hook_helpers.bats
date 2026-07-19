@@ -184,6 +184,25 @@ EOF
   [ ! -s "$SYSTEMCTL_LOG" ]
 }
 
+@test "install_timer: DRY_RUN touches nothing" {
+  cat > "$TEST_TMP/foo.timer" <<'EOF'
+[Timer]
+OnCalendar=daily
+EOF
+  cat > "$TEST_TMP/foo.service" <<'EOF'
+[Unit]
+Description=foo
+EOF
+  export DRY_RUN=true
+  run strut::install_timer "$TEST_TMP/foo.timer" "$TEST_TMP/foo.service"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"[DRY-RUN]"* ]]
+  [ ! -f "$STRUT_SYSTEMD_DIR/foo.timer" ]
+  [ ! -f "$STRUT_SYSTEMD_DIR/foo.service" ]
+  [ ! -s "$SYSTEMCTL_LOG" ]
+  [ ! -f "$(manifest_file)" ]
+}
+
 # ── install_udev ───────────────────────────────────────────────────────────
 
 @test "install_udev: installs and reloads/triggers on first run" {
@@ -272,6 +291,19 @@ EOF
   [ "$status" -eq 0 ]
   # Manifest should only have one entry despite two installs.
   [ "$(grep -c -F "$TEST_TMP/dest/foo" "$(manifest_file)")" -eq 1 ]
+}
+
+@test "install_bin: DRY_RUN touches nothing" {
+  cat > "$TEST_TMP/foo.sh" <<'EOF'
+#!/usr/bin/env bash
+echo hi
+EOF
+  export DRY_RUN=true
+  run strut::install_bin "$TEST_TMP/foo.sh" "$TEST_TMP/dest/foo"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"[DRY-RUN]"* ]]
+  [ ! -f "$TEST_TMP/dest/foo" ]
+  [ ! -f "$(manifest_file)" ]
 }
 
 # ── require_pkg ────────────────────────────────────────────────────────────
