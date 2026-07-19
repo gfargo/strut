@@ -134,7 +134,7 @@ _destroy_remote() {
   if [ "${DRY_RUN:-}" = "true" ]; then
     echo ""
     echo -e "${YELLOW}[DRY-RUN] Execution plan for remote destroy:${NC}"
-    run_cmd "Destroy stack on VPS" ssh "$vps_user@$vps_host" "cd $deploy_dir && strut $stack destroy --env $env_name $services_flag $timeout_flag"
+    run_cmd "Destroy stack on VPS" ssh "$vps_user@$vps_host" "cd $deploy_dir && ./strut $stack destroy --env ${env_name:-prod} $services_flag $timeout_flag"
     echo ""
     echo -e "${YELLOW}[DRY-RUN] No changes made.${NC}"
     return 0
