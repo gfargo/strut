@@ -49,7 +49,7 @@ cmd_first_run() {
     esac
   done
 
-  [ -f "$env_file" ] && validate_env_file "$env_file" 2>/dev/null
+  [ -f "$env_file" ] && validate_env_file "$env_file"
 
   # Prefer remote execution for stacks that map to a VPS host — the marker
   # lives on the VPS, so status/force must inspect and mutate it there.
