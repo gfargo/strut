@@ -52,7 +52,7 @@ _usage_provision() {
 
 # _provision_find_scripts_dir <host_alias>
 #
-# Resolves hosts/<host_alias>/provision.d if it exists and is non-empty.
+# Resolves hosts/<host_alias>/provision.d if it exists.
 # Outputs the resolved path to stdout, returns 1 if not found.
 _provision_find_scripts_dir() {
   local host_alias="$1"
