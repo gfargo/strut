@@ -5,7 +5,8 @@
 # Generalizes the pre-deploy hook (originally from #18) into a formal
 # lifecycle system. Projects drop executable scripts into:
 #
-#   stacks/<stack>/hooks/<event>.sh
+#   stacks/<stack>/hooks/<event>.sh   — per-stack hooks
+#   hosts/<host>/hooks/<event>.sh     — host-scoped hooks (see cmd_provision.sh)
 #
 # and strut fires them at the right moment.
 #
@@ -19,6 +20,9 @@
 #   post_migrate       — after migration succeeds; MIGRATE_TARGET exported (warn-only)
 #   on_health_fail     — after a health check fails; HEALTH_STATUS exported (warn-only)
 #   on_drift_detected  — when drift is found; DRIFTED=1 exported (warn-only)
+#   pre_provision      — before a host's provision.d/ batch runs (can abort via non-zero)
+#   post_provision     — after the provision.d/ batch completes (warn-only);
+#                         PROVISION_HOST, PROVISION_HOST_DIR exported
 #
 # Event env vars: whatever the caller has already exported — typically
 # CMD_STACK, CMD_ENV_NAME, CMD_STACK_DIR. Event-specific env vars
