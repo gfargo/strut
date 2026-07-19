@@ -328,7 +328,7 @@ usage() {
   echo "  gateway    deploy|status|reload|validate --host <alias>        Caddy gateway management"
   echo "  cert:renew [--host <alias>]                                    Renew SSL/TLS certificates"
   echo "  cert:status [--host <alias>]                                   Show certificate status/expiry"
-  echo "  provision  <host-alias> [--script <path>]                      Run provisioning scripts on VPS"
+  echo "  provision  <host-alias> [--force] [--script <path>]            Run hosts/<host>/provision.d/ (or legacy script) on VPS"
   echo "  ssh:keygen [--env <name>]                                      Generate/rotate SSH deploy keys"
   echo "  ci:init    [--env <name>]                                      Bootstrap CI/CD integration"
   echo "  monitoring [--env <name>] <subcommand>                         Monitoring stack management"
