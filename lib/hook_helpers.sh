@@ -60,6 +60,14 @@ _strut_exec() {
   fi
 }
 
+# _strut_is_enabled <unit-name> — true (0) if systemctl reports the unit
+# enabled. `systemctl is-enabled` exits non-zero for disabled/static/masked
+# and prints "enabled" with rc 0 for enabled — probing via rc treats static
+# units as "not enabled", so they get a harmless re-`enable` no-op.
+_strut_is_enabled() {
+  _strut_exec systemctl is-enabled "$1" >/dev/null 2>&1
+}
+
 # _strut_changed <src> <dest> — true (0) if dest is missing or differs from src.
 _strut_changed() {
   local src="$1" dest="$2"
@@ -148,11 +156,22 @@ strut::install_unit() {
     return 0
   fi
 
-  _strut_changed "$src" "$dest" || return 0
+  local changed=""
+  if _strut_changed "$src" "$dest"; then
+    _strut_exec install -m 0644 "$src" "$dest"
+    _strut_record "$dest"
+    changed=1
+  fi
 
-  _strut_exec install -m 0644 "$src" "$dest"
-  _strut_record "$dest"
-  _strut_exec systemctl daemon-reload
+  # Re-run the enable step even when content is unchanged, in case the unit
+  # was disabled out-of-band — otherwise a post_deploy reconcile run would
+  # silently no-op instead of actually reconciling. Content-unchanged and
+  # already-enabled stays a fully quiet no-op.
+  if [ -z "$changed" ]; then
+    _strut_is_enabled "$name" && return 0
+  else
+    _strut_exec systemctl daemon-reload
+  fi
 
   if [ -n "$now_flag" ]; then
     _strut_exec systemctl enable --now "$name"
@@ -194,9 +213,14 @@ strut::install_timer() {
     changed=1
   fi
 
-  [ -z "$changed" ] && return 0
+  # Re-run the enable step even when content is unchanged, in case the timer
+  # was disabled out-of-band — mirrors strut::install_unit's reconciliation.
+  if [ -z "$changed" ]; then
+    _strut_is_enabled "$timer_name" && return 0
+  else
+    _strut_exec systemctl daemon-reload
+  fi
 
-  _strut_exec systemctl daemon-reload
   _strut_exec systemctl enable --now "$timer_name"
   log "Installed timer: $timer_name"
 }
@@ -251,9 +275,11 @@ strut::install_default() {
     return 0
   fi
 
+  # 0640 (not 0644): /etc/default files often carry secret-adjacent config
+  # (e.g. WireGuard peer settings) — no reason to make them world-readable.
   # Use if/else (not a bare command) so a failed install is caught here for
   # cleanup instead of aborting the function via set -e and leaking $tmp.
-  if _strut_exec install -m 0644 "$tmp" "$dest"; then
+  if _strut_exec install -m 0640 "$tmp" "$dest"; then
     rm -f "$tmp"
   else
     local rc=$?

@@ -41,8 +41,19 @@ setup() {
   SYSTEMCTL_LOG="$TEST_TMP/systemctl_calls.log"
   : > "$SYSTEMCTL_LOG"
   export SYSTEMCTL_LOG
+  # `is-enabled` state is controllable per-test via SYSTEMCTL_ENABLED_STATE
+  # and deliberately NOT appended to SYSTEMCTL_LOG — tests assert that log is
+  # empty on a fully-quiet no-op (unchanged + already enabled), and probing
+  # enablement must not count as a mutating call.
+  export SYSTEMCTL_ENABLED_STATE="enabled"
   # shellcheck disable=SC2317
-  systemctl() { echo "$*" >> "$SYSTEMCTL_LOG"; }
+  systemctl() {
+    if [ "$1" = "is-enabled" ]; then
+      [ "$SYSTEMCTL_ENABLED_STATE" = "enabled" ]
+      return $?
+    fi
+    echo "$*" >> "$SYSTEMCTL_LOG"
+  }
   export -f systemctl
 
   UDEVADM_LOG="$TEST_TMP/udevadm_calls.log"
@@ -147,6 +158,35 @@ EOF
   grep -qxF "$STRUT_SYSTEMD_DIR/foo.service" "$(manifest_file)"
 }
 
+@test "install_unit: re-enables when content unchanged but disabled out-of-band" {
+  cat > "$TEST_TMP/foo.service" <<'EOF'
+[Unit]
+Description=foo
+EOF
+  strut::install_unit "$TEST_TMP/foo.service"
+  : > "$SYSTEMCTL_LOG"
+
+  export SYSTEMCTL_ENABLED_STATE="disabled"
+  run strut::install_unit "$TEST_TMP/foo.service"
+  [ "$status" -eq 0 ]
+  grep -q "enable foo.service" "$SYSTEMCTL_LOG"
+  ! grep -q "daemon-reload" "$SYSTEMCTL_LOG"
+}
+
+@test "install_unit: stays a quiet no-op when content unchanged and already enabled" {
+  cat > "$TEST_TMP/foo.service" <<'EOF'
+[Unit]
+Description=foo
+EOF
+  strut::install_unit "$TEST_TMP/foo.service"
+  : > "$SYSTEMCTL_LOG"
+
+  export SYSTEMCTL_ENABLED_STATE="enabled"
+  run strut::install_unit "$TEST_TMP/foo.service"
+  [ "$status" -eq 0 ]
+  [ ! -s "$SYSTEMCTL_LOG" ]
+}
+
 # ── install_timer ──────────────────────────────────────────────────────────
 
 @test "install_timer: installs both files, reloads, enables --now the timer" {
@@ -182,6 +222,52 @@ EOF
   run strut::install_timer "$TEST_TMP/foo.timer" "$TEST_TMP/foo.service"
   [ "$status" -eq 0 ]
   [ ! -s "$SYSTEMCTL_LOG" ]
+}
+
+@test "install_timer: partial change (only service file differs) still reloads and re-enables" {
+  cat > "$TEST_TMP/foo.timer" <<'EOF'
+[Timer]
+OnCalendar=daily
+EOF
+  cat > "$TEST_TMP/foo.service" <<'EOF'
+[Unit]
+Description=foo
+EOF
+  strut::install_timer "$TEST_TMP/foo.timer" "$TEST_TMP/foo.service"
+  : > "$SYSTEMCTL_LOG"
+
+  cat > "$TEST_TMP/foo.service" <<'EOF'
+[Unit]
+Description=foo v2
+EOF
+  run strut::install_timer "$TEST_TMP/foo.timer" "$TEST_TMP/foo.service"
+  [ "$status" -eq 0 ]
+  grep -q "daemon-reload" "$SYSTEMCTL_LOG"
+  grep -q -- "enable --now foo.timer" "$SYSTEMCTL_LOG"
+  diff "$TEST_TMP/foo.service" "$STRUT_SYSTEMD_DIR/foo.service"
+  # Manifest is deduped — the unchanged timer's earlier entry isn't
+  # duplicated, and the changed service is only recorded once too.
+  [ "$(grep -c -F "$STRUT_SYSTEMD_DIR/foo.timer" "$(manifest_file)")" -eq 1 ]
+  [ "$(grep -c -F "$STRUT_SYSTEMD_DIR/foo.service" "$(manifest_file)")" -eq 1 ]
+}
+
+@test "install_timer: re-enables when content unchanged but disabled out-of-band" {
+  cat > "$TEST_TMP/foo.timer" <<'EOF'
+[Timer]
+OnCalendar=daily
+EOF
+  cat > "$TEST_TMP/foo.service" <<'EOF'
+[Unit]
+Description=foo
+EOF
+  strut::install_timer "$TEST_TMP/foo.timer" "$TEST_TMP/foo.service"
+  : > "$SYSTEMCTL_LOG"
+
+  export SYSTEMCTL_ENABLED_STATE="disabled"
+  run strut::install_timer "$TEST_TMP/foo.timer" "$TEST_TMP/foo.service"
+  [ "$status" -eq 0 ]
+  grep -q -- "enable --now foo.timer" "$SYSTEMCTL_LOG"
+  ! grep -q "daemon-reload" "$SYSTEMCTL_LOG"
 }
 
 @test "install_timer: DRY_RUN touches nothing" {
@@ -248,6 +334,13 @@ EOF
   [ -f "$STRUT_DEFAULT_DIR/foo" ]
   grep -qxF "FOO=bar" "$STRUT_DEFAULT_DIR/foo"
   grep -qxF "BAZ=qux" "$STRUT_DEFAULT_DIR/foo"
+}
+
+@test "install_default: installs with mode 0640 (not world-readable)" {
+  strut::install_default foo FOO=bar
+  local mode
+  mode="$(stat -c %a "$STRUT_DEFAULT_DIR/foo" 2>/dev/null || stat -f %Lp "$STRUT_DEFAULT_DIR/foo")"
+  [ "$mode" = "640" ]
 }
 
 @test "install_default: idempotent no-op when unchanged" {
@@ -345,6 +438,67 @@ EOF
   run strut::require_pkg wireguard-tools
   [ "$status" -eq 0 ]
   grep -q "install -y wireguard-tools" "$APT_LOG"
+}
+
+@test "require_pkg: installs via dnf when apt-get is unavailable" {
+  # `command -v apt-get` would find the real /usr/bin/apt-get on the CI
+  # runner regardless of our apt-get() stub (functions only shadow the
+  # invocation, not `command -v`'s PATH fallback) — so shim `command`
+  # itself to report apt-get as absent, and defer everything else to the
+  # real builtin.
+  # shellcheck disable=SC2317
+  command() {
+    [ "$1" = "-v" ] && [ "$2" = "apt-get" ] && return 1
+    builtin command "$@"
+  }
+  export -f command
+
+  # shellcheck disable=SC2317
+  dpkg() { return 1; }
+  export -f dpkg
+  # shellcheck disable=SC2317
+  rpm() { return 1; }
+  export -f rpm
+
+  DNF_LOG="$TEST_TMP/dnf_calls.log"
+  : > "$DNF_LOG"
+  export DNF_LOG
+  # shellcheck disable=SC2317
+  dnf() { echo "$*" >> "$DNF_LOG"; }
+  export -f dnf
+
+  run strut::require_pkg wireguard-tools
+  [ "$status" -eq 0 ]
+  grep -q "install -y wireguard-tools" "$DNF_LOG"
+}
+
+@test "require_pkg: installs via yum when apt-get and dnf are unavailable" {
+  # shellcheck disable=SC2317
+  command() {
+    if [ "$1" = "-v" ] && { [ "$2" = "apt-get" ] || [ "$2" = "dnf" ]; }; then
+      return 1
+    fi
+    builtin command "$@"
+  }
+  export -f command
+
+  # shellcheck disable=SC2317
+  dpkg() { return 1; }
+  export -f dpkg
+  # shellcheck disable=SC2317
+  rpm() { return 1; }
+  export -f rpm
+
+  YUM_LOG="$TEST_TMP/yum_calls.log"
+  : > "$YUM_LOG"
+  export YUM_LOG
+  # shellcheck disable=SC2317
+  yum() { echo "$*" >> "$YUM_LOG"; }
+  export -f yum
+
+  run strut::require_pkg wireguard-tools
+  [ "$status" -eq 0 ]
+  grep -q "install -y wireguard-tools" "$YUM_LOG"
 }
 
 @test "require_pkg: DRY_RUN touches nothing" {
