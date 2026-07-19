@@ -76,6 +76,11 @@ export STRUT_HOME
 
 LIB="$STRUT_HOME/lib"
 
+# Stable path for hooks to source the helper stdlib:
+#   . "$STRUT_LIB/hook_helpers.sh"
+STRUT_LIB="$LIB"
+export STRUT_LIB
+
 # Source config first, then load project config
 source "$LIB/config.sh"
 find_project_root || true  # OK if not in a project (init, --version, etc.)
