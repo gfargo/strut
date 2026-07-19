@@ -351,6 +351,28 @@ EOF
   [[ "$output" != *"vps_update_repo"* ]]
 }
 
+@test "vps_release: pre_deploy_local resolves from CMD_STACK_DIR when set, not CLI_ROOT/stacks/<stack>" {
+  # A hook under the default CLI_ROOT/stacks/test-stack/hooks path that must
+  # NOT run once CMD_STACK_DIR points elsewhere.
+  cat > "$TEST_TMP/stacks/test-stack/hooks/pre_deploy_local.sh" <<'EOF'
+#!/bin/bash
+echo "wrong pre_deploy_local ran"
+EOF
+
+  local override_dir="$TEST_TMP/override-stack-dir"
+  mkdir -p "$override_dir/hooks"
+  cat > "$override_dir/hooks/pre_deploy_local.sh" <<'EOF'
+#!/bin/bash
+echo "override pre_deploy_local ran env=$RELEASE_ENV_NAME"
+EOF
+
+  export CMD_STACK_DIR="$override_dir"
+  run vps_release "test-stack" "$TEST_TMP/.test.env" ""
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"override pre_deploy_local ran env=test"* ]]
+  [[ "$output" != *"wrong pre_deploy_local ran"* ]]
+}
+
 @test "vps_release: post_deploy_local hook runs after a successful release" {
   cat > "$TEST_TMP/stacks/test-stack/hooks/post_deploy_local.sh" <<'EOF'
 #!/bin/bash
