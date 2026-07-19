@@ -133,6 +133,7 @@ source "$LIB/deploy.sh"
 source "$LIB/fleet.sh"
 source "$LIB/health.sh"
 source "$LIB/deploy_blue_green.sh"
+source "$LIB/timers.sh"
 source "$LIB/logs.sh"
 source "$LIB/backup.sh"
 source "$LIB/schema.sh"
@@ -155,6 +156,7 @@ source "$LIB/cmd_debug.sh"
 source "$LIB/cmd_local.sh"
 source "$LIB/cmd_domain.sh"
 source "$LIB/cmd_volumes.sh"
+source "$LIB/cmd_timers.sh"
 source "$LIB/cmd_keys.sh"
 source "$LIB/cmd_remote.sh"
 source "$LIB/cmd_remote_init.sh"
@@ -296,6 +298,7 @@ usage() {
   echo "  briefing [--env <name>] [--json]                               One-call situation report (posture + actions)"
   echo "  preflight [--env <name>] [--json]                              Deploy go/no-go verdict (GO/CAUTION/NO-GO)"
   echo "  volumes  [--env <name>] [status|init|config]                   Volume management"
+  echo "  timers   [--env <name>] [list|install|remove] [--json]        Declarative systemd timers (timers.conf)"
   echo "  local    start [--services <profile>]                          Start stack locally"
   echo "  local    stop                                                  Stop local stack"
   echo "  local    reset                                                 Reset local environment"
@@ -921,6 +924,7 @@ if [ "$FLAGS_HELP" = "true" ]; then
     local|prod|staging|dev) _usage_local ;;
     scaffold) _usage_scaffold ;;
     volumes)  _usage_volumes ;;
+    timers)   _usage_timers ;;
     validate) _usage_validate ;;
     rollback) _usage_rollback ;;
     diff)     _usage_diff ;;
@@ -976,6 +980,7 @@ case "$COMMAND" in
   preflight)           cmd_preflight "${CMD_ARGS[@]+"${CMD_ARGS[@]}"}" ;;
   prune)               cmd_prune "${CMD_ARGS[@]+"${CMD_ARGS[@]}"}" ;;
   volumes)             cmd_volumes "${CMD_ARGS[@]+"${CMD_ARGS[@]}"}" ;;
+  timers)              cmd_timers "${CMD_ARGS[@]+"${CMD_ARGS[@]}"}" ;;
   local|prod|staging|dev) cmd_local_env "$COMMAND" "${CMD_ARGS[@]+"${CMD_ARGS[@]}"}" ;;
   debug)               cmd_debug "${CMD_ARGS[@]+"${CMD_ARGS[@]}"}" ;;
   keys)                cmd_keys "${CMD_ARGS[@]+"${CMD_ARGS[@]}"}" ;;

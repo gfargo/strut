@@ -11,6 +11,13 @@ if ! declare -f fleet_sync >/dev/null 2>&1; then
   source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/fleet.sh"
 fi
 
+# Source timers.sh if not already loaded (provides timers_install, called at
+# the end of deploy_stack)
+if ! declare -f timers_install >/dev/null 2>&1; then
+  # shellcheck source=lib/timers.sh
+  source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/timers.sh"
+fi
+
 # render_safe_clean_snippet <force_clean>
 #
 # Emits a remote-shell snippet (as a string) that performs a safe git clean:
@@ -400,6 +407,10 @@ deploy_stack() {
   # Apply DB schema (opt-in, idempotent) — mirrors the blue-green path
   maybe_apply_db_schema "$stack" "$compose_cmd" "$stack_dir"
   DEPLOY_STATUS="ok" fire_hook_or_warn post_deploy "$stack_dir"
+
+  # Install declarative timers (timers.conf → systemd .service/.timer pairs).
+  # No-op when the stack has no timers.conf; never abort a successful deploy.
+  timers_install "$stack" "$stack_dir" || warn "Timer install failed — deploy continues"
 
   # Notification providers (Slack/Discord/webhook) subscribed to deploy.success
   notify_event deploy.success \
