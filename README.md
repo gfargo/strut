@@ -129,6 +129,7 @@ strut <stack> <command> [--env <env>] [options]
 | `release` | Full VPS release (update + migrate + deploy + verify) |
 | `deploy` | Deploy stack containers |
 | `stop` | Stop running containers |
+| `destroy` | Permanently tear down a stack — fires `pre_destroy`/`post_destroy` hooks and clears the first-run marker |
 | `health` | Run health checks |
 | `briefing` | One-call situation report — posture + prioritized actions across every read-only check |
 | `preflight` | Deploy go/no-go verdict (GO / CAUTION / NO-GO) with reasons |

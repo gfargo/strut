@@ -29,6 +29,24 @@ teardown() { common_teardown; }
   [ "$result" = "/opt/stacks/myapp/.strut-initialized" ]
 }
 
+# ── remove_first_run_marker ───────────────────────────────────────────────────
+
+@test "remove_first_run_marker: deletes an existing marker" {
+  mkdir -p "$TEST_TMP/stack"
+  echo "initialized=2024-01-01T00:00:00Z" > "$TEST_TMP/stack/.strut-initialized"
+
+  run remove_first_run_marker "$TEST_TMP/stack"
+  [ "$status" -eq 0 ]
+  [ ! -f "$TEST_TMP/stack/.strut-initialized" ]
+}
+
+@test "remove_first_run_marker: no-op (returns 0) when marker absent" {
+  mkdir -p "$TEST_TMP/stack"
+
+  run remove_first_run_marker "$TEST_TMP/stack"
+  [ "$status" -eq 0 ]
+}
+
 # ── first_run_needed ──────────────────────────────────────────────────────────
 
 @test "first_run_needed: returns 1 when no hook file exists" {
