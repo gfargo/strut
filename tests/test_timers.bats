@@ -222,6 +222,13 @@ EOF
   [[ "$output" == *"User=deploy"* ]]
 }
 
+@test "timers_render_service: uses the passed stack_dir instead of recomputing from CLI_ROOT" {
+  run timers_render_service "acme" "port-sync" "./port-sync.sh" "" "" "" "/srv/custom-deploy-dir/acme"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"WorkingDirectory=/srv/custom-deploy-dir/acme"* ]]
+  [[ "$output" != *"$TEST_TMP"* ]]
+}
+
 @test "timers_render_timer: calendar schedule emits OnCalendar" {
   run timers_render_timer "nightly" "calendar" "daily 03:00" ""
   [ "$status" -eq 0 ]
@@ -420,6 +427,50 @@ _fake_systemd_setup() {
   [ -z "$output" ]
 }
 
+# ── timers_drift_report ───────────────────────────────────────────────────────
+
+@test "timers_drift_report: no drift renders the empty state" {
+  _write_timers_conf
+  _fake_systemd_setup
+  timers_install "demo" "$STACK_DIR" >/dev/null
+
+  run timers_drift_report "demo" "$STACK_DIR"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"no timer drift"* ]]
+}
+
+@test "timers_drift_report: text mode renders a Unit/Reason table" {
+  _write_timers_conf
+  _fake_systemd_setup
+
+  run timers_drift_report "demo" "$STACK_DIR"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"strut-demo-port-sync"* ]]
+  [[ "$output" == *"missing"* ]]
+}
+
+@test "timers_drift_report: JSON mode emits {timers:[{unit,reason}]}" {
+  _write_timers_conf
+  _fake_systemd_setup
+  export OUTPUT_MODE=json
+
+  run timers_drift_report "demo" "$STACK_DIR"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *'"unit":"strut-demo-port-sync"'* ]]
+  [[ "$output" == *'"reason":"missing"'* ]]
+}
+
+@test "timers_drift_report: JSON mode emits an empty array when there's no drift" {
+  _write_timers_conf
+  _fake_systemd_setup
+  timers_install "demo" "$STACK_DIR" >/dev/null
+  export OUTPUT_MODE=json
+
+  run timers_drift_report "demo" "$STACK_DIR"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *'"timers":[]'* ]]
+}
+
 # ── timers_list ────────────────────────────────────────────────────────────────
 
 @test "timers_list: no timers.conf prints empty state" {
@@ -562,6 +613,27 @@ setup_cmd_timers() {
   [ "$status" -eq 0 ]
   [[ "$output" == *"no timers configured"* ]]
   [[ "$output" != *"ssh "* ]]
+}
+
+@test "cmd_timers: drift runs locally via timers_drift_report when VPS_HOST is empty" {
+  setup_cmd_timers
+  export VPS_HOST=""
+
+  run cmd_timers drift
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"no timer drift"* ]]
+  [[ "$output" != *"ssh "* ]]
+}
+
+@test "cmd_timers: drift dispatches via SSH when VPS_HOST is set, forwarding --json" {
+  setup_cmd_timers
+  export VPS_HOST="vps.example.com"
+  export CMD_JSON="--json"
+
+  run cmd_timers drift
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"ssh"* ]]
+  [[ "$output" == *"timers drift --json"* ]]
 }
 
 @test "cmd_timers: defaults to 'list' with no subcommand" {

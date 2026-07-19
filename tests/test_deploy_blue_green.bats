@@ -243,6 +243,30 @@ _record() { echo "$*" >> "$CALLS_FILE"; }
   [ "$output" = "blue" ]
 }
 
+@test "bg_deploy_stack: fires timers_install with (stack, stack_dir) on a successful deploy" {
+  _bg_start_color()   { _record "start:$1"; }
+  _bg_wait_healthy()  { _record "wait:$2"; return 0; }
+  _bg_swap_proxy()    { _record "swap:$2→$3"; }
+  _bg_drain()         { _record "drain:$1"; }
+  _bg_stop_color()    { _record "stop:$1"; }
+  _bg_teardown_failed_color() { _record "teardown:$1"; }
+  export -f _bg_start_color _bg_wait_healthy _bg_swap_proxy _bg_drain _bg_stop_color _bg_teardown_failed_color
+
+  local timers_install_calls="$TEST_TMP/timers_install_calls"
+  : > "$timers_install_calls"
+  timers_install() { echo "$*" >> "$timers_install_calls"; return 0; }
+  export -f timers_install
+
+  export PRE_DEPLOY_VALIDATE=false
+  export DRY_RUN=false
+  export SKIP_VALIDATION=false
+
+  run bg_deploy_stack "$STACK" "$ENV_FILE"
+  [ "$status" -eq 0 ]
+  [ -s "$timers_install_calls" ]
+  [ "$(cat "$timers_install_calls")" = "$STACK $CLI_ROOT/stacks/$STACK" ]
+}
+
 @test "bg_deploy_stack: second deploy flips blue → green and drains old" {
   # Seed state as if a previous deploy landed on blue.
   _bg_write_state "$STACK" "test" "blue" "demo-test-blue"

@@ -26,12 +26,13 @@
 #   timers_parse <stack_dir>
 #   timers_expand_interval <value>
 #   timers_unit_basename <stack> <name>
-#   timers_render_service <stack> <name> <exec> <env_file> <description> <user>
+#   timers_render_service <stack> <name> <exec> <env_file> <description> <user> <stack_dir>
 #   timers_render_timer <name> <schedule_type> <schedule_value> [description]
 #   timers_install <stack> <stack_dir>
 #   timers_remove <stack> <stack_dir>
 #   timers_list <stack> <stack_dir>
 #   timers_drift <stack> <stack_dir>
+#   timers_drift_report <stack> <stack_dir>
 
 set -euo pipefail
 
@@ -171,16 +172,23 @@ timers_unit_basename() {
 
 # ── Rendering ─────────────────────────────────────────────────────────────────
 
-# timers_render_service <stack> <name> <exec> <env_file> <description> <user>
+# timers_render_service <stack> <name> <exec> <env_file> <description> <user> [stack_dir]
 #
 # Echoes a systemd .service unit. ExecStart is wrapped in `/bin/sh -c` so
 # both a relative script path (resolved via WorkingDirectory) and a
 # multi-word command (e.g. "strut media backup") work without the caller
 # having to pre-resolve an absolute binary path.
+#
+# stack_dir is normally passed by the caller (which already has it), so
+# this doesn't recompute it from CLI_ROOT on every render; the fallback
+# below only covers a caller that doesn't have one handy.
 timers_render_service() {
   local stack="$1" name="$2" exec_cmd="$3" env_file="$4" description="$5" user="$6"
-  local cli_root="${CLI_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
-  local stack_dir="$cli_root/stacks/$stack"
+  local stack_dir="${7:-}"
+  if [ -z "$stack_dir" ]; then
+    local cli_root="${CLI_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+    stack_dir="$cli_root/stacks/$stack"
+  fi
   local exec_escaped="${exec_cmd//\'/\'\\\'\'}"
 
   echo "[Unit]"
@@ -288,7 +296,7 @@ timers_install() {
     timer_file="$unit_dir/$unit.timer"
 
     local rendered_service rendered_timer
-    rendered_service="$(timers_render_service "$stack" "$name" "$exec_cmd" "$env_file" "$description" "$user")"
+    rendered_service="$(timers_render_service "$stack" "$name" "$exec_cmd" "$env_file" "$description" "$user" "$stack_dir")"
     rendered_timer="$(timers_render_timer "$name" "$schedule_type" "$schedule_value" "$description")"
 
     local existing_service="" existing_timer=""
@@ -510,7 +518,7 @@ timers_drift() {
     fi
 
     local rendered_service rendered_timer existing_service existing_timer
-    rendered_service="$(timers_render_service "$stack" "$name" "$exec_cmd" "$env_file" "$description" "$user")"
+    rendered_service="$(timers_render_service "$stack" "$name" "$exec_cmd" "$env_file" "$description" "$user" "$stack_dir")"
     rendered_timer="$(timers_render_timer "$name" "$schedule_type" "$schedule_value" "$description")"
     existing_service=""; existing_timer=""
     [ -f "$service_file" ] && existing_service="$(cat "$service_file" 2>/dev/null)"
@@ -530,4 +538,51 @@ timers_drift() {
     [ -n "${configured_units[$ubase]:-}" ] && continue
     printf '%s\x1f%s\n' "$ubase" "orphaned"
   done
+}
+
+# timers_drift_report <stack> <stack_dir>
+#
+# User-facing wrapper around timers_drift: renders its \x1f-delimited
+# "unit\x1freason" records as a text table or, in JSON mode, as
+# {"timers":[{"unit","reason"}]} — the same shape drift_report embeds under
+# its own "timers" key, so _drift_check_timers (lib/drift.sh) can parse this
+# command's --json output over SSH for a VPS-mapped stack.
+timers_drift_report() {
+  local stack="$1"
+  local stack_dir="$2"
+
+  local records
+  records="$(timers_drift "$stack" "$stack_dir")"
+
+  if [ "$(output_mode)" = "json" ]; then
+    out_json_object
+      out_json_array "timers"
+      if [ -n "$records" ]; then
+        local unit reason
+        while IFS=$'\x1f' read -r unit reason; do
+          [ -n "$unit" ] || continue
+          out_json_object
+            out_json_field "unit" "$unit"
+            out_json_field "reason" "$reason"
+          out_json_close_object
+        done <<< "$records"
+      fi
+      out_json_close_array
+    out_json_close_object
+    out_json_newline
+    return 0
+  fi
+
+  if [ -z "$records" ]; then
+    out_table_empty "(no timer drift)"
+    return 0
+  fi
+
+  out_table_header "Unit" "Reason"
+  local unit reason
+  while IFS=$'\x1f' read -r unit reason; do
+    [ -n "$unit" ] || continue
+    out_table_row "$unit" "$reason"
+  done <<< "$records"
+  out_table_render
 }

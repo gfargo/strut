@@ -13,7 +13,7 @@ set -euo pipefail
 
 _usage_timers() {
   echo ""
-  echo "Usage: strut <stack> timers [list|install|remove] [--env <name>] [--json] [--dry-run]"
+  echo "Usage: strut <stack> timers [list|install|remove|drift] [--env <name>] [--json] [--dry-run]"
   echo ""
   echo "Manage systemd timers declared in stacks/<stack>/timers.conf."
   echo ""
@@ -21,6 +21,7 @@ _usage_timers() {
   echo "  list      Show configured timers with next/last run (default)"
   echo "  install   Render + install/enable timer units (idempotent)"
   echo "  remove    Disable and remove all strut-managed timer units for this stack"
+  echo "  drift     Show hand-edited/missing/orphaned strut-managed timer units"
   echo ""
   echo "Timers run on the host the stack deploys to — this command dispatches"
   echo "over SSH the same way 'status' does. Installed automatically at the"
@@ -40,7 +41,7 @@ cmd_timers() {
   shift || true
 
   case "$subcmd" in
-    list|install|remove) ;;
+    list|install|remove|drift) ;;
     help|--help|-h) _usage_timers; return 0 ;;
     *) _usage_timers; fail "Unknown timers subcommand: $subcmd"; return 1 ;;
   esac
@@ -65,5 +66,6 @@ cmd_timers() {
     list)    timers_list "$stack" "$stack_dir" ;;
     install) timers_install "$stack" "$stack_dir" ;;
     remove)  timers_remove "$stack" "$stack_dir" ;;
+    drift)   timers_drift_report "$stack" "$stack_dir" ;;
   esac
 }

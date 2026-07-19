@@ -286,18 +286,43 @@ drift_generate_diff() {
   rm -f "$temp_git_file" "$temp_vps_file"
 }
 
-# _drift_check_timers <stack> <stack_dir>
+# _drift_check_timers <stack> <stack_dir> <env>
 #
-# Lazily sources lib/timers.sh (so a stack with no timers.conf never pulls
-# it in) and runs timers_drift, echoing its \x1f-delimited "unit\x1freason"
-# records straight through — see timers_drift for reason values
-# (missing/modified/orphaned). Host-side only: a hand-edited or missing
-# systemd unit can only be detected on the host the timer actually runs
-# on, so — like timers_install/timers_list — this never fetches anything
-# over SSH and no-ops when there's no timers.conf or no systemctl.
+# Echoes \x1f-delimited "unit\x1freason" records — see timers_drift for
+# reason values (missing/modified/orphaned).
+#
+# A unit's rendered content embeds the deploy directory it was installed
+# under (WorkingDirectory=...), so checking it only ever makes sense on the
+# host it's actually installed on. For a stack mapped to a VPS (should_
+# dispatch_remote), that means fetching drift from the VPS itself over SSH
+# — via 'timers drift --json' — rather than inspecting the operator's own
+# (empty) local systemd, which would either report every timer "missing" or
+# compare against a unit rendered with the wrong WorkingDirectory. The JSON
+# is converted to the same \x1f record stream timers_drift produces locally
+# so both callers (drift_detect, drift_report) don't need a remote-aware
+# branch of their own.
+#
+# SSH failure degrades gracefully: run_remote_strut calls fail() (exit 1)
+# on a connection error, but it runs inside a command substitution here, so
+# '|| return 0' contains it — matching drift_get_vps_hash's rc==2 → skip
+# treatment for tracked files, best-effort rather than a hard failure of
+# the whole drift run.
+#
+# Local-only stacks (no VPS_HOST) lazily source lib/timers.sh (so a stack
+# with no timers.conf never pulls it in) and run timers_drift directly —
+# unchanged, no-ops when there's no timers.conf or no systemctl.
 _drift_check_timers() {
   local stack="$1"
   local stack_dir="$2"
+  local env="${3:-prod}"
+
+  if declare -F should_dispatch_remote >/dev/null 2>&1 && should_dispatch_remote; then
+    local json
+    json="$(CMD_JSON=1 run_remote_strut "$stack" "$env" "timers drift --json" 2>/dev/null)" || return 0
+    printf '%s' "$json" | jq -r '.timers[]? | "\(.unit)\(.reason)"' 2>/dev/null || true
+    return 0
+  fi
+
   declare -F timers_drift >/dev/null || source "${SCRIPT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}/timers.sh"
   timers_drift "$stack" "$stack_dir"
 }
@@ -392,7 +417,7 @@ drift_detect() {
   # Check declarative timer drift — hand-edited or missing systemd units
   # for this stack's timers.conf (strut#449).
   local timer_drift
-  timer_drift="$(_drift_check_timers "$stack" "$stack_dir")"
+  timer_drift="$(_drift_check_timers "$stack" "$stack_dir" "$env")"
   if [ -n "$timer_drift" ]; then
     local t_unit t_reason
     while IFS=$'\x1f' read -r t_unit t_reason; do
@@ -714,7 +739,7 @@ drift_report() {
   # Declarative timer drift — hand-edited/missing/orphaned systemd units
   # for this stack's timers.conf (strut#449). See _drift_check_timers.
   local timer_drift
-  timer_drift="$(_drift_check_timers "$stack" "$stack_dir")"
+  timer_drift="$(_drift_check_timers "$stack" "$stack_dir" "$env")"
   local timer_units=() timer_reasons=()
   if [ -n "$timer_drift" ]; then
     local t_unit t_reason
