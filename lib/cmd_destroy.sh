@@ -5,7 +5,7 @@
 # Requires: lib/utils.sh, lib/docker.sh, lib/hooks.sh sourced first
 #
 # Provides:
-#   cmd_destroy [--volumes] [--timeout <seconds>] (reads CMD_* context variables)
+#   cmd_destroy [--timeout <seconds>] (reads CMD_* context variables)
 #
 # Symmetric counterpart to first_run: fires pre_destroy (can abort) before
 # tearing the stack down, then post_destroy (warn-only) after, then removes
