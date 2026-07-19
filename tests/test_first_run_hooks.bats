@@ -217,3 +217,84 @@ EOF
   [ "$status" -eq 0 ]
   [[ "$output" != *"should not run twice"* ]]
 }
+
+# ── _first_run_hook_file ──────────────────────────────────────────────────────
+
+@test "_first_run_hook_file: returns 1 with no output when no hook exists" {
+  mkdir -p "$TEST_TMP/stack/hooks"
+  run _first_run_hook_file "$TEST_TMP/stack"
+  [ "$status" -eq 1 ]
+  [ -z "$output" ]
+}
+
+@test "_first_run_hook_file: echoes the snake_case path when present" {
+  mkdir -p "$TEST_TMP/stack/hooks"
+  touch "$TEST_TMP/stack/hooks/first_run.sh"
+  run _first_run_hook_file "$TEST_TMP/stack"
+  [ "$status" -eq 0 ]
+  [ "$output" = "$TEST_TMP/stack/hooks/first_run.sh" ]
+}
+
+# ── first_run_status ──────────────────────────────────────────────────────────
+
+@test "first_run_status: reports absent hook and marker" {
+  mkdir -p "$TEST_TMP/stack"
+  run first_run_status "$TEST_TMP/stack"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"first_run hook: (none)"* ]]
+  [[ "$output" == *"initialized: no"* ]]
+}
+
+@test "first_run_status: reports present hook and marker with timestamp" {
+  mkdir -p "$TEST_TMP/stack/hooks"
+  touch "$TEST_TMP/stack/hooks/first_run.sh"
+  echo "initialized=2024-01-01T00:00:00Z" > "$TEST_TMP/stack/.strut-initialized"
+
+  run first_run_status "$TEST_TMP/stack"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"first_run hook: $TEST_TMP/stack/hooks/first_run.sh"* ]]
+  [[ "$output" == *"initialized: yes (2024-01-01T00:00:00Z)"* ]]
+}
+
+# ── fire_first_run_hook (force) ───────────────────────────────────────────────
+
+@test "fire_first_run_hook: force re-runs when marker already present" {
+  mkdir -p "$TEST_TMP/stack/hooks"
+  cat > "$TEST_TMP/stack/hooks/first_run.sh" <<'EOF'
+#!/usr/bin/env bash
+echo "repaired"
+EOF
+  chmod +x "$TEST_TMP/stack/hooks/first_run.sh"
+  echo "initialized=2024-01-01T00:00:00Z" > "$TEST_TMP/stack/.strut-initialized"
+
+  run fire_first_run_hook "$TEST_TMP/stack" force
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"repaired"* ]]
+  # Marker rewritten with a fresh timestamp (not the stale 2024-01-01 one)
+  run cat "$TEST_TMP/stack/.strut-initialized"
+  [[ "$output" != *"2024-01-01T00:00:00Z"* ]]
+}
+
+@test "fire_first_run_hook: force with failing hook leaves no marker and returns non-zero" {
+  mkdir -p "$TEST_TMP/stack/hooks"
+  cat > "$TEST_TMP/stack/hooks/first_run.sh" <<'EOF'
+#!/usr/bin/env bash
+echo "still broken"
+exit 3
+EOF
+  chmod +x "$TEST_TMP/stack/hooks/first_run.sh"
+  echo "initialized=2024-01-01T00:00:00Z" > "$TEST_TMP/stack/.strut-initialized"
+
+  run fire_first_run_hook "$TEST_TMP/stack" force
+  [ "$status" -eq 3 ]
+  [ ! -f "$TEST_TMP/stack/.strut-initialized" ]
+}
+
+@test "fire_first_run_hook: force with no hook is a warn-only no-op (no marker created)" {
+  mkdir -p "$TEST_TMP/stack"
+
+  run fire_first_run_hook "$TEST_TMP/stack" force
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"No first_run hook found"* ]]
+  [ ! -f "$TEST_TMP/stack/.strut-initialized" ]
+}

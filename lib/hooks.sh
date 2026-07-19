@@ -12,7 +12,17 @@
 # Events (all wired):
 #   pre_deploy         — before deploy_stack runs (can abort via non-zero)
 #   post_deploy        — after deploy_stack succeeds (warn-only on failure)
-#   first_run          — once per stack on first deploy (marker-gated)
+#   first_run          — once per stack on first deploy (marker-gated). The
+#                        .strut-initialized marker is written ONLY when the
+#                        hook exits 0 — a failed first_run leaves no marker,
+#                        so it retries on the next deploy. Use
+#                        `strut <stack> first-run --status` to inspect the
+#                        marker and `--force` to repair (re-run) it
+#                        on demand without SSHing in to delete it by hand.
+#                        For "install once, reconcile always" needs (e.g. a
+#                        udev rule that must be refreshed after hardware
+#                        changes), write an idempotent installer and call it
+#                        from BOTH first_run and post_deploy.
 #   pre_backup         — before any backup runs (can abort)
 #   post_backup        — after backup succeeds (warn-only)
 #   pre_migrate        — before schema migration runs (can abort via non-zero)
@@ -104,23 +114,32 @@ _first_run_marker_path() {
   echo "$stack_dir/.strut-initialized"
 }
 
+# _first_run_hook_file <stack_dir>
+#
+# Echoes the path to the stack's first-run hook (snake_case preferred,
+# dash-case as legacy fallback). Returns 1 (no output) if neither exists.
+_first_run_hook_file() {
+  local stack_dir="$1"
+  local hooks_dir="$stack_dir/hooks"
+
+  local candidate
+  for candidate in "$hooks_dir/first_run.sh" "$hooks_dir/first-run.sh"; do
+    if [ -f "$candidate" ]; then
+      echo "$candidate"
+      return 0
+    fi
+  done
+  return 1
+}
+
 # first_run_needed <stack_dir>
 #
 # Returns 0 if a first-run hook exists AND the stack has not been initialized
 # (marker file is absent). Returns 1 otherwise (no hook or already initialized).
 first_run_needed() {
   local stack_dir="$1"
-  local hooks_dir="$stack_dir/hooks"
 
-  # Check if a first-run hook exists
-  local hook_file=""
-  for candidate in "$hooks_dir/first_run.sh" "$hooks_dir/first-run.sh"; do
-    if [ -f "$candidate" ]; then
-      hook_file="$candidate"
-      break
-    fi
-  done
-  [ -z "$hook_file" ] && return 1
+  _first_run_hook_file "$stack_dir" >/dev/null || return 1
 
   # Check if already initialized
   local marker
@@ -130,15 +149,54 @@ first_run_needed() {
   return 0
 }
 
-# fire_first_run_hook <stack_dir>
+# first_run_status <stack_dir>
+#
+# Reports whether the stack has a first-run hook and whether it has been
+# initialized. Prints human-readable lines; always returns 0.
+first_run_status() {
+  local stack_dir="$1"
+  local hook_file
+  local marker
+  marker=$(_first_run_marker_path "$stack_dir")
+
+  if hook_file=$(_first_run_hook_file "$stack_dir"); then
+    echo "first_run hook: $hook_file"
+  else
+    echo "first_run hook: (none)"
+  fi
+
+  echo "marker: $marker"
+  if [ -f "$marker" ]; then
+    local initialized_line
+    initialized_line=$(grep '^initialized=' "$marker" 2>/dev/null || true)
+    echo "initialized: yes (${initialized_line#initialized=})"
+  else
+    echo "initialized: no"
+  fi
+
+  return 0
+}
+
+# fire_first_run_hook <stack_dir> [force]
 #
 # Runs the first-run hook if it exists and the stack hasn't been initialized.
 # On success, creates the .strut-initialized marker with a timestamp.
 # Returns 0 if no hook needed, 0 on success, or non-zero on hook failure.
+#
+# force: when truthy, ignores the "already initialized" gate and re-runs
+# the hook — used for repair/reconciliation (e.g. after hardware changes).
+# Still no-ops (with a warning) when no first_run hook exists at all.
 fire_first_run_hook() {
   local stack_dir="$1"
+  local force="${2:-}"
 
-  if ! first_run_needed "$stack_dir"; then
+  if [ -n "$force" ]; then
+    if ! _first_run_hook_file "$stack_dir" >/dev/null; then
+      warn "No first_run hook found for this stack — nothing to force-run"
+      return 0
+    fi
+    rm -f "$(_first_run_marker_path "$stack_dir")"
+  elif ! first_run_needed "$stack_dir"; then
     return 0
   fi
 
