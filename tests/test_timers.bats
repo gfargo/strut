@@ -7,6 +7,11 @@
 #         timers_install (idempotency, no-config, DRY_RUN), timers_remove,
 #         timers_list, cmd_timers dispatch (usage, remote SSH, local).
 
+# Record delimiter used by timers_parse/_timers_emit_record (ASCII unit
+# separator — 'exec' is a free-form shell command that may itself contain
+# a literal '|', so records can't be pipe-delimited).
+US=$'\x1f'
+
 setup() {
   source "$(dirname "$BATS_TEST_FILENAME")/test_helper/common.bash"
   load_utils
@@ -97,8 +102,8 @@ EOF
   run timers_parse "$STACK_DIR"
   [ "$status" -eq 0 ]
   local line
-  line=$(echo "$output" | grep '^port-sync|')
-  [ "$line" = "port-sync|./port-sync.sh|interval|60s|/etc/default/demo-port-sync|Sync port|" ]
+  line=$(echo "$output" | grep "^port-sync${US}")
+  [ "$line" = "port-sync${US}./port-sync.sh${US}interval${US}60s${US}/etc/default/demo-port-sync${US}Sync port${US}" ]
 }
 
 @test "timers_parse: on_calendar section expands to schedule_type=calendar" {
@@ -106,8 +111,8 @@ EOF
   run timers_parse "$STACK_DIR"
   [ "$status" -eq 0 ]
   local line
-  line=$(echo "$output" | grep '^nightly-backup|')
-  [ "$line" = "nightly-backup|strut demo backup|calendar|daily 03:00|||" ]
+  line=$(echo "$output" | grep "^nightly-backup${US}")
+  [ "$line" = "nightly-backup${US}strut demo backup${US}calendar${US}daily 03:00${US}${US}${US}" ]
 }
 
 @test "timers_parse: missing exec skips the section with a warning" {
@@ -118,7 +123,7 @@ EOF
   run timers_parse "$STACK_DIR"
   [ "$status" -eq 0 ]
   [[ "$output" == *"missing 'exec'"* ]]
-  [[ "$output" != "broken|"* ]]
+  [[ "$output" != "broken${US}"* ]]
 }
 
 @test "timers_parse: missing schedule skips the section with a warning" {
@@ -129,7 +134,7 @@ EOF
   run timers_parse "$STACK_DIR"
   [ "$status" -eq 0 ]
   [[ "$output" == *"missing 'on_calendar' or 'interval'"* ]]
-  [[ "$output" != "broken|"* ]]
+  [[ "$output" != "broken${US}"* ]]
 }
 
 @test "timers_parse: invalid interval format skips the section" {
@@ -141,7 +146,7 @@ EOF
   run timers_parse "$STACK_DIR"
   [ "$status" -eq 0 ]
   [[ "$output" == *"invalid interval"* ]]
-  [[ "$output" != "broken|"* ]]
+  [[ "$output" != "broken${US}"* ]]
 }
 
 @test "timers_parse: both on_calendar and interval set — on_calendar wins" {
@@ -153,7 +158,7 @@ on_calendar = daily 03:00
 EOF
   run timers_parse "$STACK_DIR"
   [ "$status" -eq 0 ]
-  [[ "$output" == *"both|./run.sh|calendar|daily 03:00|||"* ]]
+  [[ "$output" == *"both${US}./run.sh${US}calendar${US}daily 03:00${US}${US}${US}"* ]]
 }
 
 @test "timers_parse: one bad section doesn't block a good one" {
@@ -168,11 +173,26 @@ EOF
   run timers_parse "$STACK_DIR"
   [ "$status" -eq 0 ]
   local records
-  records=$(echo "$output" | grep -E '^[a-zA-Z0-9_-]+\|')
+  records=$(echo "$output" | grep -E "^[a-zA-Z0-9_-]+${US}")
   local count
   count=$(echo "$records" | grep -c '^')
   [ "$count" -eq 1 ]
-  [[ "$records" == "good|"* ]]
+  [[ "$records" == "good${US}"* ]]
+}
+
+@test "timers_parse: exec containing a literal '|' survives intact (delimiter is \\x1f, not '|')" {
+  cat > "$STACK_DIR/timers.conf" <<'EOF'
+[piped]
+exec = ./x.sh | tee log
+interval = 1h
+EOF
+  run timers_parse "$STACK_DIR"
+  [ "$status" -eq 0 ]
+  local name exec_cmd schedule_type schedule_value env_file description user
+  IFS="$US" read -r name exec_cmd schedule_type schedule_value env_file description user <<< "$output"
+  [ "$name" = "piped" ]
+  [ "$exec_cmd" = "./x.sh | tee log" ]
+  [ "$schedule_type" = "interval" ]
 }
 
 # ── timers_render_service / timers_render_timer ───────────────────────────────
@@ -330,6 +350,76 @@ _fake_systemd_setup() {
   ! grep -q "daemon-reload" "$SYSTEMCTL_LOG"
 }
 
+# ── timers_drift ──────────────────────────────────────────────────────────────
+
+@test "timers_drift: matching installed units yield no drift" {
+  _write_timers_conf
+  _fake_systemd_setup
+  timers_install "demo" "$STACK_DIR" >/dev/null
+
+  run timers_drift "demo" "$STACK_DIR"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+}
+
+@test "timers_drift: hand-edited unit on disk is flagged" {
+  _write_timers_conf
+  _fake_systemd_setup
+  timers_install "demo" "$STACK_DIR" >/dev/null
+
+  echo "# hand-edited" >> "$STRUT_TIMERS_UNIT_DIR/strut-demo-port-sync.timer"
+
+  run timers_drift "demo" "$STACK_DIR"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"strut-demo-port-sync${US}modified"* ]]
+  [[ "$output" != *"strut-demo-nightly-backup${US}"* ]]
+}
+
+@test "timers_drift: configured but never-installed timer is flagged missing" {
+  _write_timers_conf
+  _fake_systemd_setup
+
+  run timers_drift "demo" "$STACK_DIR"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"strut-demo-port-sync${US}missing"* ]]
+  [[ "$output" == *"strut-demo-nightly-backup${US}missing"* ]]
+}
+
+@test "timers_drift: orphaned unit with no matching config section is flagged" {
+  _write_timers_conf
+  _fake_systemd_setup
+  timers_install "demo" "$STACK_DIR" >/dev/null
+
+  : > "$STRUT_TIMERS_UNIT_DIR/strut-demo-stale-job.timer"
+  : > "$STRUT_TIMERS_UNIT_DIR/strut-demo-stale-job.service"
+
+  run timers_drift "demo" "$STACK_DIR"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"strut-demo-stale-job${US}orphaned"* ]]
+}
+
+@test "timers_drift: no timers.conf is a clean no-op" {
+  _fake_systemd_setup
+  run timers_drift "demo" "$STACK_DIR"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+}
+
+@test "timers_drift: no systemctl is a clean no-op" {
+  _write_timers_conf
+  command() {
+    if [ "$1" = "-v" ] && [ "$2" = "systemctl" ]; then
+      return 1
+    fi
+    builtin command "$@"
+  }
+  export -f command
+
+  run timers_drift "demo" "$STACK_DIR"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+}
+
 # ── timers_list ────────────────────────────────────────────────────────────────
 
 @test "timers_list: no timers.conf prints empty state" {
@@ -443,6 +533,27 @@ setup_cmd_timers() {
   [[ "$output" == *"timers list"* ]]
 }
 
+@test "cmd_timers: forwards --json through remote dispatch" {
+  setup_cmd_timers
+  export VPS_HOST="vps.example.com"
+  export CMD_JSON="--json"
+
+  run cmd_timers list
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"ssh"* ]]
+  [[ "$output" == *"timers list --json"* ]]
+}
+
+@test "cmd_timers: no --json flag omitted from remote dispatch when CMD_JSON is unset" {
+  setup_cmd_timers
+  export VPS_HOST="vps.example.com"
+  unset CMD_JSON
+
+  run cmd_timers list
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"--json"* ]]
+}
+
 @test "cmd_timers: runs locally when VPS_HOST is empty" {
   setup_cmd_timers
   export VPS_HOST=""
@@ -460,4 +571,65 @@ setup_cmd_timers() {
   run cmd_timers
   [ "$status" -eq 0 ]
   [[ "$output" == *"no timers configured"* ]]
+}
+
+# ── deploy_stack → timers_install wiring ────────────────────────────────────
+# Confirms the post-deploy call site (lib/deploy.sh, after the post_deploy
+# hook) actually fires timers_install with (stack, stack_dir) on a
+# successful deploy. Mirrors the full-success harness in
+# tests/test_deploy_up_failure.bats (same stub set) plus a sleep no-op —
+# deploy_stack's post-`up -d` wait is a real 60s sleep loop otherwise.
+
+@test "deploy_stack: fires timers_install with (stack, stack_dir) on a successful deploy" {
+  source "$LIB/config.sh"
+  source "$LIB/deploy.sh"
+
+  registry_login() { :; }
+  docker_pull_stack() { :; }
+  docker_require_images() { return 0; }
+  rollback_save_snapshot() { :; }
+  export_volume_paths() { :; }
+  fire_hook() { return 0; }
+  fire_hook_or_warn() { :; }
+  fire_first_run_hook() { :; }
+  maybe_apply_db_schema() { :; }
+  notify_event() { :; }
+  print_banner() { :; }
+  require_cmd() { :; }
+  is_running_on_vps() { return 1; }
+  sleep() { :; }
+  export -f registry_login docker_pull_stack docker_require_images \
+            rollback_save_snapshot export_volume_paths fire_hook \
+            fire_hook_or_warn fire_first_run_hook maybe_apply_db_schema \
+            notify_event print_banner require_cmd is_running_on_vps sleep
+
+  docker() { return 0; }
+  export -f docker
+
+  local timers_install_calls="$TEST_TMP/timers_install_calls"
+  : > "$timers_install_calls"
+  timers_install() { echo "$*" >> "$timers_install_calls"; return 0; }
+  export -f timers_install
+
+  local hub_dir="$TEST_TMP/stacks/hub"
+  mkdir -p "$hub_dir"
+  cat > "$hub_dir/docker-compose.yml" <<'EOF'
+services:
+  app:
+    image: hub-app
+EOF
+  cat > "$hub_dir/services.conf" <<'EOF'
+BUILD_MODE=none
+EOF
+  local env_file="$TEST_TMP/.prod.env"
+  : > "$env_file"
+
+  export DRY_RUN="false"
+  export PRE_DEPLOY_VALIDATE="false"
+  export SKIP_VALIDATION="false"
+
+  run deploy_stack "hub" "$env_file" ""
+  [ "$status" -eq 0 ]
+  [ -s "$timers_install_calls" ]
+  [ "$(cat "$timers_install_calls")" = "hub $hub_dir" ]
 }

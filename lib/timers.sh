@@ -31,6 +31,7 @@
 #   timers_install <stack> <stack_dir>
 #   timers_remove <stack> <stack_dir>
 #   timers_list <stack> <stack_dir>
+#   timers_drift <stack> <stack_dir>
 
 set -euo pipefail
 
@@ -64,8 +65,11 @@ timers_expand_interval() {
 
 # _timers_emit_record <section> <exec> <on_calendar> <interval> <env_file> <description> <user>
 #
-# Internal: validates one parsed [section] and, if valid, echoes a
-# pipe-delimited record: name|exec|schedule_type|schedule_value|env_file|description|user
+# Internal: validates one parsed [section] and, if valid, echoes a record
+# delimited by the ASCII unit separator (\x1f): name<US>exec<US>schedule_type
+# <US>schedule_value<US>env_file<US>description<US>user. \x1f (rather than
+# '|') is used because 'exec' is a free-form shell command that may itself
+# contain a literal '|' (e.g. "./x.sh | tee log").
 # schedule_type is "calendar" (OnCalendar=) or "interval" (OnUnitActiveSec=/OnBootSec=).
 # Invalid or incomplete sections are warned about and skipped, never abort
 # the whole parse — one bad timer shouldn't break every other timer's install.
@@ -98,7 +102,8 @@ _timers_emit_record() {
     return 0
   fi
 
-  echo "${section}|${exec_cmd}|${schedule_type}|${schedule_value}|${env_file}|${description}|${user}"
+  printf '%s\x1f%s\x1f%s\x1f%s\x1f%s\x1f%s\x1f%s\n' \
+    "$section" "$exec_cmd" "$schedule_type" "$schedule_value" "$env_file" "$description" "$user"
 }
 
 # timers_parse <stack_dir>
@@ -106,7 +111,7 @@ _timers_emit_record() {
 # INI parser modeled on topology_load (lib/topology.sh): section regex
 # ^\[([a-zA-Z0-9_-]+)\]$, key = value regex
 # ^[[:space:]]*([a-zA-Z0-9_-]+)[[:space:]]*=[[:space:]]*(.+)$.
-# Echoes one pipe-delimited record per valid [section] — see
+# Echoes one \x1f-delimited record per valid [section] — see
 # _timers_emit_record. Safe to call on a stack with no timers.conf (no-op).
 timers_parse() {
   local stack_dir="$1"
@@ -261,7 +266,7 @@ timers_install() {
     echo ""
     echo -e "${YELLOW}[DRY-RUN] Execution plan for timers install ($stack):${NC}"
     local name exec_cmd schedule_type schedule_value env_file description user
-    while IFS='|' read -r name exec_cmd schedule_type schedule_value env_file description user; do
+    while IFS=$'\x1f' read -r name exec_cmd schedule_type schedule_value env_file description user; do
       [ -n "$name" ] || continue
       local unit
       unit="$(timers_unit_basename "$stack" "$name")"
@@ -275,7 +280,7 @@ timers_install() {
 
   local changed=false
   local name exec_cmd schedule_type schedule_value env_file description user
-  while IFS='|' read -r name exec_cmd schedule_type schedule_value env_file description user; do
+  while IFS=$'\x1f' read -r name exec_cmd schedule_type schedule_value env_file description user; do
     [ -n "$name" ] || continue
     local unit service_file timer_file
     unit="$(timers_unit_basename "$stack" "$name")"
@@ -307,7 +312,7 @@ timers_install() {
     sudo systemctl daemon-reload
   fi
 
-  while IFS='|' read -r name exec_cmd schedule_type schedule_value env_file description user; do
+  while IFS=$'\x1f' read -r name exec_cmd schedule_type schedule_value env_file description user; do
     [ -n "$name" ] || continue
     local unit
     unit="$(timers_unit_basename "$stack" "$name")"
@@ -412,7 +417,7 @@ timers_list() {
       out_json_array "timers"
       if [ -n "$records" ]; then
         local name exec_cmd schedule_type schedule_value env_file description user
-        while IFS='|' read -r name exec_cmd schedule_type schedule_value env_file description user; do
+        while IFS=$'\x1f' read -r name exec_cmd schedule_type schedule_value env_file description user; do
           [ -n "$name" ] || continue
           local unit next_last next last
           unit="$(timers_unit_basename "$stack" "$name")"
@@ -443,7 +448,7 @@ timers_list() {
 
   out_table_header "Name" "Schedule" "Next" "Last"
   local name exec_cmd schedule_type schedule_value env_file description user
-  while IFS='|' read -r name exec_cmd schedule_type schedule_value env_file description user; do
+  while IFS=$'\x1f' read -r name exec_cmd schedule_type schedule_value env_file description user; do
     [ -n "$name" ] || continue
     local unit next_last next last
     unit="$(timers_unit_basename "$stack" "$name")"
@@ -453,4 +458,76 @@ timers_list() {
     out_table_row "$name" "$schedule_value" "${next:--}" "${last:--}"
   done <<< "$records"
   out_table_render
+}
+
+# ── Drift ─────────────────────────────────────────────────────────────────────
+
+# timers_drift <stack> <stack_dir>
+#
+# Compares each configured timer's rendered unit content against what's
+# actually installed on this host — the same content check timers_install
+# uses to decide whether a unit needs rewriting — plus flags strut-managed
+# units on disk with no matching timers.conf section (e.g. a section
+# renamed or deleted without running 'timers remove'). Echoes one
+# \x1f-delimited "unit\x1freason" record per drifted unit, reason being
+# "missing" (configured but not installed), "modified" (installed content
+# differs from what timers.conf would render — hand-edited or stale), or
+# "orphaned" (installed but no matching config section).
+#
+# No-op (no output, status 0) when the stack has no timers.conf or
+# systemctl isn't available: like timers_install/timers_list, this only
+# makes sense run on the actual host the timers are installed on — it does
+# not fetch anything over SSH.
+timers_drift() {
+  local stack="$1"
+  local stack_dir="$2"
+  local conf
+  conf="$(timers_conf_path "$stack_dir")"
+  [ -f "$conf" ] || return 0
+
+  command -v systemctl >/dev/null 2>&1 || return 0
+
+  local records
+  records="$(timers_parse "$stack_dir")"
+  [ -n "$records" ] || return 0
+
+  local unit_dir
+  unit_dir="$(_timers_unit_dir)"
+
+  local -A configured_units=()
+  local name exec_cmd schedule_type schedule_value env_file description user
+  while IFS=$'\x1f' read -r name exec_cmd schedule_type schedule_value env_file description user; do
+    [ -n "$name" ] || continue
+    local unit service_file timer_file
+    unit="$(timers_unit_basename "$stack" "$name")"
+    configured_units["$unit"]=1
+    service_file="$unit_dir/$unit.service"
+    timer_file="$unit_dir/$unit.timer"
+
+    if [ ! -f "$service_file" ] && [ ! -f "$timer_file" ]; then
+      printf '%s\x1f%s\n' "$unit" "missing"
+      continue
+    fi
+
+    local rendered_service rendered_timer existing_service existing_timer
+    rendered_service="$(timers_render_service "$stack" "$name" "$exec_cmd" "$env_file" "$description" "$user")"
+    rendered_timer="$(timers_render_timer "$name" "$schedule_type" "$schedule_value" "$description")"
+    existing_service=""; existing_timer=""
+    [ -f "$service_file" ] && existing_service="$(cat "$service_file" 2>/dev/null)"
+    [ -f "$timer_file" ] && existing_timer="$(cat "$timer_file" 2>/dev/null)"
+
+    if [ "$existing_service" != "$rendered_service" ] || [ "$existing_timer" != "$rendered_timer" ]; then
+      printf '%s\x1f%s\n' "$unit" "modified"
+    fi
+  done <<< "$records"
+
+  local prefix
+  prefix="$(timers_unit_basename "$stack" "")"
+  local f ubase
+  for f in "$unit_dir/${prefix}"*.timer; do
+    [ -e "$f" ] || continue
+    ubase="$(basename "$f" .timer)"
+    [ -n "${configured_units[$ubase]:-}" ] && continue
+    printf '%s\x1f%s\n' "$ubase" "orphaned"
+  done
 }

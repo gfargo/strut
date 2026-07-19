@@ -286,6 +286,22 @@ drift_generate_diff() {
   rm -f "$temp_git_file" "$temp_vps_file"
 }
 
+# _drift_check_timers <stack> <stack_dir>
+#
+# Lazily sources lib/timers.sh (so a stack with no timers.conf never pulls
+# it in) and runs timers_drift, echoing its \x1f-delimited "unit\x1freason"
+# records straight through — see timers_drift for reason values
+# (missing/modified/orphaned). Host-side only: a hand-edited or missing
+# systemd unit can only be detected on the host the timer actually runs
+# on, so — like timers_install/timers_list — this never fetches anything
+# over SSH and no-ops when there's no timers.conf or no systemctl.
+_drift_check_timers() {
+  local stack="$1"
+  local stack_dir="$2"
+  declare -F timers_drift >/dev/null || source "${SCRIPT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}/timers.sh"
+  timers_drift "$stack" "$stack_dir"
+}
+
 # drift_detect <stack> <env>
 # Main drift detection function - compares git-tracked vs VPS runtime config
 drift_detect() {
@@ -371,6 +387,20 @@ drift_detect() {
       drifted_files+=("<git: $_behind commit(s) behind origin/$branch>")
       drift_details+=("{\"file\":\"<origin/$branch>\",\"behind\":$_behind,\"git_hash\":\"\",\"vps_hash\":\"\",\"diff\":\"\"}")
     fi
+  fi
+
+  # Check declarative timer drift — hand-edited or missing systemd units
+  # for this stack's timers.conf (strut#449).
+  local timer_drift
+  timer_drift="$(_drift_check_timers "$stack" "$stack_dir")"
+  if [ -n "$timer_drift" ]; then
+    local t_unit t_reason
+    while IFS=$'\x1f' read -r t_unit t_reason; do
+      [ -n "$t_unit" ] || continue
+      drift_detected=true
+      drifted_files+=("<timer: $t_unit ($t_reason)>")
+      drift_details+=("{\"file\":\"<timer:$t_unit>\",\"reason\":\"$t_reason\",\"git_hash\":\"\",\"vps_hash\":\"\",\"diff\":\"\"}")
+    done <<< "$timer_drift"
   fi
 
   # Report results
@@ -681,6 +711,20 @@ drift_report() {
     fi
   done
 
+  # Declarative timer drift — hand-edited/missing/orphaned systemd units
+  # for this stack's timers.conf (strut#449). See _drift_check_timers.
+  local timer_drift
+  timer_drift="$(_drift_check_timers "$stack" "$stack_dir")"
+  local timer_units=() timer_reasons=()
+  if [ -n "$timer_drift" ]; then
+    local t_unit t_reason
+    while IFS=$'\x1f' read -r t_unit t_reason; do
+      [ -n "$t_unit" ] || continue
+      timer_units+=("$t_unit")
+      timer_reasons+=("$t_reason")
+    done <<< "$timer_drift"
+  fi
+
   if $json_output; then
     # Build JSON report
     local files_json="["
@@ -695,10 +739,23 @@ drift_report() {
     done
     files_json+="]"
 
-    local status="no_drift"
-    [ ${#drifted_files[@]} -gt 0 ] && status="drift_detected"
+    local timers_json="["
+    first=true
+    local i
+    for i in "${!timer_units[@]}"; do
+      if $first; then
+        first=false
+      else
+        timers_json+=","
+      fi
+      timers_json+="{\"unit\":\"${timer_units[$i]}\",\"reason\":\"${timer_reasons[$i]}\"}"
+    done
+    timers_json+="]"
 
-    echo "{\"stack\":\"$stack\",\"env\":\"$env\",\"status\":\"$status\",\"drifted_files_count\":${#drifted_files[@]},\"files\":$files_json,\"timestamp\":\"$(date -u +"%Y-%m-%dT%H:%M:%SZ")\"}" | jq '.'
+    local status="no_drift"
+    { [ ${#drifted_files[@]} -gt 0 ] || [ ${#timer_units[@]} -gt 0 ]; } && status="drift_detected"
+
+    echo "{\"stack\":\"$stack\",\"env\":\"$env\",\"status\":\"$status\",\"drifted_files_count\":${#drifted_files[@]},\"files\":$files_json,\"timers_drift_count\":${#timer_units[@]},\"timers\":$timers_json,\"timestamp\":\"$(date -u +"%Y-%m-%dT%H:%M:%SZ")\"}" | jq '.'
   else
     # Human-readable report with diffs
     echo -e "${BLUE}=================================================="
@@ -738,6 +795,18 @@ drift_report() {
 
       echo "Run 'strut $stack drift diff <file>' to see detailed diff for a specific file"
       echo "Run 'strut $stack drift fix --env $env' to apply git-tracked configuration"
+    fi
+
+    if [ ${#timer_units[@]} -gt 0 ]; then
+      echo ""
+      warn "Timer drift detected in ${#timer_units[@]} unit(s)"
+      echo ""
+      local i
+      for i in "${!timer_units[@]}"; do
+        echo -e "${YELLOW}Timer: ${timer_units[$i]}${NC} (${timer_reasons[$i]})"
+      done
+      echo ""
+      echo "Run 'strut $stack timers install' to re-render and reinstall managed timer units"
     fi
   fi
 

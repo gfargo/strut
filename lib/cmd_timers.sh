@@ -55,7 +55,9 @@ cmd_timers() {
   # Prefer remote execution for stacks that map to a VPS host, so timers
   # reflect (and mutate) the real remote systemd instead of the local one.
   if should_dispatch_remote; then
-    run_remote_strut "$stack" "$env_name" "timers $subcmd"
+    local remote_args="timers $subcmd"
+    [ -n "${CMD_JSON:-}" ] && remote_args="$remote_args --json"
+    run_remote_strut "$stack" "$env_name" "$remote_args"
     return $?
   fi
 
