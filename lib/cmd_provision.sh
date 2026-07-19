@@ -271,7 +271,7 @@ _provision_run_dir_model() {
       fi
       run_cmd "SCP $name to host" scp $ssh_opts "$script" "$user@$host:$remote_script"
       run_cmd "Execute $name" ssh $ssh_opts "$user@$host" "sudo bash $remote_script"
-      run_cmd "Write marker for $name" ssh $ssh_opts "$user@$host" "mkdir -p $marker_dir && date -u +%Y-%m-%dT%H:%M:%SZ > $marker_dir/${name}.done"
+      run_cmd "Write marker for $name" ssh $ssh_opts "$user@$host" "sudo sh -c \"mkdir -p $marker_dir && date -u +%Y-%m-%dT%H:%M:%SZ > $marker_dir/${name}.done\""
     done
     fire_hook_or_warn post_provision "$hooks_dir"
     echo ""
@@ -305,12 +305,20 @@ _provision_run_dir_model() {
 
     # shellcheck disable=SC2029
     if ssh $ssh_opts "$user@$host" "sudo bash $remote_script"; then
+      local marker_cmd="mkdir -p '$marker_dir' && date -u +%Y-%m-%dT%H:%M:%SZ > '$marker_dir/${name}.done'"
       # shellcheck disable=SC2029
-      ssh $ssh_opts "$user@$host" "mkdir -p '$marker_dir' && date -u +%Y-%m-%dT%H:%M:%SZ > '$marker_dir/${name}.done'" || true
-      # shellcheck disable=SC2029
-      ssh $ssh_opts "$user@$host" "rm -f '$remote_script'" 2>/dev/null || true
-      ok "$name completed"
-      ran=$((ran + 1))
+      if ssh $ssh_opts "$user@$host" "sudo sh -c \"$marker_cmd\""; then
+        # shellcheck disable=SC2029
+        ssh $ssh_opts "$user@$host" "rm -f '$remote_script'" 2>/dev/null || true
+        ok "$name completed"
+        ran=$((ran + 1))
+      else
+        error "$name ran successfully but writing its completion marker failed"
+        warn "$name will re-run on the next provision (marker not recorded)"
+        # shellcheck disable=SC2029
+        ssh $ssh_opts "$user@$host" "rm -f '$remote_script'" 2>/dev/null || true
+        return 1
+      fi
     else
       local rc=$?
       # shellcheck disable=SC2029

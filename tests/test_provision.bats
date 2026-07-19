@@ -330,6 +330,51 @@ _provision_setup_dir_host() {
   ! grep -q "30-c" "$TEST_TMP/ssh_calls.log"
 }
 
+@test "cmd_provision: dir model writes the completion marker with sudo" {
+  _provision_setup_dir_host "testhost"
+
+  # shellcheck disable=SC2317
+  ssh() {
+    local remote_cmd="${*: -1}"
+    echo "$remote_cmd" >> "$TEST_TMP/ssh_calls.log"
+    case "$remote_cmd" in
+      *"test -f"*".done"*) return 1 ;;  # no marker yet
+      *) return 0 ;;
+    esac
+  }
+  export -f ssh
+
+  run cmd_provision
+  [ "$status" -eq 0 ]
+  grep -q "sudo sh -c .*10-a.done" "$TEST_TMP/ssh_calls.log"
+  grep -q "sudo sh -c .*20-b.done" "$TEST_TMP/ssh_calls.log"
+  grep -q "sudo sh -c .*30-c.done" "$TEST_TMP/ssh_calls.log"
+}
+
+@test "cmd_provision: dir model reports failure (not success) when the marker write fails" {
+  _provision_setup_dir_host "testhost"
+
+  # shellcheck disable=SC2317
+  ssh() {
+    local remote_cmd="${*: -1}"
+    echo "$remote_cmd" >> "$TEST_TMP/ssh_calls.log"
+    case "$remote_cmd" in
+      *"test -f"*".done"*) return 1 ;;                 # no marker yet
+      *"sudo sh -c"*"10-a.done"*) return 1 ;;           # marker write fails (e.g. permission denied)
+      *) return 0 ;;
+    esac
+  }
+  export -f ssh
+
+  run cmd_provision
+  [ "$status" -ne 0 ]
+  [[ "$output" != *"3 run, 0 skipped"* ]]
+  [[ "$output" == *"marker"* ]]
+  # batch stops after the marker-write failure -- 20-b/30-c never attempted
+  ! grep -q "20-b" "$TEST_TMP/ssh_calls.log"
+  ! grep -q "30-c" "$TEST_TMP/ssh_calls.log"
+}
+
 @test "cmd_provision: dir model dry-run lists all scripts and makes no changes" {
   _provision_setup_dir_host "testhost"
   export DRY_RUN=true
