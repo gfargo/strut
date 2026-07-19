@@ -12,6 +12,10 @@
 # Events (all wired):
 #   pre_deploy         — before deploy_stack runs (can abort via non-zero)
 #   post_deploy        — after deploy_stack succeeds (warn-only on failure)
+#   pre_deploy_local   — on the CONTROLLER, before vps_release syncs the repo
+#                         to the target host (can abort via non-zero)
+#   post_deploy_local  — on the CONTROLLER, after vps_release finishes
+#                         (warn-only on failure)
 #   first_run          — once per stack on first deploy (marker-gated)
 #   pre_backup         — before any backup runs (can abort)
 #   post_backup        — after backup succeeds (warn-only)
@@ -24,6 +28,14 @@
 # CMD_STACK, CMD_ENV_NAME, CMD_STACK_DIR. Event-specific env vars
 # (DEPLOY_STATUS, UNHEALTHY_SERVICES, MIGRATE_TARGET, HEALTH_STATUS,
 # DRIFTED, etc.) are listed per call site.
+#
+# pre_deploy_local / post_deploy_local run on the controller (the machine
+# invoking `strut release`), reading the LOCAL stack dir
+# ($CLI_ROOT/stacks/<stack>), never the remote $deploy_dir — they exist for
+# controller-side work (deriving env values from local repo sources,
+# cross-repo validation, building artifacts to sync) that must happen
+# before the target host's repo is touched. RELEASE_ENV_NAME is exported
+# for both.
 #
 # Idempotency contract for sql/init/*.sql (wired via RUN_DB_SCHEMA_ON_DEPLOY):
 #   All SQL files re-run on every deploy, so they MUST be self-idempotent:

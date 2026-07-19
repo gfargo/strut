@@ -568,11 +568,18 @@ vps_release() {
   log "Stack: $stack | Env: $env_name | Services: ${services_profile:-core}"
   echo ""
 
+  # Local (controller-side) stack dir — used by pre_deploy_local /
+  # post_deploy_local, which run here on the controller rather than being
+  # SSH'd to the target host like every other release step.
+  local cli_root="${CLI_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+  local local_stack_dir="${CMD_STACK_DIR:-$cli_root/stacks/$stack}"
+
   # Dry-run: show execution plan and exit early
   if [ "$DRY_RUN" = "true" ]; then
     local branch="${DEFAULT_BRANCH:-main}"
     echo ""
     echo -e "${YELLOW}[DRY-RUN] Execution plan for release:${NC}"
+    RELEASE_ENV_NAME="$env_name" fire_hook pre_deploy_local "$local_stack_dir"
     if [ "$backup_first" = "true" ]; then
       run_cmd "Back up databases before release (--backup-first)" ssh "$vps_user@$vps_host" "cd $deploy_dir && ./strut $stack backup all --env $env_name"
     fi
@@ -597,10 +604,19 @@ vps_release() {
     if [ "$auto_rollback" = "true" ]; then
       run_cmd "Roll back on health failure (auto)" ssh "$vps_user@$vps_host" "cd $deploy_dir && ./strut $stack rollback --env $env_name"
     fi
+    RELEASE_ENV_NAME="$env_name" fire_hook post_deploy_local "$local_stack_dir"
     echo ""
     echo -e "${YELLOW}[DRY-RUN] No changes made.${NC}"
     return 0
   fi
+
+  # pre_deploy_local: controller-side hook, fired before ANYTHING else in
+  # the release touches the target host (unlike pre_deploy/post_deploy,
+  # which run on the target host inside the remote `deploy` invocation
+  # below). Reads the local stack dir, not the remote deploy_dir. Can
+  # abort the release.
+  RELEASE_ENV_NAME="$env_name" fire_hook pre_deploy_local "$local_stack_dir" \
+    || fail "pre_deploy_local hook failed — aborting release"
 
   # Pre-deploy backup (opt-in — Neo4j backups require ~10-30s of downtime,
   # so this is never silently default-on). Runs before anything else changes
@@ -729,4 +745,10 @@ vps_release() {
   echo "    Check status: strut $stack status --env $env_name"
   echo "    SSH to VPS:   strut $stack shell --env $env_name"
   echo ""
+
+  # post_deploy_local: controller-side hook, warn-only. Fires after a
+  # successful release (the health-failure path above already returned via
+  # fail(), mirroring post_deploy's success-only semantics on the target
+  # host).
+  RELEASE_ENV_NAME="$env_name" fire_hook_or_warn post_deploy_local "$local_stack_dir"
 }

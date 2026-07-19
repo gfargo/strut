@@ -23,12 +23,15 @@ setup() {
   source "$CLI_ROOT/lib/utils.sh"
   source "$CLI_ROOT/lib/config.sh"
   source "$CLI_ROOT/lib/docker.sh"
+  source "$CLI_ROOT/lib/hooks.sh"
   source "$CLI_ROOT/lib/deploy.sh"
 
   export CLI_ROOT="$TEST_TMP"
   export STRUT_HOME="$TEST_TMP"
   export DRY_RUN=false
   unset MIGRATION_FAILURE_MODE
+  unset CMD_STACK_DIR
+  mkdir -p "$TEST_TMP/stacks/test-stack/hooks"
 
   cat > "$TEST_TMP/.test.env" <<'EOF'
 VPS_HOST=example.com
@@ -314,4 +317,94 @@ teardown() {
   # Nothing past the backup step should have run.
   run cat "$SSH_CALL_LOG"
   [[ "$output" != *"vps_update_repo"* ]]
+}
+
+# ── pre_deploy_local / post_deploy_local (controller-side hooks, OSS-1086) ────
+
+@test "vps_release: pre_deploy_local hook runs before repo sync and receives RELEASE_ENV_NAME" {
+  cat > "$TEST_TMP/stacks/test-stack/hooks/pre_deploy_local.sh" <<'EOF'
+#!/bin/bash
+echo "pre_deploy_local ran env=$RELEASE_ENV_NAME"
+EOF
+
+  run vps_release "test-stack" "$TEST_TMP/.test.env" ""
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"pre_deploy_local ran env=test"* ]]
+
+  # Must run before the repo is touched.
+  [[ "$(echo "$output" | grep -n "pre_deploy_local ran" | cut -d: -f1)" -lt \
+     "$(echo "$output" | grep -n "\[1/6\] Updating strut repository" | cut -d: -f1)" ]]
+}
+
+@test "vps_release: pre_deploy_local hook failure aborts the release before repo sync" {
+  cat > "$TEST_TMP/stacks/test-stack/hooks/pre_deploy_local.sh" <<'EOF'
+#!/bin/bash
+echo "pre_deploy_local exploding" >&2
+exit 7
+EOF
+
+  run vps_release "test-stack" "$TEST_TMP/.test.env" ""
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"pre_deploy_local hook failed"* ]]
+
+  run cat "$SSH_CALL_LOG"
+  [[ "$output" != *"vps_update_repo"* ]]
+}
+
+@test "vps_release: post_deploy_local hook runs after a successful release" {
+  cat > "$TEST_TMP/stacks/test-stack/hooks/post_deploy_local.sh" <<'EOF'
+#!/bin/bash
+echo "post_deploy_local ran env=$RELEASE_ENV_NAME"
+EOF
+
+  run vps_release "test-stack" "$TEST_TMP/.test.env" ""
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"post_deploy_local ran env=test"* ]]
+}
+
+@test "vps_release: post_deploy_local hook failure warns but does not fail the release" {
+  cat > "$TEST_TMP/stacks/test-stack/hooks/post_deploy_local.sh" <<'EOF'
+#!/bin/bash
+exit 1
+EOF
+
+  run vps_release "test-stack" "$TEST_TMP/.test.env" ""
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"post_deploy_local hook failed (continuing)"* ]]
+}
+
+@test "vps_release: post_deploy_local hook does not run when the final health check fails" {
+  cat > "$TEST_TMP/stacks/test-stack/hooks/post_deploy_local.sh" <<'EOF'
+#!/bin/bash
+echo "post_deploy_local ran"
+EOF
+  export SSH_FAIL_PATTERN="health --env"
+
+  run vps_release "test-stack" "$TEST_TMP/.test.env" ""
+  [ "$status" -ne 0 ]
+  [[ "$output" != *"post_deploy_local ran"* ]]
+}
+
+@test "vps_release: dry-run plan previews both local hooks without executing them" {
+  cat > "$TEST_TMP/stacks/test-stack/hooks/pre_deploy_local.sh" <<'EOF'
+#!/bin/bash
+touch "$TEST_TMP/pre_marker"
+EOF
+  cat > "$TEST_TMP/stacks/test-stack/hooks/post_deploy_local.sh" <<'EOF'
+#!/bin/bash
+touch "$TEST_TMP/post_marker"
+EOF
+  export DRY_RUN=true
+
+  run vps_release "test-stack" "$TEST_TMP/.test.env" ""
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Would run pre_deploy_local hook"* ]]
+  [[ "$output" == *"Would run post_deploy_local hook"* ]]
+  [ ! -f "$TEST_TMP/pre_marker" ]
+  [ ! -f "$TEST_TMP/post_marker" ]
+}
+
+@test "vps_release: no-op when neither local hook is present" {
+  run vps_release "test-stack" "$TEST_TMP/.test.env" ""
+  [ "$status" -eq 0 ]
 }
