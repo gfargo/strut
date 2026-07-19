@@ -78,10 +78,10 @@ _strut_manifest_path() {
 }
 
 # _strut_record <path> — appends <path> to the per-stack manifest, deduped.
+# Every public helper branches on _strut_dry_run() and returns before reaching
+# here, so this is never called in dry-run mode.
 _strut_record() {
   local path="$1"
-  _strut_dry_run && return 0
-
   local manifest manifest_dir
   manifest="$(_strut_manifest_path)"
   manifest_dir="$(dirname "$manifest")"
@@ -251,9 +251,17 @@ strut::install_default() {
     return 0
   fi
 
-  _strut_exec install -m 0644 "$tmp" "$dest"
+  # Use if/else (not a bare command) so a failed install is caught here for
+  # cleanup instead of aborting the function via set -e and leaking $tmp.
+  if _strut_exec install -m 0644 "$tmp" "$dest"; then
+    rm -f "$tmp"
+  else
+    local rc=$?
+    rm -f "$tmp"
+    return "$rc"
+  fi
+
   _strut_record "$dest"
-  rm -f "$tmp"
   log "Rendered /etc/default/$name"
 }
 

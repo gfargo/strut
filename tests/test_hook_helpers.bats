@@ -269,6 +269,22 @@ EOF
   [ ! -f "$STRUT_DEFAULT_DIR/foo" ]
 }
 
+@test "install_default: cleans up its mktemp scratch file when install fails" {
+  # STRUT_DEFAULT_DIR's parent is a regular file, so `install` fails with
+  # ENOTDIR — install_default must not leak the mktemp file on that path.
+  touch "$TEST_TMP/not_a_dir"
+  export STRUT_DEFAULT_DIR="$TEST_TMP/not_a_dir/default"
+
+  local scratch="$TEST_TMP/scratch"
+  mkdir -p "$scratch"
+  export TMPDIR="$scratch"
+
+  run strut::install_default foo FOO=bar
+
+  [ "$status" -ne 0 ]
+  [ -z "$(ls -A "$scratch")" ]
+}
+
 # ── install_bin ────────────────────────────────────────────────────────────
 
 @test "install_bin: installs with executable mode" {
