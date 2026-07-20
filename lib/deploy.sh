@@ -546,16 +546,7 @@ vps_release() {
   local vps_port="${VPS_PORT:-22}"
   local deploy_dir; deploy_dir=$(resolve_deploy_dir)
   local env_name
-  local env_filename
-  env_filename=$(basename "$env_file")
-
-  if [[ "$env_filename" =~ ^\.env\.(.+)$ ]]; then
-    env_name="${BASH_REMATCH[1]}"
-  elif [[ "$env_filename" =~ ^\.(.+)\.env$ ]]; then
-    env_name="${BASH_REMATCH[1]}"
-  else
-    env_name="prod"
-  fi
+  env_name=$(extract_env_name "$env_file")
 
   local ssh_opts
   ssh_opts=$(build_ssh_opts -p "$vps_port" -k "$vps_ssh_key" --batch)

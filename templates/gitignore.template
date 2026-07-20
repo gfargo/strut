@@ -48,3 +48,11 @@ logs/
 # Both are ciphertext: safe, and meant, to commit.
 !*.env.age
 !*.env.gpg
+
+# ── secrets-filter committed-secrets naming (strut#178) ──────────────────────
+# .<env>.enc.env is plaintext in the working tree (smudged by the git filter
+# installed via `strut secrets-filter install`) and age ciphertext in git.
+# Unlike .env.age/.env.gpg above, .prod.enc.env DOES end in literally ".env",
+# so the .*.env rule above WOULD sweep it without this explicit negation.
+!*.enc.env
+!.*.enc.env

@@ -109,12 +109,22 @@ _secrets_resolve_local_env() {
   return 1
 }
 
-# _secrets_resolve_remote_path <deploy_dir> <env_name>
-# Returns the expected remote path for the env file.
+# _secrets_resolve_remote_path <deploy_dir> <env_name> [local_basename]
+# Returns the expected remote path for the env file. Defaults to the
+# conventional plaintext ".<env>.env" name (used by the scp-based
+# push/pull workflow, which always uploads a plaintext file to a fixed
+# name). Pass local_basename to mirror an actual resolved local file
+# instead — e.g. deploy's volguard diffs against whatever's really
+# checked out on the VPS, which may be ".<env>.enc.env" (strut#178).
 _secrets_resolve_remote_path() {
   local deploy_dir="$1"
   local env_name="$2"
-  echo "${deploy_dir}/.${env_name}.env"
+  local local_basename="${3:-}"
+  if [ -n "$local_basename" ]; then
+    echo "${deploy_dir}/${local_basename}"
+  else
+    echo "${deploy_dir}/.${env_name}.env"
+  fi
 }
 
 # _secrets_write_var <env_file> <key> <value>
@@ -1771,15 +1781,18 @@ _usage_secrets_filter() {
   echo "  status      Show whether the filter is installed and configured"
   echo ""
   echo "Options:"
-  echo "  --env <name>   Scope .gitattributes to one env (.{name}.env) instead"
-  echo "                 of every env file (.*.env). Default: every env."
+  echo "  --env <name>   Scope .gitattributes to one env (.{name}.enc.env)"
+  echo "                 instead of every env file (*.enc.env). Default: every env."
   echo ""
   echo "Setup (once per clone):"
   echo "  1. Create .strut-recipients (project root or per-stack) with age/SSH"
   echo "     public keys, one per line — same as 'secrets lock'."
   echo "  2. strut secrets-filter install"
-  echo "  3. git add / commit as normal — .env files are encrypted at rest,"
-  echo "     plaintext in your working tree."
+  echo "  3. Name your env files .<env>.enc.env (e.g. .prod.enc.env) — this is"
+  echo "     the naming convention that stays commit-safe under the generated"
+  echo "     .gitignore, including under stacks/<name>/."
+  echo "  4. git add / commit as normal — .enc.env files are encrypted at"
+  echo "     rest, plaintext in your working tree."
   echo ""
   echo "A clone without your age identity still checks out cleanly — smudge"
   echo "falls back to leaving the file encrypted rather than failing checkout."
@@ -1874,12 +1887,19 @@ _secrets_git_smudge() {
 }
 
 # _secrets_filter_gitattributes_line <env_name>
+#
+# .enc.env is the committed-secrets convention (strut#178 gap #2): unlike
+# .*.env, it is NOT swept by the generated project .gitignore, so files
+# routed through this filter can actually be `git add`ed without -f. Kept
+# distinct from the legacy .*.env pattern (still installable by hand for
+# repos that already carry it / have deliberately un-ignored their dotfiles)
+# so this default never silently starts trying to commit real plaintext.
 _secrets_filter_gitattributes_line() {
   local env_name="$1"
   if [ -n "$env_name" ]; then
-    echo ".${env_name}.env filter=strutsecrets diff=strutsecrets -text"
+    echo ".${env_name}.enc.env filter=strutsecrets diff=strutsecrets -text"
   else
-    echo ".*.env filter=strutsecrets diff=strutsecrets -text"
+    echo "*.enc.env filter=strutsecrets diff=strutsecrets -text"
   fi
 }
 

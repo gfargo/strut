@@ -396,6 +396,29 @@ EOF
   [[ "$output" == *"Cannot verify remote state"* ]]
 }
 
+@test "_deploy_volguard: diffs against the .enc.env remote path when that's the local file (strut#178 gap #2)" {
+  export CLI_ROOT="$TEST_TMP"
+  cat > "$TEST_TMP/.test.enc.env" <<'EOF'
+VPS_HOST=example.com
+LOG_LEVEL=info
+EOF
+  export VPS_DEPLOY_DIR="$TEST_TMP/deploy"
+
+  # Record what path(s) diff_fetch_remote is actually called with, instead
+  # of reconstructing ".$env_name.env" — before the fix the env-file call
+  # used ".test.env", which doesn't exist on a VPS that only ever checked
+  # out ".test.enc.env" (silently skipping the destructive-change guard).
+  # (Called twice — once for the env file, once for the compose file — so
+  # append rather than overwrite.)
+  diff_fetch_remote() { echo "$1" >> "$TEST_TMP/remote_paths_seen"; echo "VPS_HOST=example.com
+LOG_LEVEL=info"; }
+  export -f diff_fetch_remote
+
+  run _deploy_volguard "test-stack" "$TEST_TMP/.test.enc.env" "false"
+  [ "$status" -eq 0 ]
+  grep -qxF "$TEST_TMP/deploy/.test.enc.env" "$TEST_TMP/remote_paths_seen"
+}
+
 @test "_deploy_volguard: no destructive changes → returns 0" {
   export CLI_ROOT="$TEST_TMP"
   # Local and remote envs are identical (no dangerous diff)

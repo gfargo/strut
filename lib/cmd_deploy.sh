@@ -51,11 +51,15 @@ _deploy_volguard() {
   local env_name="${CMD_ENV_NAME:-prod}"
   local remote_env_path
 
-  # Use the same remote-path resolution used by cmd_diff
+  # Use the same remote-path resolution used by cmd_diff. Pass the actual
+  # local env file's basename (not a reconstructed ".$env_name.env") so a
+  # git-committed ".<env>.enc.env" (strut#178 secrets-filter) diffs against
+  # its real checked-out path on the VPS instead of silently finding nothing.
+  local env_basename; env_basename=$(basename -- "$env_file")
   if declare -F _secrets_resolve_remote_path >/dev/null 2>&1; then
-    remote_env_path=$(_secrets_resolve_remote_path "$deploy_dir" "$env_name")
+    remote_env_path=$(_secrets_resolve_remote_path "$deploy_dir" "$env_name" "$env_basename")
   else
-    remote_env_path="$deploy_dir/.${env_name}.env"
+    remote_env_path="$deploy_dir/$env_basename"
   fi
 
   local remote_env_content rc=0

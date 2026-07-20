@@ -95,6 +95,41 @@ _load_cli_functions() {
   rm -rf "$tmp_root"
 }
 
+# ── resolve_env_file: secrets-filter .enc.env (strut#178 gap #2) ────────────
+
+@test "resolve_env_file: prefers stack-level .enc.env over stack-level .env" {
+  _load_cli_functions
+  mkdir -p "$CLI_ROOT/stacks/my-stack"
+  rm -f "$CLI_ROOT/stacks/my-stack/.prod.env" "$CLI_ROOT/stacks/my-stack/.prod.enc.env" "$CLI_ROOT/.prod.enc.env"
+  echo "VPS_HOST=plain" > "$CLI_ROOT/stacks/my-stack/.prod.env"
+  echo "VPS_HOST=enc" > "$CLI_ROOT/stacks/my-stack/.prod.enc.env"
+  result=$(resolve_env_file "my-stack" "prod")
+  [[ "$result" == *"/stacks/my-stack/.prod.enc.env" ]]
+  rm -f "$CLI_ROOT/stacks/my-stack/.prod.env" "$CLI_ROOT/stacks/my-stack/.prod.enc.env"
+}
+
+@test "resolve_env_file: stack-level .env still wins over project-level .enc.env" {
+  _load_cli_functions
+  mkdir -p "$CLI_ROOT/stacks/my-stack"
+  rm -f "$CLI_ROOT/stacks/my-stack/.prod.env" "$CLI_ROOT/stacks/my-stack/.prod.enc.env" "$CLI_ROOT/.prod.enc.env"
+  echo "VPS_HOST=plain" > "$CLI_ROOT/stacks/my-stack/.prod.env"
+  echo "VPS_HOST=enc" > "$CLI_ROOT/.prod.enc.env"
+  result=$(resolve_env_file "my-stack" "prod")
+  [[ "$result" == *"/stacks/my-stack/.prod.env" ]]
+  rm -f "$CLI_ROOT/stacks/my-stack/.prod.env" "$CLI_ROOT/.prod.enc.env"
+}
+
+@test "resolve_env_file: falls back to project-level .enc.env when nothing else exists" {
+  _load_cli_functions
+  local tmp_root; tmp_root=$(mktemp -d)
+  CLI_ROOT="$tmp_root"
+  mkdir -p "$tmp_root/stacks/my-stack"
+  echo "VPS_HOST=enc" > "$tmp_root/.prod.enc.env"
+  result=$(resolve_env_file "my-stack" "prod")
+  [[ "$result" == "$tmp_root/.prod.enc.env" ]]
+  rm -rf "$tmp_root"
+}
+
 # ── resolve_compose_cmd ───────────────────────────────────────────────────────
 
 @test "resolve_compose_cmd: builds correct command with stack and env" {

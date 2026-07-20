@@ -65,6 +65,12 @@ Per-stack:  deploy, stop, release, update, health, logs, status, shell, exec,
   loaded before the stack/project env file and the per-host layer, both of
   which override it. Not swept by the `.env`/`.*.env` gitignore rules (no
   leading dot) — meant to be committed. See `templates/common.env.template`.
+- `.<env>.enc.env` (stack dir or project root) — committed, at-rest-encrypted
+  env file for the `secrets-filter` git clean/smudge workflow (`strut#178`).
+  Plaintext in the working tree, age ciphertext in the git blob. Preferred
+  over `.<env>.env` by `resolve_env_file` at the same level, and explicitly
+  un-ignored (`!*.enc.env` / `!.*.enc.env`) so it can be committed under
+  `stacks/<stack>/` where the plain `.*.env` rule would otherwise sweep it.
 
 ## Design Principles
 
