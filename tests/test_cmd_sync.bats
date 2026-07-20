@@ -237,6 +237,26 @@ EOF
   [[ "$output" == *"No topology"* ]] || [[ "$output" == *"no"* ]]
 }
 
+@test "cmd_sync --all: does not leak deploy_dir/key from one host to the next" {
+  cat > "$TEST_TMP/strut.conf" <<'EOF'
+[hosts]
+alpha = deploy@a.example /keys/a deploy_dir=/opt/appA
+beta  = deploy@b.example
+EOF
+  export PROJECT_ROOT="$TEST_TMP"
+  _TOPO_LOADED=false
+
+  run cmd_sync --all
+  [ "$status" -eq 0 ]
+
+  # beta's fleet_sync invocation must use its own default deploy dir,
+  # not alpha's /opt/appA, and must not carry alpha's key.
+  beta_line=$(echo "$output" | grep "^fleet_sync" | grep "b.example")
+  [[ "$beta_line" == *"/home/deploy/strut"* ]]
+  [[ "$beta_line" != *"/opt/appA"* ]]
+  [[ "$beta_line" != *"/keys/a"* ]]
+}
+
 @test "cmd_sync --all: passes --dry-run to each host" {
   cat > "$TEST_TMP/strut.conf" <<'EOF'
 [hosts]

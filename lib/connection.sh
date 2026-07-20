@@ -174,8 +174,8 @@ resolve_connection_from_host_alias() {
         export VPS_HOST="$CONN_HOST"
         export VPS_USER="$CONN_USER"
         export VPS_PORT="$CONN_PORT"
-        export VPS_SSH_KEY="${CONN_KEY:-${VPS_SSH_KEY:-}}"
-        export VPS_DEPLOY_DIR="${CONN_DEPLOY_DIR:-${VPS_DEPLOY_DIR:-/home/${CONN_USER}/strut}}"
+        export VPS_SSH_KEY="${CONN_KEY:-}"
+        export VPS_DEPLOY_DIR="${CONN_DEPLOY_DIR:-/home/${CONN_USER}/strut}"
         return 0
       fi
     fi
