@@ -65,6 +65,17 @@ cmd_remote_init() {
     esac
   done
 
+  # run_cmd (used below in the dry-run plan) reads the global DRY_RUN rather
+  # than this function's local flag, so keep them in sync — otherwise a
+  # caller that reaches --dry-run via this function's own parsing (e.g. the
+  # top-level `strut remote:init --host ... --dry-run` form, which bypasses
+  # the stack-scoped entrypoint's DRY_RUN export) would print the dry-run
+  # banner while actually executing the SSH commands.
+  if [ "$dry_run" = "true" ]; then
+    DRY_RUN=true
+    export DRY_RUN
+  fi
+
   # If env file is available, source it for defaults
   if [ -n "$env_file" ] && [ -f "$env_file" ]; then
     validate_env_file "$env_file"
