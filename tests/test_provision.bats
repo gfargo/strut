@@ -23,6 +23,7 @@ setup() {
   build_ssh_opts() { echo "-o StrictHostKeyChecking=no"; }
   export -f build_ssh_opts
 
+  source "$CLI_ROOT/lib/hooks.sh"
   source "$CLI_ROOT/lib/cmd_provision.sh"
 
   export CLI_ROOT="$TEST_TMP"
@@ -182,4 +183,238 @@ teardown() { common_teardown; }
   run cmd_provision --dry-run
   [ "$status" -ne 0 ]
   [[ "$output" == *"Cannot resolve host"* ]]
+}
+
+# ── _provision_find_scripts_dir / _provision_list_scripts ────────────────────
+
+@test "_provision_find_scripts_dir: finds hosts/<host>/provision.d" {
+  mkdir -p "$TEST_TMP/hosts/harbor/provision.d"
+
+  result=$(_provision_find_scripts_dir "harbor")
+  [ "$result" = "$TEST_TMP/hosts/harbor/provision.d" ]
+}
+
+@test "_provision_find_scripts_dir: returns 1 when no provision.d dir exists" {
+  run _provision_find_scripts_dir "nohost"
+  [ "$status" -eq 1 ]
+}
+
+@test "_provision_list_scripts: sorts scripts in lexical (C-locale) order" {
+  mkdir -p "$TEST_TMP/scripts_dir"
+  touch "$TEST_TMP/scripts_dir/30-c.sh" "$TEST_TMP/scripts_dir/10-a.sh" "$TEST_TMP/scripts_dir/20-b.sh"
+
+  result=$(_provision_list_scripts "$TEST_TMP/scripts_dir")
+  expected="$TEST_TMP/scripts_dir/10-a.sh
+$TEST_TMP/scripts_dir/20-b.sh
+$TEST_TMP/scripts_dir/30-c.sh"
+  [ "$result" = "$expected" ]
+}
+
+# ── cmd_provision: directory model (hosts/<host>/provision.d/) ───────────────
+
+# Scaffolds hosts/<host>/provision.d/{10-a,20-b,30-c}.sh plus host resolution
+# and an scp() stub. Each test layers its own ssh() stub on top.
+_provision_setup_dir_host() {
+  local host="$1"
+  mkdir -p "$TEST_TMP/hosts/$host/provision.d"
+  echo "#!/bin/bash" > "$TEST_TMP/hosts/$host/provision.d/10-a.sh"
+  echo "#!/bin/bash" > "$TEST_TMP/hosts/$host/provision.d/20-b.sh"
+  echo "#!/bin/bash" > "$TEST_TMP/hosts/$host/provision.d/30-c.sh"
+
+  topology_load() { :; }
+  topology_is_host_alias() { return 1; }
+  export -f topology_load topology_is_host_alias
+  export VPS_HOST="10.0.0.5"
+  export VPS_USER="deploy"
+  export VPS_PORT="22"
+
+  export CMD_STACK="$host"
+  export DRY_RUN=false
+
+  : > "$TEST_TMP/ssh_calls.log"
+
+  # shellcheck disable=SC2317
+  scp() { echo "SCP: $*" >> "$TEST_TMP/scp_calls.log"; return 0; }
+  export -f scp
+}
+
+@test "cmd_provision: dir model discovers and runs provision.d scripts in lexical order" {
+  _provision_setup_dir_host "testhost"
+
+  # shellcheck disable=SC2317
+  ssh() {
+    local remote_cmd="${*: -1}"
+    echo "$remote_cmd" >> "$TEST_TMP/ssh_calls.log"
+    case "$remote_cmd" in
+      *"test -f"*".done"*) return 1 ;;  # no marker yet
+      *) return 0 ;;
+    esac
+  }
+  export -f ssh
+
+  run cmd_provision
+  [ "$status" -eq 0 ]
+
+  local order
+  order=$(grep "sudo bash" "$TEST_TMP/ssh_calls.log" | sed -E 's/.*(10-a|20-b|30-c).*/\1/')
+  [ "$(echo "$order" | sed -n 1p)" = "10-a" ]
+  [ "$(echo "$order" | sed -n 2p)" = "20-b" ]
+  [ "$(echo "$order" | sed -n 3p)" = "30-c" ]
+  [[ "$output" == *"3 run, 0 skipped"* ]]
+}
+
+@test "cmd_provision: dir model skips a script whose marker already exists" {
+  _provision_setup_dir_host "testhost"
+
+  # shellcheck disable=SC2317
+  ssh() {
+    local remote_cmd="${*: -1}"
+    echo "$remote_cmd" >> "$TEST_TMP/ssh_calls.log"
+    case "$remote_cmd" in
+      *"20-b.done"*) return 0 ;;              # marker present -> skip
+      *"test -f"*".done"*) return 1 ;;        # others absent -> run
+      *) return 0 ;;
+    esac
+  }
+  export -f ssh
+
+  run cmd_provision
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Skipping 20-b"* ]]
+  ! grep -q "sudo bash /tmp/provision-testhost-20-b.sh" "$TEST_TMP/ssh_calls.log"
+  grep -q "sudo bash /tmp/provision-testhost-10-a.sh" "$TEST_TMP/ssh_calls.log"
+  grep -q "sudo bash /tmp/provision-testhost-30-c.sh" "$TEST_TMP/ssh_calls.log"
+  [[ "$output" == *"2 run, 1 skipped"* ]]
+}
+
+@test "cmd_provision: --force re-runs provision.d scripts, ignoring markers" {
+  _provision_setup_dir_host "testhost"
+
+  # shellcheck disable=SC2317
+  ssh() {
+    local remote_cmd="${*: -1}"
+    echo "$remote_cmd" >> "$TEST_TMP/ssh_calls.log"
+    return 0  # every marker "present" -- --force must ignore this entirely
+  }
+  export -f ssh
+
+  run cmd_provision --force
+  [ "$status" -eq 0 ]
+  ! grep -q "test -f" "$TEST_TMP/ssh_calls.log"
+  grep -q "sudo bash /tmp/provision-testhost-10-a.sh" "$TEST_TMP/ssh_calls.log"
+  grep -q "sudo bash /tmp/provision-testhost-20-b.sh" "$TEST_TMP/ssh_calls.log"
+  grep -q "sudo bash /tmp/provision-testhost-30-c.sh" "$TEST_TMP/ssh_calls.log"
+  [[ "$output" == *"3 run, 0 skipped"* ]]
+}
+
+@test "cmd_provision: dir model does not write a marker and aborts the batch on script failure" {
+  _provision_setup_dir_host "testhost"
+
+  # shellcheck disable=SC2317
+  ssh() {
+    local remote_cmd="${*: -1}"
+    echo "$remote_cmd" >> "$TEST_TMP/ssh_calls.log"
+    case "$remote_cmd" in
+      *"test -f"*".done"*) return 1 ;;
+      *"sudo bash /tmp/provision-testhost-10-a.sh"*) return 1 ;;  # first script fails
+      *) return 0 ;;
+    esac
+  }
+  export -f ssh
+
+  run cmd_provision
+  [ "$status" -ne 0 ]
+  ! grep -q "10-a.done" "$TEST_TMP/ssh_calls.log"
+  # batch stops after the failure -- 20-b/30-c never attempted
+  ! grep -q "20-b" "$TEST_TMP/ssh_calls.log"
+  ! grep -q "30-c" "$TEST_TMP/ssh_calls.log"
+}
+
+@test "cmd_provision: dir model dry-run lists all scripts and makes no changes" {
+  _provision_setup_dir_host "testhost"
+  export DRY_RUN=true
+
+  run cmd_provision --dry-run
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"DRY-RUN"* ]]
+  [[ "$output" == *"10-a"* ]]
+  [[ "$output" == *"20-b"* ]]
+  [[ "$output" == *"30-c"* ]]
+  [[ "$output" == *"No changes made"* ]]
+}
+
+@test "cmd_provision: dir model warns when provision.d exists but has no scripts" {
+  mkdir -p "$TEST_TMP/hosts/emptyhost/provision.d"
+
+  topology_load() { :; }
+  topology_is_host_alias() { return 1; }
+  export -f topology_load topology_is_host_alias
+  export VPS_HOST="10.0.0.5"
+  export VPS_USER="deploy"
+  export CMD_STACK="emptyhost"
+  export DRY_RUN=false
+
+  run cmd_provision
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"No provision.d scripts found"* ]]
+}
+
+@test "cmd_provision: --script explicit overrides the directory model even when provision.d exists" {
+  _provision_setup_dir_host "testhost"
+  mkdir -p "$TEST_TMP/custom"
+  echo "#!/bin/bash" > "$TEST_TMP/custom/legacy.sh"
+
+  run cmd_provision --script "$TEST_TMP/custom/legacy.sh" --dry-run
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"legacy.sh"* ]]
+}
+
+@test "cmd_provision: dir model aborts the batch when pre_provision hook fails" {
+  _provision_setup_dir_host "testhost"
+
+  # shellcheck disable=SC2317
+  fire_hook() {
+    [ "$1" = "pre_provision" ] && return 1
+    return 0
+  }
+  export -f fire_hook
+
+  # shellcheck disable=SC2317
+  ssh() {
+    echo "${*: -1}" >> "$TEST_TMP/ssh_calls.log"
+    return 0
+  }
+  export -f ssh
+
+  run cmd_provision
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"pre_provision hook failed"* ]]
+  ! grep -q "sudo bash" "$TEST_TMP/ssh_calls.log"
+}
+
+@test "cmd_provision: dir model warns (but still succeeds) when post_provision hook fails" {
+  _provision_setup_dir_host "testhost"
+
+  # shellcheck disable=SC2317
+  fire_hook() {
+    [ "$1" = "post_provision" ] && return 1
+    return 0
+  }
+  export -f fire_hook
+
+  # shellcheck disable=SC2317
+  ssh() {
+    local remote_cmd="${*: -1}"
+    echo "$remote_cmd" >> "$TEST_TMP/ssh_calls.log"
+    case "$remote_cmd" in
+      *"test -f"*".done"*) return 1 ;;
+      *) return 0 ;;
+    esac
+  }
+  export -f ssh
+
+  run cmd_provision
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"post_provision hook failed"* ]]
+  grep -q "sudo bash /tmp/provision-testhost-30-c.sh" "$TEST_TMP/ssh_calls.log"
 }

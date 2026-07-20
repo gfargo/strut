@@ -76,6 +76,11 @@ export STRUT_HOME
 
 LIB="$STRUT_HOME/lib"
 
+# Stable path for hooks to source the helper stdlib:
+#   . "$STRUT_LIB/hook_helpers.sh"
+STRUT_LIB="$LIB"
+export STRUT_LIB
+
 # Source config first, then load project config
 source "$LIB/config.sh"
 find_project_root || true  # OK if not in a project (init, --version, etc.)
@@ -173,6 +178,7 @@ source "$LIB/cmd_init_secrets.sh"
 source "$LIB/cmd_init.sh"
 source "$LIB/cmd_stop.sh"
 source "$LIB/cmd_first_run.sh"
+source "$LIB/cmd_destroy.sh"
 source "$LIB/cmd_skills.sh"
 source "$LIB/cmd_validate.sh"
 source "$LIB/cmd_rollback.sh"
@@ -275,6 +281,7 @@ usage() {
   echo "  ship     [--env <name>] [-m <msg>] [--no-commit]               Commit, push, rebuild on remote"
   echo "  stop     [--env <name>] [--services <profile>] [--volumes]   Stop running containers"
   echo "  first-run [--status|--force] [--env <name>]                   Inspect/repair the first_run hook marker"
+  echo "  destroy  [--env <name>] [--services <profile>] [--timeout N]  Permanently tear down stack (fires pre/post_destroy, clears first-run marker)"
   echo "  diff     [--env <name>] [--json]                              Preview pending changes vs VPS"
   echo "  lock     <status|release> [--env <name>] [--force]            Inspect/manage deploy locks"
   echo "  health   [--env <name>] [--services <profile>] [--json]       Health checks"
@@ -330,7 +337,7 @@ usage() {
   echo "  gateway    deploy|status|reload|validate --host <alias>        Caddy gateway management"
   echo "  cert:renew [--host <alias>]                                    Renew SSL/TLS certificates"
   echo "  cert:status [--host <alias>]                                   Show certificate status/expiry"
-  echo "  provision  <host-alias> [--script <path>]                      Run provisioning scripts on VPS"
+  echo "  provision  <host-alias> [--force] [--script <path>]            Run hosts/<host>/provision.d/ (or legacy script) on VPS"
   echo "  ssh:keygen [--env <name>]                                      Generate/rotate SSH deploy keys"
   echo "  ci:init    [--env <name>]                                      Bootstrap CI/CD integration"
   echo "  monitoring [--env <name>] <subcommand>                         Monitoring stack management"
@@ -912,6 +919,7 @@ if [ "$FLAGS_HELP" = "true" ]; then
     secrets)  _usage_secrets ;;
     stop)     _usage_stop ;;
     first-run) _usage_first_run ;;
+    destroy)  _usage_destroy ;;
     health)   _usage_health ;;
     logs)     _usage_logs ;;
     backup)   _usage_backup ;;
@@ -953,6 +961,7 @@ case "$COMMAND" in
   secrets)             cmd_secrets "${CMD_ARGS[@]+"${CMD_ARGS[@]}"}" ;;
   stop)                cmd_stop "${CMD_ARGS[@]+"${CMD_ARGS[@]}"}" ;;
   first-run)           cmd_first_run "${CMD_ARGS[@]+"${CMD_ARGS[@]}"}" ;;
+  destroy)             cmd_destroy "${CMD_ARGS[@]+"${CMD_ARGS[@]}"}" ;;
   health)              cmd_health ;;
   logs)                cmd_logs "${CMD_ARGS[@]+"${CMD_ARGS[@]}"}" ;;
   logs:download)       cmd_logs_download "${CMD_ARGS[@]+"${CMD_ARGS[@]}"}" ;;
