@@ -61,7 +61,7 @@ function __strut_tok
 end
 
 set -l top_cmds init list scaffold upgrade doctor status-all dashboard posture group monitoring audit audit:list audit:diff audit:generate migrate migrate:status notify sync fleet webhook secrets-filter mcp skills help completions
-set -l per_stack_cmds update release deploy rebuild ship stop destroy diff lock health logs logs:download logs:rotate backup drift migrate restore db:pull db:push db:schema shell exec remote:init adopt provision ssh:keygen ci:init cert:renew cert:status init-secrets secrets status briefing preflight volumes timers prune local prod staging dev debug keys validate rollback history domain
+set -l per_stack_cmds update release deploy rebuild ship stop first-run destroy diff lock health logs logs:download logs:rotate backup drift migrate restore db:pull db:push db:schema shell exec remote:init adopt provision ssh:keygen ci:init cert:renew cert:status init-secrets secrets status briefing preflight volumes timers prune local prod staging dev debug keys validate rollback history domain
 
 # Disable file completion by default; re-enable where relevant
 complete -c strut -f
@@ -116,6 +116,8 @@ complete -c strut -n 'contains -- (__strut_tok 2) (__strut_stacks); and __strut_
     -a 'status init config'
 complete -c strut -n 'contains -- (__strut_tok 2) (__strut_stacks); and __strut_tok 3 = lock; and __strut_at_pos 3' \
     -a 'status release'
+complete -c strut -n 'contains -- (__strut_tok 2) (__strut_stacks); and __strut_tok 3 = first-run; and __strut_at_pos 3' \
+    -a '--status --force'
 complete -c strut -n 'contains -- (__strut_tok 2) (__strut_stacks); and contains -- (__strut_tok 3) local prod staging dev; and __strut_at_pos 3' \
     -a 'start stop reset sync-env sync-db logs test debug'
 complete -c strut -n 'contains -- (__strut_tok 2) (__strut_stacks); and __strut_tok 3 = debug; and __strut_at_pos 3' \
