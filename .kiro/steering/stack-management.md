@@ -30,6 +30,30 @@ Each stack can have:
 - `anonymize.conf` — PII anonymization rules for sync-db
 - `hooks/pre-deploy.sh` — custom pre-deploy validation script
 
+### First-run hooks & the `.strut-initialized` marker
+
+`hooks/first_run.sh` (or the legacy `first-run.sh`) runs once per stack, on
+the first successful deploy. The contract:
+
+- The `.strut-initialized` marker (inside the stack dir; on the VPS for
+  remote deploys) is written **only when the hook exits 0**.
+- A failed `first_run` leaves no marker, so it automatically retries on the
+  next deploy — no manual intervention needed for a transient failure.
+- To deliberately repair or re-run a first-run hook (e.g. a udev rule that
+  needs refreshing after a USB controller swap), don't SSH in and delete the
+  marker by hand — use:
+  - `strut <stack> first-run --status` — show whether the marker exists and
+    its `initialized=` timestamp (read-only; also the default when no flag
+    is given).
+  - `strut <stack> first-run --force` — remove the marker, re-run the hook,
+    and rewrite the marker only on success. Dispatches over SSH for
+    VPS-mapped stacks, same as `health`/`status`.
+- **Recommended pattern for "install once, reconcile always"**: write an
+  idempotent installer script and call it from **both** `first_run` and
+  `post_deploy`. `first_run` gates the noisy one-time setup log; `post_deploy`
+  re-runs the (idempotent) installer on every deploy so drift gets reconciled
+  without needing `first-run --force`.
+
 ### Environments
 
 The `--env` flag maps to dotfiles at the project root:

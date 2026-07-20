@@ -177,6 +177,7 @@ source "$LIB/cmd_secrets.sh"
 source "$LIB/cmd_init_secrets.sh"
 source "$LIB/cmd_init.sh"
 source "$LIB/cmd_stop.sh"
+source "$LIB/cmd_first_run.sh"
 source "$LIB/cmd_destroy.sh"
 source "$LIB/cmd_skills.sh"
 source "$LIB/cmd_validate.sh"
@@ -279,6 +280,7 @@ usage() {
   echo "  rebuild  [--env <name>] [--no-cache] [--pull]                  Build images + deploy"
   echo "  ship     [--env <name>] [-m <msg>] [--no-commit]               Commit, push, rebuild on remote"
   echo "  stop     [--env <name>] [--services <profile>] [--volumes]   Stop running containers"
+  echo "  first-run [--status|--force] [--env <name>]                   Inspect/repair the first_run hook marker"
   echo "  destroy  [--env <name>] [--services <profile>] [--timeout N]  Permanently tear down stack (fires pre/post_destroy, clears first-run marker)"
   echo "  diff     [--env <name>] [--json]                              Preview pending changes vs VPS"
   echo "  lock     <status|release> [--env <name>] [--force]            Inspect/manage deploy locks"
@@ -916,6 +918,7 @@ if [ "$FLAGS_HELP" = "true" ]; then
     init-secrets) _usage_init_secrets ;;
     secrets)  _usage_secrets ;;
     stop)     _usage_stop ;;
+    first-run) _usage_first_run ;;
     destroy)  _usage_destroy ;;
     health)   _usage_health ;;
     logs)     _usage_logs ;;
@@ -957,6 +960,7 @@ case "$COMMAND" in
   init-secrets)        cmd_init_secrets "${CMD_ARGS[@]+"${CMD_ARGS[@]}"}" ;;
   secrets)             cmd_secrets "${CMD_ARGS[@]+"${CMD_ARGS[@]}"}" ;;
   stop)                cmd_stop "${CMD_ARGS[@]+"${CMD_ARGS[@]}"}" ;;
+  first-run)           cmd_first_run "${CMD_ARGS[@]+"${CMD_ARGS[@]}"}" ;;
   destroy)             cmd_destroy "${CMD_ARGS[@]+"${CMD_ARGS[@]}"}" ;;
   health)              cmd_health ;;
   logs)                cmd_logs "${CMD_ARGS[@]+"${CMD_ARGS[@]}"}" ;;
