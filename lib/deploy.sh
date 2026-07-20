@@ -401,6 +401,17 @@ deploy_stack() {
   maybe_apply_db_schema "$stack" "$compose_cmd" "$stack_dir"
   DEPLOY_STATUS="ok" fire_hook_or_warn post_deploy "$stack_dir"
 
+  # Install declarative timers (timers.conf → systemd .service/.timer pairs).
+  # No-op when the stack has no timers.conf; never abort a successful deploy.
+  # Sourced lazily (not at file scope) so merely sourcing deploy.sh — e.g. for
+  # render_safe_clean_snippet in the migrate wizard — doesn't pull in timers.sh
+  # (and transitively utils.sh) as a side effect.
+  if ! declare -f timers_install >/dev/null 2>&1; then
+    # shellcheck source=lib/timers.sh
+    source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/timers.sh"
+  fi
+  timers_install "$stack" "$stack_dir" || warn "Timer install failed — deploy continues"
+
   # Notification providers (Slack/Discord/webhook) subscribed to deploy.success
   notify_event deploy.success \
     stack="$stack" \

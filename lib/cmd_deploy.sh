@@ -443,6 +443,7 @@ cmd_health() {
 # cmd_status (no args — reads CMD_*)
 cmd_status() {
   local stack="$CMD_STACK"
+  local stack_dir="$CMD_STACK_DIR"
   local env_file="$CMD_ENV_FILE"
   local env_name="$CMD_ENV_NAME"
   local services="$CMD_SERVICES"
@@ -473,6 +474,16 @@ cmd_status() {
   log "Querying local Docker daemon — host: local, project: ${project_name:-<unknown>}"
   # shellcheck disable=SC2086
   $compose_cmd ps
+
+  # Timers section — only when the stack declares scheduled jobs.
+  declare -F timers_conf_path >/dev/null || source "$LIB/timers.sh"
+  local _timers_conf
+  _timers_conf="$(timers_conf_path "$stack_dir")"
+  if [ -f "$_timers_conf" ]; then
+    echo ""
+    echo -e "${BLUE}Timers:${NC}"
+    timers_list "$stack" "$stack_dir"
+  fi
 }
 
 # cmd_prune [--volumes] [--all] [--no-protect]

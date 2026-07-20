@@ -507,6 +507,17 @@ bg_deploy_stack() {
   # Apply DB schema (opt-in, idempotent) — uses the new (green) compose project
   maybe_apply_db_schema "$stack" "$new_cmd" "$stack_dir"
   DEPLOY_STATUS="ok" fire_hook_or_warn post_deploy "$stack_dir"
+
+  # Install declarative timers (timers.conf → systemd .service/.timer pairs).
+  # No-op when the stack has no timers.conf; never abort a successful deploy.
+  # Sourced lazily (not at file scope) so merely sourcing this file doesn't
+  # pull in timers.sh (and transitively utils.sh) as a side effect.
+  if ! declare -f timers_install >/dev/null 2>&1; then
+    # shellcheck source=lib/timers.sh
+    source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/timers.sh"
+  fi
+  timers_install "$stack" "$stack_dir" || warn "Timer install failed — deploy continues"
+
   notify_event deploy.success \
     stack="$stack" \
     env="$env_name" \

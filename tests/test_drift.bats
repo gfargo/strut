@@ -503,6 +503,53 @@ _drift_fixture_init() {
   [[ "$fix_output" == *"push it to the VPS"* ]]
 }
 
+# ── _drift_check_timers (strut#449: timer drift must run on the deployed host) ─
+# A unit's rendered content embeds the deploy directory it was installed
+# under, so drift can only be checked correctly on the host the timer
+# actually runs on. For a VPS-mapped stack, that means dispatching to
+# 'timers drift --json' over SSH rather than inspecting the operator's own
+# (empty) local systemd.
+
+@test "_drift_check_timers: VPS_HOST set dispatches remotely and converts JSON to \\x1f records" {
+  export VPS_HOST="vps.example.com"
+  run_remote_strut() {
+    echo '{"timers":[{"unit":"strut-demo-port-sync","reason":"modified"},{"unit":"strut-demo-nightly","reason":"missing"}]}'
+  }
+  export -f run_remote_strut
+
+  run _drift_check_timers "demo" "$TEST_TMP/stacks/demo" "prod"
+
+  unset VPS_HOST
+
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"strut-demo-port-sync"$'\x1f'"modified"* ]]
+  [[ "$output" == *"strut-demo-nightly"$'\x1f'"missing"* ]]
+}
+
+@test "_drift_check_timers: remote SSH failure degrades gracefully (empty output, status 0)" {
+  export VPS_HOST="vps.example.com"
+  run_remote_strut() { return 1; }
+  export -f run_remote_strut
+
+  run _drift_check_timers "demo" "$TEST_TMP/stacks/demo" "prod"
+
+  unset VPS_HOST
+
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+}
+
+@test "_drift_check_timers: VPS_HOST empty falls through to local timers_drift" {
+  unset VPS_HOST
+  timers_drift() { echo "called-with:$1:$2"; }
+  export -f timers_drift
+
+  run _drift_check_timers "demo" "$TEST_TMP/stacks/demo" "prod"
+
+  [ "$status" -eq 0 ]
+  [ "$output" = "called-with:demo:$TEST_TMP/stacks/demo" ]
+}
+
 # ── Property: drift_store_event always creates valid JSON ─────────────────────
 
 @test "Property: drift_store_event always creates valid JSON (100 iterations)" {

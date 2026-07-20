@@ -1,0 +1,38 @@
+# ==================================================
+# timers.conf — Declarative stack-level scheduled jobs
+# ==================================================
+# Place this file in your stack directory (stacks/<name>/timers.conf).
+# strut renders each [section] below into a systemd .service/.timer pair,
+# namespaced "strut-<stack>-<section>" so it never collides with (or gets
+# removed alongside) hand-installed units.
+#
+# Installed automatically at the end of a successful deploy. Manage by hand
+# with:
+#   strut <stack> timers            # list configured timers + next/last run
+#   strut <stack> timers install    # render + install/enable (idempotent)
+#   strut <stack> timers remove     # disable + delete all strut-managed units
+#
+# ── Keys ────────────────────────────────────────────
+#   exec         Required. Command to run. A relative path (./script.sh)
+#                resolves against the stack directory; a bare command
+#                (e.g. "strut <stack> backup") resolves via PATH.
+#   on_calendar  systemd OnCalendar= expression (e.g. "*-*-* 03:00:00",
+#                "*:*:0/60"). Mutually exclusive with interval — set one.
+#   interval     Alternative to on_calendar: a simple <N>s|m|h|d duration
+#                (e.g. "60s", "1h", "1d"), run repeatedly on that cadence.
+#   env_file     Optional. Path to an EnvironmentFile= for the service.
+#   description  Optional. Unit Description= (defaults to a generated one).
+#   user         Optional. Run the service as this user (defaults to root).
+#
+# ── Examples ────────────────────────────────────────
+#
+# [port-sync]
+# exec = ./port-sync.sh
+# interval = 60s
+# env_file = /etc/default/STACK_NAME_PLACEHOLDER-port-sync
+# description = Sync forwarded port to the download client
+#
+# [nightly-backup]
+# exec = strut STACK_NAME_PLACEHOLDER backup all
+# on_calendar = *-*-* 03:00:00
+# description = Nightly database backup
