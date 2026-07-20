@@ -85,6 +85,35 @@ EOF
   [ "${_TOPO_STACK_HOST[plane]}" = "compass" ]
 }
 
+@test "topology_load: parses no-space (key=value) and spaced (key = value) entries alike (strut#377)" {
+  cat > "$TEST_TMP/strut.conf" <<'EOF'
+REGISTRY_TYPE=none
+
+[hosts]
+web=ubuntu@1.2.3.4
+db = ubuntu@5.6.7.8
+
+[stacks]
+app=web
+EOF
+
+  export PROJECT_ROOT="$TEST_TMP"
+  topology_load
+
+  [ "${_TOPO_HOSTS[web]}" = "ubuntu@1.2.3.4" ]
+  [ "${_TOPO_HOSTS[db]}" = "ubuntu@5.6.7.8" ]
+  [ "${_TOPO_STACK_HOST[app]}" = "web" ]
+}
+
+@test "topology_load: tolerates trailing whitespace on section headers" {
+  printf '[hosts]   \ncompass = gfargo@compass.local:22\n' > "$TEST_TMP/strut.conf"
+
+  export PROJECT_ROOT="$TEST_TMP"
+  topology_load
+
+  [ "${_TOPO_HOSTS[compass]}" = "gfargo@compass.local:22" ]
+}
+
 @test "topology_load: no-op when no strut.conf exists" {
   export PROJECT_ROOT="$TEST_TMP/nonexistent"
   topology_load

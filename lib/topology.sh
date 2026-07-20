@@ -58,14 +58,17 @@ topology_load() {
     # Skip comments and empty lines
     [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]] && continue
 
-    # Detect section headers
-    if [[ "$line" =~ ^\[([a-zA-Z_-]+)\]$ ]]; then
+    # Detect section headers. Keep this regex byte-identical to the header
+    # regex in lib/config.sh (_preprocess_config) — divergence here
+    # previously caused strut#377.
+    if [[ "$line" =~ ^\[([A-Za-z0-9_-]+)\][[:space:]]*$ ]]; then
       section="${BASH_REMATCH[1]}"
       continue
     fi
 
-    # Parse key = value within sections
-    if [[ "$line" =~ ^[[:space:]]*([a-zA-Z0-9_-]+)[[:space:]]*=[[:space:]]*(.+)$ ]]; then
+    # Parse key = value within sections. Keep this regex byte-identical to
+    # the key/value regex in lib/config.sh (_preprocess_config).
+    if [[ "$line" =~ ^[[:space:]]*([A-Za-z0-9_-]+)[[:space:]]*=[[:space:]]*(.+)$ ]]; then
       key="${BASH_REMATCH[1]}"
       val="${BASH_REMATCH[2]}"
       # Trim trailing whitespace

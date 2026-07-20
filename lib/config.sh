@@ -59,24 +59,28 @@ _preprocess_config() {
   while IFS= read -r line || [ -n "$line" ]; do
     # Detect INI-style section headers — these are parsed by topology.sh,
     # not sourced as bash. Skip the header and all lines within the section.
-    if [[ "$line" =~ ^\[([a-zA-Z_-]+)\][[:space:]]*$ ]]; then
+    # Keep this regex byte-identical to the header regex in topology.sh
+    # (topology_load) — divergence here previously caused strut#377.
+    if [[ "$line" =~ ^\[([A-Za-z0-9_-]+)\][[:space:]]*$ ]]; then
       _in_section=true
       continue
     fi
 
-    # Lines inside a section use "key = value" format (spaces around =).
-    # A bash-style assignment (KEY=value, no spaces around =) or another
-    # section header signals the end of the section.
+    # A section extends from its header to the next `[header]` or EOF —
+    # global (bash-sourced) keys must be placed before any section header.
+    # Lines inside a section use "key = value" or "key=value" format; both
+    # are treated as section content and skipped, never sourced as bash.
     if [ "$_in_section" = "true" ]; then
       # Stay in section for: blank lines and comments
       if [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]]; then
         continue
       fi
-      # Section content: "key = value" (has space before =)
-      if [[ "$line" =~ ^[[:space:]]*[a-zA-Z0-9_-]+[[:space:]]+= ]]; then
+      # Section content: "key = value" or "key=value". Keep this regex
+      # byte-identical to the key/value regex in topology.sh (topology_load).
+      if [[ "$line" =~ ^[[:space:]]*[A-Za-z0-9_-]+[[:space:]]*= ]]; then
         continue
       fi
-      # Anything else (bash assignment KEY=val, other content) = left section
+      # Anything else (unrecognized content) = left section
       _in_section=false
     fi
 

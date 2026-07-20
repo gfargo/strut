@@ -142,3 +142,24 @@ _rand_version() {
   # The guard must NOT trigger — error must be something else (missing env/compose)
   [[ "$output" != *"must not contain spaces"* ]]
 }
+
+# ── No-space [hosts] entry (strut#377) ─────────────────────────────────────────
+
+@test "strut#377: no-space [hosts]/[stacks] entries do not crash --version" {
+  local proj_dir="$TEST_TMP/nospace-hosts"
+  mkdir -p "$proj_dir"
+  cat > "$proj_dir/strut.conf" <<'EOF'
+REGISTRY_TYPE=none
+
+[hosts]
+web=ubuntu@1.2.3.4
+db = ubuntu@5.6.7.8
+
+[stacks]
+app=web
+EOF
+
+  run bash -c "cd '$proj_dir' && bash '$CLI' --version 2>&1"
+  [ "$status" -eq 0 ]
+  [[ "$output" =~ ^[0-9]+\.[0-9]+\.[0-9]+ ]]
+}

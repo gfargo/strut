@@ -307,6 +307,7 @@ EOF
   cat > "$TEST_TMP/with-sections.conf" <<'EOF'
 REGISTRY_TYPE=ghcr
 DEFAULT_ORG=my-org
+BANNER_TEXT=before-sections
 
 [hosts]
 compass = gfargo@compass.local:22 ~/.ssh/id_rsa
@@ -315,15 +316,13 @@ mac = griffen@mac.local:22
 [stacks]
 plane = compass
 hub = compass
-
-BANNER_TEXT=after-sections
 EOF
 
   result=$(preprocess_config "$TEST_TMP/with-sections.conf")
   # Global keys should be present
   [[ "$result" == *"REGISTRY_TYPE=ghcr"* ]]
   [[ "$result" == *"DEFAULT_ORG=my-org"* ]]
-  [[ "$result" == *"BANNER_TEXT=after-sections"* ]]
+  [[ "$result" == *"BANNER_TEXT=before-sections"* ]]
   # Section headers and content should NOT be present
   [[ "$result" != *"[hosts]"* ]]
   [[ "$result" != *"[stacks]"* ]]
@@ -331,21 +330,58 @@ EOF
   [[ "$result" != *"plane"* ]]
 }
 
-@test "preprocess_config: global keys after sections are preserved" {
+# A section extends from its header to the next [header] or EOF — global
+# (bash-sourced) keys placed *after* a section header are absorbed as
+# section content and never sourced. This is intentional: it keeps
+# preprocess_config's notion of "section content" identical to
+# topology.sh's, so a no-space `key=value` entry can't accidentally
+# reopen bash-sourcing mid-section (strut#377). Globals must precede
+# any [hosts]/[stacks] section.
+@test "preprocess_config: keys after a section header are absorbed, not sourced" {
   cat > "$TEST_TMP/sections-then-global.conf" <<'EOF'
 FIRST=one
 
 [hosts]
 myhost = user@host:22
-
 SECOND=two
 EOF
 
   result=$(preprocess_config "$TEST_TMP/sections-then-global.conf")
   [[ "$result" == *"FIRST=one"* ]]
-  [[ "$result" == *"SECOND=two"* ]]
+  [[ "$result" != *"SECOND=two"* ]]
   [[ "$result" != *"[hosts]"* ]]
   [[ "$result" != *"myhost"* ]]
+}
+
+@test "preprocess_config: no-space (key=value) entries stay in-section like spaced entries (strut#377)" {
+  cat > "$TEST_TMP/nospace-hosts.conf" <<'EOF'
+REGISTRY_TYPE=none
+
+[hosts]
+web=ubuntu@1.2.3.4
+db = ubuntu@5.6.7.8
+
+[stacks]
+app=web
+EOF
+
+  result=$(preprocess_config "$TEST_TMP/nospace-hosts.conf")
+  [[ "$result" == *"REGISTRY_TYPE=none"* ]]
+  [[ "$result" != *"[hosts]"* ]]
+  [[ "$result" != *"[stacks]"* ]]
+  [[ "$result" != *"web=ubuntu@1.2.3.4"* ]]
+  [[ "$result" != *"db = ubuntu@5.6.7.8"* ]]
+  [[ "$result" != *"app=web"* ]]
+}
+
+@test "preprocess_config: tolerates trailing whitespace on section headers" {
+  printf 'REGISTRY_TYPE=none\n\n[hosts]   \ncompass = gfargo@compass.local:22\n' \
+    > "$TEST_TMP/trailing-ws-header.conf"
+
+  result=$(preprocess_config "$TEST_TMP/trailing-ws-header.conf")
+  [[ "$result" == *"REGISTRY_TYPE=none"* ]]
+  [[ "$result" != *"[hosts]"* ]]
+  [[ "$result" != *"compass"* ]]
 }
 
 @test "load_strut_config: works with [hosts] and [stacks] sections present" {
