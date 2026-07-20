@@ -86,3 +86,20 @@ EOF
   [ "$status" -eq 0 ]
   [[ "$output" == *"Commit SSL config"* ]] || [[ "$output" == *"SSL"* ]]
 }
+
+@test "cmd_domain: dry-run VPS git pull uses DEFAULT_BRANCH when set" {
+  export DRY_RUN=true
+  export DEFAULT_BRANCH=master
+  run cmd_domain example.com admin@example.com
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"git pull origin master"* ]]
+  [[ "$output" != *"git pull origin main"* ]]
+}
+
+@test "cmd_domain: dry-run VPS git pull defaults to main when DEFAULT_BRANCH unset" {
+  export DRY_RUN=true
+  unset DEFAULT_BRANCH
+  run cmd_domain example.com admin@example.com
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"git pull origin main"* ]]
+}
