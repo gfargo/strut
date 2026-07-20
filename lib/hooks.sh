@@ -23,6 +23,13 @@
 #   pre_provision      — before a host's provision.d/ batch runs (can abort via non-zero)
 #   post_provision     — after the provision.d/ batch completes (warn-only);
 #                         PROVISION_HOST, PROVISION_HOST_DIR exported
+#   pre_destroy        — before `destroy` tears the stack down (can abort via non-zero)
+#   post_destroy       — after `destroy` succeeds (warn-only); this is the symmetric
+#                         counterpart to first_run — everything first_run installs on
+#                         the host (systemd units, timers, udev rules, sudoers files,
+#                         routing rules, etc.), post_destroy should uninstall. On
+#                         success the .strut-initialized marker is removed so a future
+#                         deploy re-runs first_run cleanly.
 #
 # Event env vars: whatever the caller has already exported — typically
 # CMD_STACK, CMD_ENV_NAME, CMD_STACK_DIR. Event-specific env vars
@@ -106,6 +113,19 @@ fire_hook_or_warn() {
 _first_run_marker_path() {
   local stack_dir="$1"
   echo "$stack_dir/.strut-initialized"
+}
+
+# remove_first_run_marker <stack_dir>
+#
+# Deletes the .strut-initialized marker (if present) so a future deploy
+# re-runs the first_run hook cleanly. No-op (returns 0) if the marker is
+# already absent.
+remove_first_run_marker() {
+  local stack_dir="$1"
+  local marker
+  marker=$(_first_run_marker_path "$stack_dir")
+  [ -f "$marker" ] && rm -f "$marker" && log "Removed first-run marker: $marker"
+  return 0
 }
 
 # first_run_needed <stack_dir>
