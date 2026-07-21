@@ -92,8 +92,11 @@ rollback_save_snapshot() {
   services_json+="}"
 
   if [ "$service_count" -eq 0 ]; then
-    # No running containers — still save an empty snapshot for the record
-    services_json="{}"
+    # No running containers (or `compose ps` failed) — nothing to restore,
+    # so don't write a snapshot. An empty snapshot would later be picked as
+    # "latest" and turn rollback into a silent down+up no-op.
+    warn "No running containers for $stack ($env_name); skipping rollback snapshot (nothing to restore)"
+    return 0
   fi
 
   # Write snapshot
@@ -129,7 +132,23 @@ rollback_get_latest_snapshot() {
   [ -d "$rollback_dir" ] || { echo ""; return 0; }
 
   if [ -z "$env_name" ]; then
-    ls -t "$rollback_dir"/*.json 2>/dev/null | head -1 || echo ""
+    if ! command -v jq &>/dev/null; then
+      # No jq available for the service_count guard — fall back to the
+      # previous behavior (newest file, regardless of service count).
+      ls -t "$rollback_dir"/*.json 2>/dev/null | head -1 || echo ""
+      return 0
+    fi
+
+    local f
+    while IFS= read -r f; do
+      [ -n "$f" ] || continue
+      if [ "$(jq -r '.service_count // 0' "$f" 2>/dev/null)" != "0" ]; then
+        echo "$f"
+        return 0
+      fi
+    done < <(rollback_list_snapshot_files "$stack")
+
+    echo ""
     return 0
   fi
 
@@ -140,6 +159,9 @@ rollback_get_latest_snapshot() {
   local f
   while IFS= read -r f; do
     [ -n "$f" ] || continue
+    if [ "$(jq -r '.service_count // 0' "$f" 2>/dev/null)" = "0" ]; then
+      continue
+    fi
     if [ "$(jq -r '.env // empty' "$f" 2>/dev/null)" = "$env_name" ]; then
       echo "$f"
       return 0
@@ -165,7 +187,15 @@ rollback_restore_snapshot() {
   local timestamp
   timestamp=$(jq -r '.timestamp' "$snapshot_file")
   local service_count
-  service_count=$(jq -r '.service_count' "$snapshot_file")
+  service_count=$(jq -r '.service_count // 0' "$snapshot_file")
+
+  local services_map_count
+  services_map_count=$(jq -r '.services | length' "$snapshot_file" 2>/dev/null || echo 0)
+
+  if [ -z "$service_count" ] || [ "$service_count" = "null" ] || { [ "$service_count" -eq 0 ] 2>/dev/null; } || [ "$services_map_count" -eq 0 ] 2>/dev/null; then
+    error "Refusing to restore empty snapshot ($(basename "$snapshot_file" .json)): 0 services recorded — this is not a valid rollback point"
+    return 1
+  fi
 
   log "Restoring from snapshot: $(basename "$snapshot_file" .json)"
   log "  Timestamp: $timestamp"

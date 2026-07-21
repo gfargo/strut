@@ -86,10 +86,32 @@ EOF
   run rollback_save_snapshot "$stack" "$fake_compose" "prod"
   [ "$status" -eq 0 ]
 
-  local snapshot
-  snapshot=$(ls "$CLI_ROOT/stacks/$stack/.rollback"/*.json 2>/dev/null | head -1)
-  [ -f "$snapshot" ]
-  [ "$(jq -r '.service_count' "$snapshot")" = "0" ]
+  # No running containers means nothing worth restoring — no snapshot file
+  # should be written (an empty snapshot would later be picked as "latest"
+  # and turn rollback into a silent no-op).
+  run bash -c "ls '$CLI_ROOT/stacks/$stack/.rollback'/*.json 2>/dev/null"
+  [ -z "$output" ]
+
+  rm -rf "$CLI_ROOT/stacks/$stack"
+}
+
+@test "rollback_save_snapshot: compose ps failure does not create a snapshot" {
+  local stack="test-rb-psfail-$$"
+  mkdir -p "$CLI_ROOT/stacks/$stack"
+
+  # Stub compose that fails (simulates a stopped stack / compose error)
+  local fake_compose="$TEST_TMP/fake-compose-fail"
+  cat > "$fake_compose" <<'EOF'
+#!/usr/bin/env bash
+exit 1
+EOF
+  chmod +x "$fake_compose"
+
+  run rollback_save_snapshot "$stack" "$fake_compose" "prod"
+  [ "$status" -eq 0 ]
+
+  run bash -c "ls '$CLI_ROOT/stacks/$stack/.rollback'/*.json 2>/dev/null"
+  [ -z "$output" ]
 
   rm -rf "$CLI_ROOT/stacks/$stack"
 }
@@ -101,11 +123,11 @@ EOF
   local rollback_dir="$CLI_ROOT/stacks/$stack/.rollback"
   mkdir -p "$rollback_dir"
 
-  echo '{"timestamp":"2024-01-01"}' > "$rollback_dir/20240101-100000.json"
+  echo '{"timestamp":"2024-01-01","service_count":1}' > "$rollback_dir/20240101-100000.json"
   sleep 0.1
-  echo '{"timestamp":"2024-01-02"}' > "$rollback_dir/20240102-100000.json"
+  echo '{"timestamp":"2024-01-02","service_count":1}' > "$rollback_dir/20240102-100000.json"
   sleep 0.1
-  echo '{"timestamp":"2024-01-03"}' > "$rollback_dir/20240103-100000.json"
+  echo '{"timestamp":"2024-01-03","service_count":1}' > "$rollback_dir/20240103-100000.json"
 
   local result
   result=$(rollback_get_latest_snapshot "$stack")
@@ -125,11 +147,11 @@ EOF
   local rollback_dir="$CLI_ROOT/stacks/$stack/.rollback"
   mkdir -p "$rollback_dir"
 
-  echo '{"env":"staging"}' > "$rollback_dir/20240101-100000.json"
+  echo '{"env":"staging","service_count":1}' > "$rollback_dir/20240101-100000.json"
   sleep 0.1
-  echo '{"env":"prod"}' > "$rollback_dir/20240102-100000.json"
+  echo '{"env":"prod","service_count":1}' > "$rollback_dir/20240102-100000.json"
   sleep 0.1
-  echo '{"env":"staging"}' > "$rollback_dir/20240103-100000.json"
+  echo '{"env":"staging","service_count":1}' > "$rollback_dir/20240103-100000.json"
 
   local result
   result=$(rollback_get_latest_snapshot "$stack" "prod")
@@ -143,7 +165,7 @@ EOF
   local rollback_dir="$CLI_ROOT/stacks/$stack/.rollback"
   mkdir -p "$rollback_dir"
 
-  echo '{"env":"staging"}' > "$rollback_dir/20240101-100000.json"
+  echo '{"env":"staging","service_count":1}' > "$rollback_dir/20240101-100000.json"
 
   local result
   result=$(rollback_get_latest_snapshot "$stack" "prod")
@@ -157,15 +179,71 @@ EOF
   local rollback_dir="$CLI_ROOT/stacks/$stack/.rollback"
   mkdir -p "$rollback_dir"
 
-  echo '{"env":"staging"}' > "$rollback_dir/20240101-100000.json"
+  echo '{"env":"staging","service_count":1}' > "$rollback_dir/20240101-100000.json"
   sleep 0.1
-  echo '{"env":"prod"}' > "$rollback_dir/20240102-100000.json"
+  echo '{"env":"prod","service_count":1}' > "$rollback_dir/20240102-100000.json"
 
   local result
   result=$(rollback_get_latest_snapshot "$stack")
   [[ "$result" == *"20240102-100000.json" ]]
 
   rm -rf "$CLI_ROOT/stacks/$stack"
+}
+
+@test "rollback_get_latest_snapshot: skips empty snapshots" {
+  local stack="test-rb-skipempty-$$"
+  local rollback_dir="$CLI_ROOT/stacks/$stack/.rollback"
+  mkdir -p "$rollback_dir"
+
+  echo '{"env":"prod","service_count":2}' > "$rollback_dir/20240101-100000.json"
+  sleep 0.1
+  echo '{"env":"prod","service_count":0,"services":{}}' > "$rollback_dir/20240102-100000.json"
+
+  local result
+  result=$(rollback_get_latest_snapshot "$stack")
+  [[ "$result" == *"20240101-100000.json" ]]
+
+  result=$(rollback_get_latest_snapshot "$stack" "prod")
+  [[ "$result" == *"20240101-100000.json" ]]
+
+  rm -rf "$CLI_ROOT/stacks/$stack"
+}
+
+# ── rollback_restore_snapshot ─────────────────────────────────────────────────
+
+@test "rollback_restore_snapshot: fails on empty services map" {
+  local snapshot="$TEST_TMP/empty-snapshot.json"
+  echo '{"timestamp":"2024-01-01T00:00:00Z","stack":"test","env":"prod","service_count":0,"services":{}}' > "$snapshot"
+
+  local marker="$TEST_TMP/compose-called"
+  local fake_compose="$TEST_TMP/fake-compose-restore"
+  cat > "$fake_compose" <<EOF
+#!/usr/bin/env bash
+touch "$marker"
+EOF
+  chmod +x "$fake_compose"
+
+  run rollback_restore_snapshot "test" "$fake_compose" "$snapshot"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"empty snapshot"* || "$output" == *"0 services"* ]]
+  [ ! -f "$marker" ]
+}
+
+@test "rollback_restore_snapshot: fails when service_count is missing" {
+  local snapshot="$TEST_TMP/no-count-snapshot.json"
+  echo '{"timestamp":"2024-01-01T00:00:00Z","stack":"test","env":"prod","services":{}}' > "$snapshot"
+
+  local marker="$TEST_TMP/compose-called-2"
+  local fake_compose="$TEST_TMP/fake-compose-restore-2"
+  cat > "$fake_compose" <<EOF
+#!/usr/bin/env bash
+touch "$marker"
+EOF
+  chmod +x "$fake_compose"
+
+  run rollback_restore_snapshot "test" "$fake_compose" "$snapshot"
+  [ "$status" -ne 0 ]
+  [ ! -f "$marker" ]
 }
 
 # ── rollback_list_snapshots ───────────────────────────────────────────────────

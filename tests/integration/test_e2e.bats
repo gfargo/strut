@@ -138,6 +138,14 @@ setup() { _skip_without_docker; }
   done
   [ "$code" = "200" ]
 
+  # The stack's very first deploy has nothing running beforehand, so (per
+  # OSS-778 / strut#406) rollback_save_snapshot correctly skips writing an
+  # empty snapshot. Redeploy once more: now the stack from the first deploy
+  # is running, so this deploy has something real to snapshot before it
+  # pulls/restarts.
+  run "$CLI_ROOT/strut" "$E2E_STACK" deploy --env "$E2E_ENV" --skip-validation --no-lock
+  [ "$status" -eq 0 ]
+
   # Rollback snapshot file was written.
   [ -d "$E2E_STACK_DIR/.rollback" ]
   run bash -c 'ls -1 "'"$E2E_STACK_DIR"'/.rollback"/*.json 2>/dev/null | wc -l'
