@@ -348,6 +348,45 @@ EOF
   [[ "$result" != *"myhost"* ]]
 }
 
+@test "preprocess_config: space-less 'key=value' entry inside a section doesn't leak past the section (strut#377)" {
+  cat > "$TEST_TMP/nospace.conf" <<'EOF'
+REGISTRY_TYPE=ghcr
+
+[hosts]
+web=ubuntu@1.2.3.4
+db = ubuntu@2.3.4.5
+
+BANNER_TEXT=after-sections
+EOF
+
+  run preprocess_config "$TEST_TMP/nospace.conf"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"REGISTRY_TYPE=ghcr"* ]]
+  [[ "$output" == *"BANNER_TEXT=after-sections"* ]]
+  # Neither section-content line (spaced or not) should have leaked out
+  # to be sourced as a bash statement.
+  [[ "$output" != *"web=ubuntu"* ]]
+  [[ "$output" != *"db = ubuntu"* ]]
+  [[ "$output" != *"db ="* ]]
+}
+
+@test "load_strut_config: does not abort on a [hosts] section with space-less entries (strut#377)" {
+  cat > "$TEST_TMP/strut.conf" <<'EOF'
+REGISTRY_TYPE=ecr
+
+[hosts]
+web=ubuntu@1.2.3.4
+db=ubuntu@2.3.4.5
+
+[stacks]
+api=web
+EOF
+
+  export PROJECT_ROOT="$TEST_TMP"
+  run load_strut_config
+  [ "$status" -eq 0 ]
+}
+
 @test "load_strut_config: works with [hosts] and [stacks] sections present" {
   cat > "$TEST_TMP/strut.conf" <<'EOF'
 REGISTRY_TYPE=ecr

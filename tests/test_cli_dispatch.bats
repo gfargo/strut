@@ -98,10 +98,16 @@ setup() {
 }
 
 @test "strut scaffold with existing stack fails" {
-  local cli_root="$(dirname "$CLI")"
-  mkdir -p "$cli_root/stacks/existing-stack"
-  run bash "$CLI" scaffold existing-stack
-  rm -rf "$cli_root/stacks/existing-stack"
+  # scaffold now requires PROJECT_ROOT (strut#403 — otherwise it silently
+  # wrote into the engine's own stacks/ dir), so this needs a real project
+  # dir with a strut.conf rather than reusing the engine repo directly.
+  local project_dir
+  project_dir="$(mktemp -d)"
+  touch "$project_dir/strut.conf"
+  mkdir -p "$project_dir/stacks/existing-stack"
+
+  run env STRUT_PROJECT="$project_dir" bash "$CLI" scaffold existing-stack
+  rm -rf "$project_dir"
   [ "$status" -ne 0 ]
   [[ "$output" == *"already exists"* ]]
 }

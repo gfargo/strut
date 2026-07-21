@@ -263,6 +263,7 @@ EOF
 
 @test "scaffold: creates anonymize.conf template" {
   source "$CLI_ROOT/lib/cmd_scaffold.sh"
+  export PROJECT_ROOT="$CLI_ROOT"
 
   local stack_name="test-anon-scaffold-$$"
   run cmd_scaffold "$stack_name"
