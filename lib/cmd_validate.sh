@@ -69,6 +69,25 @@ _is_valid_boolean() {
   [[ "$val" == "true" || "$val" == "false" ]]
 }
 
+# _is_valid_platform_list <value>
+# Returns 0 if value is a comma-separated list of docker `os/arch[/variant]`
+# tokens, e.g. "linux/amd64,linux/arm64" or "linux/arm/v7".
+_is_valid_platform_list() {
+  local val="$1"
+  [ -n "$val" ] || return 1
+  # Reject empty entries (leading/trailing/doubled commas) — `read -ra`
+  # below silently drops a trailing empty field, so this must be checked
+  # against the raw string first.
+  [[ "$val" == ,* || "$val" == *, || "$val" == *,,* ]] && return 1
+  local -a platforms
+  IFS=',' read -ra platforms <<< "$val"
+  local plat
+  for plat in "${platforms[@]}"; do
+    [[ "$plat" =~ ^[a-z0-9]+/[a-z0-9]+(/v[0-9]+)?$ ]] || return 1
+  done
+  return 0
+}
+
 # ── strut.conf validation ─────────────────────────────────────────────────────
 
 _validate_strut_conf() {
@@ -187,6 +206,14 @@ _validate_services_conf() {
     if [[ "$key" == "BUILD_PARALLEL" ]]; then
       if ! _is_valid_boolean "$val"; then
         _val_error "services.conf" "BUILD_PARALLEL='$val' (must be true or false)"
+        valid=false
+      fi
+    fi
+
+    # PLATFORMS validation (multi-arch buildx target list)
+    if [[ "$key" == "PLATFORMS" ]]; then
+      if ! _is_valid_platform_list "$val"; then
+        _val_error "services.conf" "PLATFORMS='$val' (must be comma-separated os/arch, e.g. linux/amd64,linux/arm64)"
         valid=false
       fi
     fi

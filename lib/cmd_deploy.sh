@@ -206,11 +206,14 @@ cmd_rebuild() {
   local no_cache=false
   local pull_base=false
   local confirm_data_move=false
+  local platform_flag=""
   while [[ $# -gt 0 ]]; do
     case $1 in
       --no-cache) no_cache=true; shift ;;
       --pull) pull_base=true; shift ;;
       --confirm-data-move) confirm_data_move=true; shift ;;
+      --platform) platform_flag="$2"; shift 2 ;;
+      --platform=*) platform_flag="${1#*=}"; shift ;;
       *) shift ;;
     esac
   done
@@ -223,6 +226,8 @@ cmd_rebuild() {
   if [ "$pull_base" = "true" ]; then
     export BUILD_PULL="true"
   fi
+  # --platform overrides PLATFORMS from services.conf for this rebuild only
+  [ -n "$platform_flag" ] && export PLATFORMS="$platform_flag"
 
   # Guard: detect data-destructive env changes before rebuilding
   _deploy_volguard "$stack" "$env_file" "$confirm_data_move" || return 1
@@ -234,7 +239,7 @@ cmd_rebuild() {
 
 _usage_rebuild() {
   echo ""
-  echo "Usage: strut <stack> rebuild [--env <name>] [--no-cache] [--pull] [--dry-run] [--confirm-data-move]"
+  echo "Usage: strut <stack> rebuild [--env <name>] [--no-cache] [--pull] [--platform <list>] [--dry-run] [--confirm-data-move]"
   echo ""
   echo "Build images on target and restart services."
   echo "Equivalent to deploy with BUILD_MODE=local."
@@ -243,12 +248,17 @@ _usage_rebuild() {
   echo "  --env <name>           Environment (reads .<name>.env)"
   echo "  --no-cache             Build without using cache"
   echo "  --pull                 Pull base images before building"
+  echo "  --platform <list>      Comma-separated docker platforms (e.g. linux/amd64,linux/arm64)."
+  echo "                         Single platform ≠ host arch: cross-arch build via buildx --load."
+  echo "                         More than one: multi-arch build via buildx --push (needs a registry)."
+  echo "                         Overrides PLATFORMS from services.conf for this run."
   echo "  --dry-run              Show execution plan without running"
   echo "  --confirm-data-move    Proceed even when volume-defining vars changed"
   echo ""
   echo "Examples:"
   echo "  strut hub rebuild --env prod"
   echo "  strut hub rebuild --env prod --no-cache"
+  echo "  strut hub rebuild --env prod --platform linux/arm64,linux/amd64"
   echo ""
 }
 

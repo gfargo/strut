@@ -513,6 +513,15 @@ EOF
   [[ "$output" == *"deploy_stack"* ]]
 }
 
+@test "cmd_rebuild: --platform exports PLATFORMS before delegating to deploy_stack" {
+  deploy_stack() { echo "deploy_stack $* PLATFORMS=$PLATFORMS"; }
+  export -f deploy_stack
+
+  run cmd_rebuild --platform linux/arm64,linux/amd64
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"PLATFORMS=linux/arm64,linux/amd64"* ]]
+}
+
 # ── on_health_fail hook ───────────────────────────────────────────────────────
 
 @test "cmd_health: fires on_health_fail hook when health_run_all returns non-zero" {

@@ -164,6 +164,48 @@ EOF
   [ "$status" -eq 1 ]
 }
 
+# ── topology_resolve_arch (OSS-262) ───────────────────────────────────────────
+
+@test "topology_resolve_arch: echoes the declared arch= for a mapped stack" {
+  cat > "$TEST_TMP/strut.conf" <<'EOF'
+[hosts]
+pi-ops = pi@pi-ops.local:2222 ~/.ssh/pi_key arch=arm64
+
+[stacks]
+edge-app = pi-ops
+EOF
+
+  export PROJECT_ROOT="$TEST_TMP"
+  [ "$(topology_resolve_arch "edge-app")" = "arm64" ]
+}
+
+@test "topology_resolve_arch: empty when no arch= declared" {
+  cat > "$TEST_TMP/strut.conf" <<'EOF'
+[hosts]
+compass = gfargo@compass.local:22
+
+[stacks]
+plane = compass
+EOF
+
+  export PROJECT_ROOT="$TEST_TMP"
+  [ "$(topology_resolve_arch "plane")" = "" ]
+}
+
+@test "topology_resolve_arch: returns 1 for unmapped stack" {
+  cat > "$TEST_TMP/strut.conf" <<'EOF'
+[hosts]
+compass = gfargo@compass.local:22
+
+[stacks]
+plane = compass
+EOF
+
+  export PROJECT_ROOT="$TEST_TMP"
+  run topology_resolve_arch "unknown-stack"
+  [ "$status" -eq 1 ]
+}
+
 # ── topology_apply_to_env ─────────────────────────────────────────────────────
 
 @test "topology_apply_to_env: sets VPS_* vars from topology" {

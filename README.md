@@ -140,6 +140,7 @@ strut <stack> <command> [--env <env>] [options]
 | `keys` | Key and credential management |
 | `domain` | Configure domain and SSL certificates |
 | `shell` / `exec` | SSH access to VPS |
+| `rebuild` | Build images locally (or remotely via `ship`) and redeploy — supports `--platform` for cross-arch/multi-arch buildx builds |
 | `ship` | Commit, push, and remote rebuild in one step |
 | `remote:init` | Bootstrap strut on a remote VPS |
 | `local` | Local development environment |
@@ -181,6 +182,7 @@ strut dashboard --port 8484                                    # Read-only HTTP 
 - **Per-stack env isolation** — `.prod.env` is shared by every stack deployed with `--env prod` on a host. If it sets `COMPOSE_PROJECT_NAME`, *all* those stacks resolve to the same Compose project, so a deploy's orphan cleanup can delete a sibling stack's containers. To isolate a stack, give it its own env file (`.<stack>-prod.env`) and deploy with `--env <stack>-prod`; run `strut posture` to catch this footgun before it bites
 - **`--dry-run`** previews destructive operations without executing
 - **Dynamic health checks** driven by `services.conf`
+- **Multi-arch / ARM builds** — `strut <stack> rebuild --platform linux/arm64,linux/amd64` (or a `PLATFORMS` var in `services.conf`) builds via `docker buildx` and pushes a multi-arch manifest, so an image built on an amd64 laptop doesn't fail with `exec format error` on a Raspberry Pi. A single platform that differs from the host's builds via buildx `--load`; unset `PLATFORMS` keeps the plain `docker compose build` path (no buildx dependency). strut also warns before a build if the target host's declared architecture (`arch=` in `strut.conf`'s `[hosts]`, or a best-effort SSH probe) isn't among the platforms being built.
 
 ---
 
