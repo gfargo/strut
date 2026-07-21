@@ -144,6 +144,39 @@ teardown() { common_teardown; }
   [[ "$output" == *"other/repo"* ]]
 }
 
+@test "cmd_remote_init: --dry-run prevents real ssh execution even when global DRY_RUN is unset" {
+  # Regression test: this file's setup() stubs run_cmd() to a plain echo, so
+  # every other dry-run test above never actually exercises run_cmd's own
+  # DRY_RUN gate (lib/utils.sh:161). Reinstate the real run_cmd here so this
+  # test proves --dry-run alone (with the global DRY_RUN unset/false, i.e.
+  # the top-level `strut remote:init --host ... --dry-run` path) is enough
+  # to stop the real ssh calls, per cmd_remote_init's own DRY_RUN sync at
+  # lib/cmd_remote_init.sh:68-77.
+  unset DRY_RUN
+  export CMD_STACK="my-stack"
+  export CMD_ENV_FILE=""
+
+  run_cmd() {
+    local desc="$1"; shift
+    if [ "$DRY_RUN" = "true" ]; then
+      echo "[DRY-RUN] $desc: $*"
+      return 0
+    else
+      "$@"
+    fi
+  }
+  export -f run_cmd
+
+  local marker="$TEST_TMP/ssh_was_called"
+  ssh() { touch "$marker"; echo "SHOULD NOT RUN FOR REAL: $*"; }
+  export -f ssh
+
+  run cmd_remote_init --host "10.0.0.1" --user "deploy" --dry-run
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"DRY-RUN"* ]]
+  [ ! -f "$marker" ]
+}
+
 # ── Error cases ───────────────────────────────────────────────────────────────
 
 @test "cmd_remote_init: fails without host" {
