@@ -26,6 +26,7 @@ _usage_ship() {
   echo "  --no-commit          Skip commit (just push + remote rebuild)"
   echo "  --no-push            Skip push (just remote rebuild)"
   echo "  --no-cache           Pass --no-cache to remote rebuild"
+  echo "  --platform <list>    Pass --platform to remote rebuild (e.g. linux/arm64,linux/amd64)"
   echo "  --dry-run            Show execution plan without running"
   echo ""
   echo "Examples:"
@@ -51,6 +52,7 @@ cmd_ship() {
   local skip_commit=false
   local skip_push=false
   local no_cache=false
+  local platform_flag=""
   local dry_run="${DRY_RUN:-false}"
 
   while [[ $# -gt 0 ]]; do
@@ -59,6 +61,8 @@ cmd_ship() {
       --no-commit) skip_commit=true; shift ;;
       --no-push) skip_push=true; shift ;;
       --no-cache) no_cache=true; shift ;;
+      --platform) platform_flag="$2"; shift 2 ;;
+      --platform=*) platform_flag="${1#*=}"; shift ;;
       --dry-run) dry_run=true; shift ;;
       *) shift ;;
     esac
@@ -82,6 +86,7 @@ cmd_ship() {
   # Build remote rebuild command
   local remote_rebuild="strut $stack rebuild --env $env_name"
   [ "$no_cache" = "true" ] && remote_rebuild="$remote_rebuild --no-cache"
+  [ -n "$platform_flag" ] && remote_rebuild="$remote_rebuild --platform $platform_flag"
 
   print_banner "Ship"
   log "Stack: $stack | Env: $env_name | Target: $vps_user@$vps_host"

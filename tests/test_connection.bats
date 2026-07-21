@@ -82,3 +82,31 @@ EOF
   [ "$VPS_SSH_KEY" = "/env/key" ]
   [ "$VPS_DEPLOY_DIR" = "/env/deploy" ]
 }
+
+# ── parse_host_spec: arch= (OSS-262) ──────────────────────────────────────────
+
+@test "parse_host_spec: parses arch= alongside a key path and deploy_dir=" {
+  parse_host_spec "pi@raspi.local:22 /keys/pi deploy_dir=/opt/app arch=arm64"
+  [ "$CONN_HOST" = "raspi.local" ]
+  [ "$CONN_KEY" = "/keys/pi" ]
+  [ "$CONN_DEPLOY_DIR" = "/opt/app" ]
+  [ "$CONN_ARCH" = "arm64" ]
+}
+
+@test "parse_host_spec: arch= works with no key path" {
+  parse_host_spec "pi@raspi.local arch=arm64"
+  [ "$CONN_ARCH" = "arm64" ]
+  [ "$CONN_KEY" = "" ]
+}
+
+@test "parse_host_spec: option order doesn't matter (arch= before deploy_dir=)" {
+  parse_host_spec "deploy@box:22 arch=amd64 deploy_dir=/opt/stacks /keys/id"
+  [ "$CONN_ARCH" = "amd64" ]
+  [ "$CONN_DEPLOY_DIR" = "/opt/stacks" ]
+  [ "$CONN_KEY" = "/keys/id" ]
+}
+
+@test "parse_host_spec: CONN_ARCH defaults to empty when not declared" {
+  parse_host_spec "harbor"
+  [ "$CONN_ARCH" = "" ]
+}

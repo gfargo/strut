@@ -17,6 +17,17 @@
 # BUILD_PULL=false             # pull base images before build (default: false)
 # BUILD_PARALLEL=true          # parallel builds for multi-service stacks (default: true)
 #
+# PLATFORMS — comma-separated docker platforms (e.g. linux/amd64,linux/arm64)
+# for cross-arch / multi-arch builds via `docker buildx`. Unset (default) or a
+# single platform matching the host's own arch stays on the plain
+# `docker compose build` path above (no buildx dependency). A single platform
+# DIFFERENT from the host's arch builds via buildx --load; more than one
+# platform builds via buildx --push, which requires REGISTRY_TYPE/REGISTRY_HOST
+# to already be configured (buildx can't load a multi-arch manifest locally).
+# Can be overridden per-run with `strut <stack> rebuild --platform <list>`.
+#
+# PLATFORMS=linux/amd64,linux/arm64
+#
 # ── Application Services ───────────────────────────
 # Declare each service with <NAME>_PORT and an optional <NAME>_HEALTH_PATH.
 #

@@ -111,6 +111,26 @@ topology_resolve_host() {
   fi
 }
 
+# topology_resolve_arch <stack>
+#
+# Echoes the declared CPU arch (arch=<value> in the [hosts] spec, e.g.
+# "arm64") for a stack's topology-mapped host. Empty output means "no
+# topology mapping or no arch= declared" — callers should treat that as
+# unknown, not as a mismatch.
+topology_resolve_arch() {
+  local stack="$1"
+  topology_load
+
+  local host_alias="${_TOPO_STACK_HOST[$stack]:-}"
+  [ -n "$host_alias" ] || return 1
+
+  local host_spec="${_TOPO_HOSTS[$host_alias]:-}"
+  [ -n "$host_spec" ] || return 1
+
+  parse_host_spec "$host_spec" || return 1
+  echo "$CONN_ARCH"
+}
+
 # topology_has_host <stack>
 #
 # Returns 0 if the stack has a host mapping in the topology.

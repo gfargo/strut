@@ -115,6 +115,14 @@ teardown() { common_teardown; }
   [[ "$output" == *"--no-cache"* ]]
 }
 
+@test "cmd_ship: dry-run with --platform passes flag to remote rebuild" {
+  export DRY_RUN=false
+
+  run cmd_ship --dry-run --platform linux/arm64,linux/amd64
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"--platform linux/arm64,linux/amd64"* ]]
+}
+
 @test "cmd_ship: dry-run with custom message" {
   export DRY_RUN=false
 

@@ -172,6 +172,157 @@ _deploy_resolve_data_dirs() {
   fi
 }
 
+# _docker_host_platform
+#
+# Echoes the local Docker daemon's native platform as "<os>/<arch>" (e.g.
+# "linux/amd64", "linux/arm64") — used to decide whether a PLATFORMS build
+# can stay on the plain `docker compose build` path. Empty on failure.
+_docker_host_platform() {
+  docker version --format '{{.Server.Os}}/{{.Server.Arch}}' 2>/dev/null
+}
+
+# _deploy_build_images <stack> <compose_cmd> <stack_dir>
+#
+# Builds images for the stack currently being deployed (BUILD_MODE=local),
+# honoring the optional PLATFORMS var (services.conf, or exported by
+# `rebuild --platform`) for cross-arch / multi-arch builds via buildx.
+# Also fires the arch-mismatch pre-build warning (see
+# _deploy_warn_arch_mismatch) whenever PLATFORMS is set, so both the
+# `rebuild` and config-driven BUILD_MODE=local paths get it for free.
+#
+# Reads from the environment: BUILD_ARGS, BUILD_PULL, BUILD_PARALLEL,
+# PLATFORMS (comma-separated docker platform list, e.g.
+# "linux/amd64,linux/arm64"), REGISTRY_TYPE, REGISTRY_HOST.
+#
+# Three cases:
+#   1. PLATFORMS unset, or a single platform equal to the host's native
+#      platform → today's `$compose_cmd build` path. No buildx dependency,
+#      so single-arch stacks and older Docker installs (some Pi images)
+#      never need it.
+#   2. PLATFORMS is a single platform different from the host's → cross-arch
+#      build via `docker buildx bake --platform ... --load` (buildx CAN load
+#      a single foreign platform into the local image store).
+#   3. PLATFORMS lists more than one platform → multi-arch build via
+#      `docker buildx bake --platform ... --push`. buildx cannot --load more
+#      than one platform into the local daemon, so a multi-arch build must
+#      push the resulting manifest to a registry — this requires
+#      REGISTRY_TYPE/REGISTRY_HOST to already be configured (registry_login
+#      must have already run), or it fails loudly rather than silently
+#      building nothing usable.
+_deploy_build_images() {
+  local stack="$1"
+  local compose_cmd="$2"
+  local stack_dir="$3"
+  local build_args="${BUILD_ARGS:-}"
+  local platforms="${PLATFORMS:-}"
+
+  [ -n "$platforms" ] && _deploy_warn_arch_mismatch "$stack" "$platforms"
+
+  if [ -z "$platforms" ]; then
+    local build_cmd="$compose_cmd build"
+    [ "${BUILD_PULL:-false}" = "true" ] && build_cmd="$build_cmd --pull"
+    [ "${BUILD_PARALLEL:-true}" = "true" ] && build_cmd="$build_cmd --parallel"
+    [ -n "$build_args" ] && build_cmd="$build_cmd $build_args"
+    $build_cmd
+    return $?
+  fi
+
+  local -a platform_list
+  IFS=',' read -ra platform_list <<< "$platforms"
+
+  if [ "${#platform_list[@]}" -eq 1 ]; then
+    local host_platform
+    host_platform=$(_docker_host_platform)
+    if [ "${platform_list[0]}" = "$host_platform" ]; then
+      local build_cmd="$compose_cmd build"
+      [ "${BUILD_PULL:-false}" = "true" ] && build_cmd="$build_cmd --pull"
+      [ "${BUILD_PARALLEL:-true}" = "true" ] && build_cmd="$build_cmd --parallel"
+      [ -n "$build_args" ] && build_cmd="$build_cmd $build_args"
+      $build_cmd
+      return $?
+    fi
+  fi
+
+  # Cross-arch or multi-arch build → docker buildx (not a compose
+  # subcommand, so this is a separate invocation against the compose file
+  # rather than something appended to $compose_cmd).
+  docker buildx version &>/dev/null \
+    || fail "docker buildx is required for PLATFORMS='$platforms' but was not found (Docker Engine 20.10+ ships it by default)"
+
+  local compose_file="$stack_dir/docker-compose.yml"
+  local -a bake_args=(buildx bake -f "$compose_file" --set "*.platform=$platforms")
+  # shellcheck disable=SC2206  # BUILD_ARGS is a space-separated flag list (e.g. "--no-cache --pull"), intentional word split
+  [ -n "$build_args" ] && bake_args+=($build_args)
+
+  if [ "${#platform_list[@]}" -gt 1 ]; then
+    [ "${REGISTRY_TYPE:-none}" != "none" ] && [ -n "${REGISTRY_HOST:-}" ] \
+      || fail "PLATFORMS='$platforms' builds more than one architecture, which requires --push to a registry — set REGISTRY_TYPE and REGISTRY_HOST first (buildx cannot load a multi-arch manifest into the local image store)."
+    log "Building multi-arch images ($platforms) via buildx — pushing manifest to $REGISTRY_HOST..."
+    docker "${bake_args[@]}" --push
+  else
+    log "Building for $platforms via buildx (host is ${host_platform:-unknown})..."
+    docker "${bake_args[@]}" --load
+  fi
+}
+
+# _deploy_warn_arch_mismatch <stack> <platforms>
+#
+# Best-effort pre-build warning (never blocks) when the platform(s) about to
+# be built don't include the target host's CPU architecture — the classic
+# "works on my amd64 laptop, exec format error on the Pi" failure. <platforms>
+# is a PLATFORMS-style comma-separated list; a single "linux/amd64" also works.
+#
+# Target arch resolution order:
+#   1. Declared `arch=` in the topology host spec (strut.conf [hosts]) — free.
+#   2. Best-effort `uname -m` over SSH to VPS_HOST, mapped to Docker's arch
+#      naming (x86_64→amd64, aarch64/arm64→arm64, armv7l→arm/v7).
+#   3. Unknown (no VPS_HOST, unreachable host, no declared arch) → skip
+#      silently; this is advisory, not a hard requirement.
+_deploy_warn_arch_mismatch() {
+  local stack="$1"
+  local platforms="$2"
+  [ -n "$platforms" ] || return 0
+
+  local target_arch=""
+  if declare -F topology_resolve_arch >/dev/null 2>&1; then
+    target_arch=$(topology_resolve_arch "$stack" 2>/dev/null) || target_arch=""
+  fi
+
+  if [ -z "$target_arch" ] && [ -n "${VPS_HOST:-}" ]; then
+    local vps_user="${VPS_USER:-ubuntu}"
+    local vps_port="${VPS_PORT:-22}"
+    local vps_ssh_key="${VPS_SSH_KEY:-}"
+    local ssh_opts
+    ssh_opts=$(build_ssh_opts -p "$vps_port" -k "$vps_ssh_key" --batch 2>/dev/null) || return 0
+    local remote_uname
+    # shellcheck disable=SC2029
+    remote_uname=$(timeout 5 ssh $ssh_opts "$vps_user@$VPS_HOST" "uname -m" 2>/dev/null) || return 0
+    case "$remote_uname" in
+      x86_64)        target_arch="amd64" ;;
+      aarch64|arm64) target_arch="arm64" ;;
+      armv7l)        target_arch="arm/v7" ;;
+      "")            return 0 ;;
+      *)             target_arch="$remote_uname" ;;
+    esac
+  fi
+
+  [ -n "$target_arch" ] || return 0
+
+  local -a platform_list
+  IFS=',' read -ra platform_list <<< "$platforms"
+  local plat covered=false
+  for plat in "${platform_list[@]}"; do
+    if [[ "$plat" == */"$target_arch" || "$plat" == */"$target_arch"/* ]]; then
+      covered=true
+      break
+    fi
+  done
+
+  $covered && return 0
+  warn "Target host arch ($target_arch) is not among the built platform(s) ($platforms) — the image may fail to start on the target host (exec format error)."
+  return 0
+}
+
 # deploy_stack <stack> <env_file> [services_profile]
 #
 # Brings up the stack at stacks/<stack>/docker-compose.yml using the given
@@ -232,7 +383,12 @@ deploy_stack() {
       fi
       run_cmd "Pull latest images" $compose_cmd pull
     elif [ "$dry_build_mode" = "local" ]; then
-      run_cmd "Build images on target" $compose_cmd build
+      if [ -n "${PLATFORMS:-}" ]; then
+        run_cmd "Build images ($PLATFORMS) via buildx" docker buildx bake -f "$compose_file" --set "*.platform=$PLATFORMS"
+        _deploy_warn_arch_mismatch "$stack" "$PLATFORMS"
+      else
+        run_cmd "Build images on target" $compose_cmd build
+      fi
     else
       run_cmd "Skip image pull/build (BUILD_MODE=$dry_build_mode)" echo "skipped"
     fi
@@ -265,8 +421,21 @@ deploy_stack() {
 
   # Registry login (dispatches based on REGISTRY_TYPE from config)
   # Skipped when BUILD_MODE=local or BUILD_MODE=none (no registry needed)
+  # A multi-arch PLATFORMS build (even under BUILD_MODE=local) can't --load
+  # into the local image store, so it must --push — which needs registry
+  # auth up front, same as BUILD_MODE=registry.
+  local _platforms_count=0
+  if [ -n "${PLATFORMS:-}" ]; then
+    local -a _platforms_arr
+    IFS=',' read -ra _platforms_arr <<< "$PLATFORMS"
+    _platforms_count="${#_platforms_arr[@]}"
+  fi
+
   if [ "$build_mode" = "registry" ]; then
     log "[2/5] Authenticating with registry..."
+    registry_login
+  elif [ "$build_mode" = "local" ] && [ "$_platforms_count" -gt 1 ]; then
+    log "[2/5] Authenticating with registry (multi-arch build must push)..."
     registry_login
   elif [ "$build_mode" = "local" ]; then
     log "[2/5] Skipping registry auth (BUILD_MODE=local)"
@@ -282,12 +451,7 @@ deploy_stack() {
   # Pull or build images based on BUILD_MODE
   if [ "$build_mode" = "local" ]; then
     log "[3/5] Building images on target..."
-    local build_args="${BUILD_ARGS:-}"
-    local build_cmd="$compose_cmd build"
-    [ "${BUILD_PULL:-false}" = "true" ] && build_cmd="$build_cmd --pull"
-    [ "${BUILD_PARALLEL:-true}" = "true" ] && build_cmd="$build_cmd --parallel"
-    [ -n "$build_args" ] && build_cmd="$build_cmd $build_args"
-    $build_cmd || fail "Image build failed"
+    _deploy_build_images "$stack" "$compose_cmd" "$stack_dir" || fail "Image build failed"
     ok "Images built successfully"
   elif [ "$build_mode" = "none" ]; then
     log "[3/5] Skipping image pull/build (BUILD_MODE=none)"
@@ -515,12 +679,16 @@ $_hint"
 
   if [ "$build_mode" = "local" ]; then
     log "Building images on target (BUILD_MODE=local)..."
-    local build_args="${BUILD_ARGS:-}"
-    local build_cmd="$compose_cmd build"
-    [ "${BUILD_PULL:-false}" = "true" ] && build_cmd="$build_cmd --pull"
-    [ "${BUILD_PARALLEL:-true}" = "true" ] && build_cmd="$build_cmd --parallel"
-    [ -n "$build_args" ] && build_cmd="$build_cmd $build_args"
-    $build_cmd || fail "Image build failed"
+    # A multi-arch PLATFORMS build can't --load, so it must --push — needs
+    # registry auth up front (see the matching guard in deploy_stack).
+    local _platforms_count=0
+    if [ -n "${PLATFORMS:-}" ]; then
+      local -a _platforms_arr
+      IFS=',' read -ra _platforms_arr <<< "$PLATFORMS"
+      _platforms_count="${#_platforms_arr[@]}"
+    fi
+    [ "$_platforms_count" -gt 1 ] && registry_login
+    _deploy_build_images "$stack" "$compose_cmd" "$stack_dir" || fail "Image build failed"
     ok "Build complete."
   elif [ "$build_mode" = "none" ]; then
     log "Skipping pull/build (BUILD_MODE=none)"

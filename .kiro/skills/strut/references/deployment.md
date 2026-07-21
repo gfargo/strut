@@ -62,6 +62,37 @@ strut my-stack migrate neo4j --down 1 --env prod      # Rollback one
 strut my-stack rollback --env prod            # Restore previous deploy snapshot
 ```
 
+## Ship and Rebuild
+
+```bash
+strut my-stack ship --env prod                       # commit, push, then rebuild on the remote host
+strut my-stack rebuild --env prod                     # build images on target + redeploy (BUILD_MODE=local)
+strut my-stack rebuild --env prod --no-cache          # rebuild without the Docker layer cache
+```
+
+`ship` is the "edit locally, deploy remotely" workflow: it commits, pushes, then SSHes over and runs `rebuild` on the target host. `rebuild` always builds natively on whichever host runs it — pointing `ship`/`rebuild` at a Raspberry Pi builds arm64 images directly on that Pi, with no cross-compilation involved.
+
+### Multi-arch / ARM builds
+
+Set `PLATFORMS` in `services.conf` (or pass `--platform` to `rebuild`/`ship` for a one-off) to build for architectures other than the host's, via `docker buildx`:
+
+```bash
+strut my-stack rebuild --env prod --platform linux/arm64,linux/amd64   # multi-arch manifest
+strut my-stack rebuild --env prod --platform linux/arm64               # single cross-arch build
+```
+
+- **Unset `PLATFORMS`** (the default): plain `docker compose build`, no buildx dependency — safe for older Docker installs on some Pi images.
+- **Single platform matching the host's own arch**: same plain `docker compose build` path.
+- **Single platform different from the host's arch**: builds via `docker buildx bake --load` (loads the cross-arch image into the local Docker image store).
+- **More than one platform**: builds via `docker buildx bake --push`. buildx cannot load a multi-arch manifest into the local image store, so this *requires* `REGISTRY_TYPE`/`REGISTRY_HOST` to already be configured — it pushes the manifest to that registry instead of running locally.
+
+Before a `PLATFORMS` build runs, strut warns (but doesn't block) if the target host's architecture isn't among the platforms being built — resolved from `arch=<value>` on the host's entry in `strut.conf`'s `[hosts]` section, or a best-effort `uname -m` probe over SSH:
+
+```ini
+[hosts]
+pi-ops = pi@pi-ops.local:22 ~/.ssh/pi_key arch=arm64
+```
+
 ## Deploy History / Releases
 
 Every deploy and release appends a durable, structured record (timestamp,

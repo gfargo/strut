@@ -15,7 +15,7 @@ set -euo pipefail
 # parse_host_spec <spec_string>
 #
 # Parses a host spec string into its components. The canonical format is:
-#   [user@]host[:port] [key_path] [deploy_dir=/path]
+#   [user@]host[:port] [key_path] [deploy_dir=/path] [arch=<arch>]
 #
 # Sets the following variables in the caller's scope:
 #   CONN_USER       — SSH user (default: "ubuntu")
@@ -23,6 +23,7 @@ set -euo pipefail
 #   CONN_PORT       — SSH port (default: "22")
 #   CONN_KEY        — SSH key path (default: "")
 #   CONN_DEPLOY_DIR — deploy directory override (default: "")
+#   CONN_ARCH       — declared host CPU arch, e.g. "arm64" (default: "")
 #
 # Returns 1 if the spec is empty or unparseable.
 #
@@ -30,6 +31,7 @@ set -euo pipefail
 #   parse_host_spec "ubuntu@10.0.0.1:2222 ~/.ssh/key"
 #   parse_host_spec "harbor"        # host only, defaults for rest
 #   parse_host_spec "deploy@box:22 /keys/id deploy_dir=/opt/stacks"
+#   parse_host_spec "pi@raspi.local /keys/id arch=arm64"
 parse_host_spec() {
   local spec="$1"
 
@@ -38,23 +40,26 @@ parse_host_spec() {
   CONN_PORT="22"
   CONN_KEY=""
   CONN_DEPLOY_DIR=""
+  CONN_ARCH=""
 
   [ -n "$spec" ] || return 1
 
   # Split into words
-  local conn_part="" key_or_opt="" extra=""
-  read -r conn_part key_or_opt extra <<< "$spec" || true
+  local -a words
+  read -ra words <<< "$spec"
+  local conn_part="${words[0]:-}"
 
-  # Check for deploy_dir= in second or third position
+  # Remaining words are key=value options (deploy_dir=, arch=) in any order,
+  # plus at most one bare key_path token.
   local key_path=""
-  if [[ "${key_or_opt:-}" == deploy_dir=* ]]; then
-    CONN_DEPLOY_DIR="${key_or_opt#deploy_dir=}"
-  elif [ -n "${key_or_opt:-}" ]; then
-    key_path="$key_or_opt"
-  fi
-  if [[ "${extra:-}" == deploy_dir=* ]]; then
-    CONN_DEPLOY_DIR="${extra#deploy_dir=}"
-  fi
+  local w
+  for w in "${words[@]:1}"; do
+    case "$w" in
+      deploy_dir=*) CONN_DEPLOY_DIR="${w#deploy_dir=}" ;;
+      arch=*)       CONN_ARCH="${w#arch=}" ;;
+      *)            [ -z "$key_path" ] && key_path="$w" ;;
+    esac
+  done
 
   # Parse user@host:port
   if [[ "$conn_part" == *@* ]]; then

@@ -181,7 +181,7 @@ _strut_completions() {
       return 0
       ;;
     rebuild)
-      mapfile -t COMPREPLY < <(compgen -W "--env --no-cache --pull --dry-run" -- "$cur")
+      mapfile -t COMPREPLY < <(compgen -W "--env --no-cache --pull --platform --dry-run" -- "$cur")
       return 0
       ;;
     health)
