@@ -1514,6 +1514,8 @@ _secrets_lock() {
   local recipients_flag=""
   local keep=false
   local force=false
+  local file_flag=""
+  local output_flag=""
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -1522,13 +1524,19 @@ _secrets_lock() {
       --recipients) recipients_flag="$2"; shift 2 ;;
       --keep)       keep=true;            shift ;;
       --force)      force=true;           shift ;;
+      --file)       file_flag="$2";       shift 2 ;;
+      --output)     output_flag="$2";     shift 2 ;;
       *)            shift ;;
     esac
   done
 
-  # Find local env file
+  # Find local env file — an explicit --file bypasses the .<env>.env
+  # resolution entirely, letting callers (e.g. `gen`) lock an arbitrary path.
   local local_env
-  if ! local_env=$(_secrets_resolve_local_env "$stack_dir" "$env_name"); then
+  if [ -n "$file_flag" ]; then
+    local_env="$file_flag"
+    [ -f "$local_env" ] || { fail "File not found: $local_env"; return 1; }
+  elif ! local_env=$(_secrets_resolve_local_env "$stack_dir" "$env_name"); then
     fail "No local env file found for '$env_name'. Expected: $stack_dir/.${env_name}.env"
     return 1
   fi
@@ -1545,9 +1553,14 @@ _secrets_lock() {
     *) fail "Unknown backend: '$backend'. Use 'age' or 'gpg'."; return 1 ;;
   esac
 
-  local env_dir
-  env_dir=$(dirname "$local_env")
-  local encrypted_file="$env_dir/.${env_name}.env.${backend}"
+  local encrypted_file
+  if [ -n "$output_flag" ]; then
+    encrypted_file="$output_flag"
+  else
+    local env_dir
+    env_dir=$(dirname "$local_env")
+    encrypted_file="$env_dir/.${env_name}.env.${backend}"
+  fi
 
   print_banner "Secrets Lock"
   log "Stack: $stack | Env: $env_name | Backend: $backend"
@@ -1640,37 +1653,62 @@ _secrets_unlock() {
   local identity_flag=""
   local keep=false
   local force=false
+  local file_flag=""
+  local output_flag=""
+  local backend_flag=""
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --identity) identity_flag="$2"; shift 2 ;;
       --keep)     keep=true;          shift ;;
       --force)    force=true;         shift ;;
+      --file)     file_flag="$2";     shift 2 ;;
+      --output)   output_flag="$2";   shift 2 ;;
+      --backend)  backend_flag="$2";  shift 2 ;;
       *)          shift ;;
     esac
   done
 
-  # Find encrypted file — stack-level before project-level, age before gpg
+  # Find encrypted file — an explicit --file targets an arbitrary path
+  # directly (e.g. `gen`'s env/hosts/<alias>.gen.enc.env), bypassing the
+  # .<env>.env.{age,gpg} stack/project search below. Since --file paths
+  # don't follow that naming convention, the backend can't be inferred from
+  # the filename and must be passed explicitly via --backend.
   local encrypted_file="" backend=""
-  for b in age gpg; do
-    for d in "$stack_dir" "$CLI_ROOT"; do
-      local candidate="$d/.${env_name}.env.${b}"
-      if [ -f "$candidate" ]; then
-        encrypted_file="$candidate"
-        backend="$b"
-        break 2
-      fi
+  if [ -n "$file_flag" ]; then
+    encrypted_file="$file_flag"
+    [ -f "$encrypted_file" ] || { fail "File not found: $encrypted_file"; return 1; }
+    backend="$backend_flag"
+    case "$backend" in
+      age|gpg) ;;
+      *) fail "--backend (age|gpg) is required when using --file"; return 1 ;;
+    esac
+  else
+    for b in age gpg; do
+      for d in "$stack_dir" "$CLI_ROOT"; do
+        local candidate="$d/.${env_name}.env.${b}"
+        if [ -f "$candidate" ]; then
+          encrypted_file="$candidate"
+          backend="$b"
+          break 2
+        fi
+      done
     done
-  done
 
-  if [ -z "$encrypted_file" ]; then
-    fail "No encrypted env file found for '$env_name'. Expected .${env_name}.env.age or .${env_name}.env.gpg"
-    return 1
+    if [ -z "$encrypted_file" ]; then
+      fail "No encrypted env file found for '$env_name'. Expected .${env_name}.env.age or .${env_name}.env.gpg"
+      return 1
+    fi
   fi
 
-  local env_dir
-  env_dir=$(dirname "$encrypted_file")
-  local output_env="$env_dir/.${env_name}.env"
+  local output_env
+  if [ -n "$output_flag" ]; then
+    output_env="$output_flag"
+  else
+    local env_dir
+    env_dir=$(dirname "$encrypted_file")
+    output_env="$env_dir/.${env_name}.env"
+  fi
 
   print_banner "Secrets Unlock"
   log "Stack: $stack | Env: $env_name | Backend: $backend"
