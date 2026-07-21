@@ -372,6 +372,7 @@ cmd_deploy() {
   diff_warn_env_divergence "$stack" "$env_file" "${CMD_STACK_DIR:-$CLI_ROOT/stacks/$stack}"
 
   declare -F history_record >/dev/null || source "$LIB/history.sh"
+  declare -F rollback_get_latest_snapshot >/dev/null || source "$LIB/rollback.sh"
   local _deploy_stack_dir="${CMD_STACK_DIR:-$CLI_ROOT/stacks/$stack}"
   local _deploy_rc=0
 
@@ -384,10 +385,18 @@ cmd_deploy() {
       ;;
   esac
 
+  # release_id = the rollback snapshot this deploy just (re)saved before
+  # restarting containers — i.e. the restore target for reverting PAST this
+  # deploy. Empty when no snapshot was saved (first deploy, 0 running
+  # containers) — history_show handles that gracefully.
+  local _deploy_snapshot _deploy_release_id=""
+  _deploy_snapshot=$(rollback_get_latest_snapshot "$stack" "$env_name" 2>/dev/null) || true
+  [ -n "$_deploy_snapshot" ] && _deploy_release_id=$(basename "$_deploy_snapshot" .json)
+
   if [ "$_deploy_rc" -eq 0 ]; then
-    history_record "$_deploy_stack_dir" "deploy" "success" "env=${env_name:-}" "mode=$deploy_mode"
+    history_record "$_deploy_stack_dir" "deploy" "success" "env=${env_name:-}" "mode=$deploy_mode" "git_sha=$(history_git_sha)" "release_id=$_deploy_release_id"
   else
-    history_record "$_deploy_stack_dir" "deploy" "failed" "env=${env_name:-}" "mode=$deploy_mode"
+    history_record "$_deploy_stack_dir" "deploy" "failed" "env=${env_name:-}" "mode=$deploy_mode" "git_sha=$(history_git_sha)" "release_id=$_deploy_release_id"
   fi
   return "$_deploy_rc"
 }

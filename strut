@@ -186,6 +186,7 @@ source "$LIB/cmd_validate.sh"
 source "$LIB/cmd_rollback.sh"
 source "$LIB/history.sh"
 source "$LIB/cmd_history.sh"
+source "$LIB/cmd_releases.sh"
 source "$LIB/diff.sh"
 source "$LIB/cmd_diff.sh"
 source "$LIB/lock.sh"
@@ -336,6 +337,7 @@ usage() {
   echo "  webhook    poll|serve|install                                  Push-to-deploy automation"
   echo "  mcp        serve|install                                       MCP server for AI agents"
   echo "  rollback   [--env <name>]                                      Rollback to previous deploy snapshot"
+  echo "  releases   [--env <name>] [--json] | show <id>                Deploy history / audit trail"
   echo "  prune      [--env <name>]                                      Remove unused containers/images/volumes on VPS"
   echo "  gateway    deploy|status|reload|validate --host <alias>        Caddy gateway management"
   echo "  cert:renew [--host <alias>]                                    Renew SSL/TLS certificates"
@@ -950,6 +952,7 @@ if [ "$FLAGS_HELP" = "true" ]; then
     timers)   _usage_timers ;;
     validate) _usage_validate ;;
     rollback) _usage_rollback ;;
+    releases) _usage_releases ;;
     diff)     _usage_diff ;;
     briefing) _usage_briefing ;;
     preflight) _usage_preflight ;;
@@ -1012,6 +1015,7 @@ case "$COMMAND" in
   validate)            cmd_validate ;;
   rollback)            cmd_rollback "${CMD_ARGS[@]+"${CMD_ARGS[@]}"}" ;;
   history)             cmd_history "${CMD_ARGS[@]+"${CMD_ARGS[@]}"}" ;;
+  releases)            cmd_releases "${CMD_ARGS[@]+"${CMD_ARGS[@]}"}" ;;
   domain)              cmd_domain "${CMD_ARGS[@]+"${CMD_ARGS[@]}"}" ;;
   diff)                cmd_diff "${CMD_ARGS[@]+"${CMD_ARGS[@]}"}" ;;
   lock)                cmd_lock "${CMD_ARGS[@]+"${CMD_ARGS[@]}"}" ;;

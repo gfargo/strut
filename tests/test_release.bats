@@ -256,6 +256,21 @@ teardown() {
   [[ "$output" == *"duration_s:="* ]]
 }
 
+@test "vps_release: release history entry carries mode, remote-computed git_sha, and the controller's actor" {
+  GITHUB_ACTOR=octocat run vps_release "test-stack" "$TEST_TMP/.test.env" ""
+  [ "$status" -eq 0 ]
+
+  run cat "$SSH_CALL_LOG"
+  # mode + actor are resolved on the controller and interpolated as literals.
+  [[ "$output" == *"mode=standard"* ]]
+  [[ "$output" == *"actor=octocat"* ]]
+  # git_sha and release_id are computed remotely — the captured text still
+  # contains the (unexpanded) remote variable reference, proving they were
+  # NOT resolved on the controller (see comment above the heredoc).
+  [[ "$output" == *'git_sha=$_release_sha'* ]]
+  [[ "$output" == *'release_id=$_release_id'* ]]
+}
+
 @test "vps_release: records outcome=failed when the final health check fails" {
   export SSH_FAIL_PATTERN="health --env"
 
