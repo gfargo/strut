@@ -546,6 +546,15 @@ case "${1:-}" in
     cmd_init "$@"
     exit 0
     ;;
+  remote:init)
+    shift
+    if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
+      _usage_remote_init
+      exit 0
+    fi
+    cmd_remote_init "$@"
+    exit $?
+    ;;
   skills)
     shift
     cmd_skills "$@"
@@ -861,7 +870,7 @@ CMD_ARGS=("${FLAGS_POSITIONAL[@]+"${FLAGS_POSITIONAL[@]}"}")
 # parse_common_flags consumes --host into FLAGS_HOST. The gateway and adopt
 # handlers read --host from their own args, so re-inject it (otherwise they
 # can never see the target host — issue #214).
-if { [ "$STACK" = "gateway" ] || [ "$COMMAND" = "adopt" ]; } && [ -n "$FLAGS_HOST" ]; then
+if { [ "$STACK" = "gateway" ] || [ "$COMMAND" = "adopt" ] || [ "$COMMAND" = "remote:init" ]; } && [ -n "$FLAGS_HOST" ]; then
   CMD_ARGS+=(--host "$FLAGS_HOST")
 fi
 
@@ -885,6 +894,9 @@ if [ -f "$ENV_FILE" ]; then
 fi
 if [ "$IS_HOST_SCOPED" = true ]; then
   : # host-scoped commands resolve their own host from the alias/--host
+elif [ "$COMMAND" = "remote:init" ] && [ -n "$FLAGS_HOST" ]; then
+  : # a brand-new host bootstrapped by remote:init may not be a [hosts]
+    # alias yet — --host is passed through as-is to cmd_remote_init
 elif [ -n "$FLAGS_HOST" ]; then
   # --host flag overrides topology target and applies per-host env
   topology_apply_host_override "$STACK" "$FLAGS_HOST" "$STACK_DIR"
