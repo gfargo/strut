@@ -69,6 +69,49 @@ teardown() { common_teardown; }
   [ "$status" -eq 0 ]
 }
 
+@test "history_record: emits git_sha, release_id, and actor fields when passed as extras" {
+  history_record "$STACK_DIR" "deploy" "success" "mode=standard" "git_sha=abc1234" "release_id=20260420-090000" "actor=ci-bot"
+  run cat "$STACK_DIR/.deploy-history.jsonl"
+  [[ "$output" == *'"mode":"standard"'* ]]
+  [[ "$output" == *'"git_sha":"abc1234"'* ]]
+  [[ "$output" == *'"release_id":"20260420-090000"'* ]]
+  [[ "$output" == *'"actor":"ci-bot"'* ]]
+}
+
+@test "history_record: user field is CI-aware via history_actor (GITHUB_ACTOR wins over \$USER)" {
+  GITHUB_ACTOR=octocat history_record "$STACK_DIR" "deploy" "success"
+  run cat "$STACK_DIR/.deploy-history.jsonl"
+  [[ "$output" == *'"user":"octocat"'* ]]
+}
+
+# ── history_git_sha / history_actor ───────────────────────────────────────────
+
+@test "history_git_sha: returns a non-empty short SHA for this git repo" {
+  run history_git_sha "$CLI_ROOT"
+  [ "$status" -eq 0 ]
+  [ -n "$output" ]
+  [[ "$output" != "unknown" ]]
+}
+
+@test "history_git_sha: best-effort — returns 'unknown' rather than failing on a non-git dir" {
+  run history_git_sha "$TEST_TMP"
+  [ "$status" -eq 0 ]
+  [ "$output" = "unknown" ]
+}
+
+@test "history_actor: falls back to \$USER when no CI vars are set" {
+  unset GITHUB_ACTOR GITLAB_USER_LOGIN CI_COMMIT_AUTHOR
+  USER=alice run history_actor
+  [ "$status" -eq 0 ]
+  [ -n "$output" ]
+}
+
+@test "history_actor: prefers GITHUB_ACTOR over \$USER" {
+  GITHUB_ACTOR=octocat USER=alice run history_actor
+  [ "$status" -eq 0 ]
+  [ "$output" = "octocat" ]
+}
+
 # ── history_list ───────────────────────────────────────────────────────────────
 
 @test "history_list: reports no history when file doesn't exist" {
