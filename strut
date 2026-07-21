@@ -176,6 +176,7 @@ source "$LIB/cmd_ssh_keygen.sh"
 source "$LIB/cmd_ci_init.sh"
 source "$LIB/secrets_providers.sh"
 source "$LIB/cmd_secrets.sh"
+source "$LIB/cmd_gen.sh"
 source "$LIB/cmd_init_secrets.sh"
 source "$LIB/cmd_init.sh"
 source "$LIB/cmd_stop.sh"
@@ -354,6 +355,8 @@ usage() {
   echo "  init-secrets [--env <name>] [--force] [--dry-run]              Generate .env from template with auto-secrets"
   echo "  secrets     push|pull|diff|validate|hydrate|status|set|lock|unlock|rotate|template|export [--env <name>]"
   echo "                                                                 Sync/manage .env files and secrets"
+  echo "  gen      <VAR> [--scope host|stack] [--host <alias>] [--recipe hex32|uuid] [--dry-run]"
+  echo "                                                                 Generate-if-absent: persist VAR once, encrypted at rest"
   echo "  init     [--registry <type>] [--org <name>]                    Initialize new project"
   echo "  upgrade                                                        Upgrade strut to latest version"
   echo "  skills   [list|install] [--format kiro|claude|cursor|generic|all]  AI agent context"
@@ -945,6 +948,7 @@ if [ "$FLAGS_HELP" = "true" ]; then
     ship)     _usage_ship ;;
     init-secrets) _usage_init_secrets ;;
     secrets)  _usage_secrets ;;
+    gen)      _usage_gen ;;
     stop)     _usage_stop ;;
     first-run) _usage_first_run ;;
     destroy)  _usage_destroy ;;
@@ -989,6 +993,7 @@ case "$COMMAND" in
   ship)                cmd_ship "${CMD_ARGS[@]+"${CMD_ARGS[@]}"}" ;;
   init-secrets)        cmd_init_secrets "${CMD_ARGS[@]+"${CMD_ARGS[@]}"}" ;;
   secrets)             cmd_secrets "${CMD_ARGS[@]+"${CMD_ARGS[@]}"}" ;;
+  gen)                 cmd_gen "${CMD_ARGS[@]+"${CMD_ARGS[@]}"}" ;;
   stop)                cmd_stop "${CMD_ARGS[@]+"${CMD_ARGS[@]}"}" ;;
   first-run)           cmd_first_run "${CMD_ARGS[@]+"${CMD_ARGS[@]}"}" ;;
   destroy)             cmd_destroy "${CMD_ARGS[@]+"${CMD_ARGS[@]}"}" ;;
