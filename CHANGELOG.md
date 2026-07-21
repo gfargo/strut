@@ -1,5 +1,37 @@
 # Changelog
 
+## [0.42.0](https://github.com/gfargo/strut/compare/v0.41.1...v0.42.0) (2026-07-21)
+
+
+### Features
+
+* **cli:** add `<stack> gen <VAR>` generate-if-absent primitive ([#465](https://github.com/gfargo/strut/issues/465)) ([eb9ab62](https://github.com/gfargo/strut/commit/eb9ab623347e2c42422fcefecf676e02532b373b))
+* close out layered-env epic ([#179](https://github.com/gfargo/strut/issues/179)) — shared common.env + transparent secrets filter ([#438](https://github.com/gfargo/strut/issues/438)) ([965fac4](https://github.com/gfargo/strut/commit/965fac4729145720c4eb3574915d2c115fda6519))
+* **deploy:** multi-arch/ARM image builds via buildx (rebuild --platform) ([#464](https://github.com/gfargo/strut/issues/464)) ([a2c4462](https://github.com/gfargo/strut/commit/a2c446202668caaee58821061d90a90db1bb5ebb))
+* **destroy:** add pre_destroy/post_destroy teardown lifecycle hooks ([#453](https://github.com/gfargo/strut/issues/453)) ([20269b2](https://github.com/gfargo/strut/commit/20269b2c1573782906ecf9a4c556242aac2b66a8))
+* **hooks:** add hook helper stdlib (install_unit/timer/udev/default/bin, require_pkg) ([#454](https://github.com/gfargo/strut/issues/454)) ([7a00197](https://github.com/gfargo/strut/commit/7a00197a14e939b01e812566fed90c5a2ee6ac47))
+* **hooks:** controller-side pre_deploy_local / post_deploy_local hooks ([#450](https://github.com/gfargo/strut/issues/450)) ([9b707ee](https://github.com/gfargo/strut/commit/9b707eec4575dd3c44564a744fa9b5827f64131a))
+* **hooks:** first-run --force/--status + marker contract docs ([#451](https://github.com/gfargo/strut/issues/451)) ([b19e5b3](https://github.com/gfargo/strut/commit/b19e5b3045fe37bdf89c9ea1b8e79068d031855d))
+* **provision:** add host-scoped provision.d/ lifecycle ([#455](https://github.com/gfargo/strut/issues/455)) ([6b66154](https://github.com/gfargo/strut/commit/6b661541c47e4614d7658a3148c63a6533b6ddc7))
+* **releases:** add deploy history / audit trail command ([#463](https://github.com/gfargo/strut/issues/463)) ([50dbe6f](https://github.com/gfargo/strut/commit/50dbe6fb12e5e3205c939e6f4279f48b63d67a48))
+* **secrets:** allow *.enc.env under stacks/ for committed at-rest secrets ([#460](https://github.com/gfargo/strut/issues/460)) ([95a1a3d](https://github.com/gfargo/strut/commit/95a1a3d7e680693df693a35964efbea1bdf796db))
+* **timers:** declarative stack-level systemd timers ([#452](https://github.com/gfargo/strut/issues/452)) ([2970f75](https://github.com/gfargo/strut/commit/2970f759ed14579f3b65082656cbbc3eec0ab33a))
+
+
+### Bug Fixes
+
+* **cli:** make remote:init --host &lt;h&gt; reachable ([#458](https://github.com/gfargo/strut/issues/458)) ([afc6d1e](https://github.com/gfargo/strut/commit/afc6d1e5bf24c8cc444dd987ec0a345aa9951001))
+* config/topology INI-parser divergence + scaffold safety guards ([#466](https://github.com/gfargo/strut/issues/466)) ([07700a8](https://github.com/gfargo/strut/commit/07700a8b5c002846836a6f6523a42133deb7aafc))
+* **connection:** stop VPS_DEPLOY_DIR/VPS_SSH_KEY leaking across hosts in resolve_connection_from_host_alias ([#457](https://github.com/gfargo/strut/issues/457)) ([181b70a](https://github.com/gfargo/strut/commit/181b70a93557c8bf091ea3b6f1a493fcedb266e2))
+* **deploy:** close the deploy/blue-green/lock/stop lifecycle-safety cluster ([#437](https://github.com/gfargo/strut/issues/437)) ([d8f454d](https://github.com/gfargo/strut/commit/d8f454d20d93cfb36def0398bbd72bed158cb637))
+* drift/diff/doctor JSON correctness + output robustness roundup ([#443](https://github.com/gfargo/strut/issues/443)) ([b541f7f](https://github.com/gfargo/strut/commit/b541f7fa50f693ab68428c6d0b37617bbbb83e7e))
+* **mcp:** support Content-Length framed stdio transport ([#442](https://github.com/gfargo/strut/issues/442)) ([8a5d953](https://github.com/gfargo/strut/commit/8a5d9532f01e72e335d6df99be868935fdf9a2c9))
+* **provision:** use build_scp_opts instead of tty ssh_opts for scp ([#461](https://github.com/gfargo/strut/issues/461)) ([31926b1](https://github.com/gfargo/strut/commit/31926b147677be3e254246c1599110a96c84a701))
+* **provision:** write provision.d completion marker with sudo ([#456](https://github.com/gfargo/strut/issues/456)) ([9271484](https://github.com/gfargo/strut/commit/9271484515c7d56cf2ccbb96b1f2139557de281c))
+* **rollback:** stop saving/selecting/restoring empty (0-service) snapshots ([#462](https://github.com/gfargo/strut/issues/462)) ([437d784](https://github.com/gfargo/strut/commit/437d784620028e151f1d80d36abd024cf79ba40e))
+* standalone infra bugs — webhook (dash), monitor (compose v1), domain/ssl (branch + label parsing) ([#441](https://github.com/gfargo/strut/issues/441)) ([0b26360](https://github.com/gfargo/strut/commit/0b26360ba3f55fb0649da11d99740e8cfa4656dd))
+* **webhook:** make _all_stacks return 0 regardless of trailing non-dir entries ([#440](https://github.com/gfargo/strut/issues/440)) ([25f58f9](https://github.com/gfargo/strut/commit/25f58f95240efd67983638cbc2a51847219c761c))
+
 ## [0.41.1](https://github.com/gfargo/strut/compare/v0.41.0...v0.41.1) (2026-07-18)
 
 
