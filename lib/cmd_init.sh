@@ -92,7 +92,14 @@ EOF
   # `secrets-filter`) are ciphertext and meant to be committed. They don't
   # end in literally ".env" so .*.env above already misses them — these
   # negations make that explicit and future-proof (strut#178).
-  local -a strut_ignores=('.env' '.env.*' '.*.env' '!.env.template' '!*.env.age' '!*.env.gpg' '*.backup-*' 'backups/' 'data/' '.rollback/' '.bluegreen')
+  #
+  # !*.enc.env / !.*.enc.env: the secrets-filter committed-secrets naming
+  # convention (strut#178 gap #2) — plaintext in the working tree (smudged
+  # by the git filter), ciphertext in git. .*.env above WOULD sweep the
+  # dot-prefixed form (.prod.enc.env still ends in ".env"), so both forms
+  # need an explicit negation to stay commit-safe under stacks/<name>/ and
+  # the project root alike.
+  local -a strut_ignores=('.env' '.env.*' '.*.env' '!.env.template' '!*.env.age' '!*.env.gpg' '!*.enc.env' '!.*.enc.env' '*.backup-*' 'backups/' 'data/' '.rollback/' '.bluegreen')
   if [ ! -f "$PWD/.gitignore" ]; then
     {
       echo "# strut — generated .gitignore"

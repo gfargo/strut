@@ -198,7 +198,7 @@ _init_git_repo() {
 
   cmd_secrets_filter install >/dev/null
   [ -f "$TEST_TMP/.gitattributes" ]
-  grep -qxF ".*.env filter=strutsecrets diff=strutsecrets -text" "$TEST_TMP/.gitattributes"
+  grep -qxF "*.enc.env filter=strutsecrets diff=strutsecrets -text" "$TEST_TMP/.gitattributes"
 }
 
 @test "cmd_secrets_filter install: --env scopes .gitattributes to that env only" {
@@ -207,8 +207,8 @@ _init_git_repo() {
   touch "$TEST_TMP/strut"; chmod +x "$TEST_TMP/strut"
 
   cmd_secrets_filter install --env prod >/dev/null
-  grep -qxF ".prod.env filter=strutsecrets diff=strutsecrets -text" "$TEST_TMP/.gitattributes"
-  ! grep -qxF ".*.env filter=strutsecrets diff=strutsecrets -text" "$TEST_TMP/.gitattributes"
+  grep -qxF ".prod.enc.env filter=strutsecrets diff=strutsecrets -text" "$TEST_TMP/.gitattributes"
+  ! grep -qxF "*.enc.env filter=strutsecrets diff=strutsecrets -text" "$TEST_TMP/.gitattributes"
 }
 
 @test "cmd_secrets_filter install: running twice does not duplicate the .gitattributes rule" {
@@ -219,7 +219,7 @@ _init_git_repo() {
   cmd_secrets_filter install >/dev/null
   cmd_secrets_filter install >/dev/null
   local count
-  count=$(grep -cxF ".*.env filter=strutsecrets diff=strutsecrets -text" "$TEST_TMP/.gitattributes")
+  count=$(grep -cxF "*.enc.env filter=strutsecrets diff=strutsecrets -text" "$TEST_TMP/.gitattributes")
   [ "$count" -eq 1 ]
 }
 
@@ -323,17 +323,135 @@ EOF
   cmd_secrets_filter install >/dev/null
 
   cd "$TEST_TMP"
-  echo "SECRET=roundtrip" > .prod.env
-  git add .prod.env
+  echo "SECRET=roundtrip" > .prod.enc.env
+  git add .prod.enc.env
   git commit -q -m "add secret"
 
   # What's actually stored should be run through our (identity) fake age —
   # confirms `clean` ran at all, not just that the working tree looks right.
-  run git show HEAD:.prod.env
+  run git show HEAD:.prod.enc.env
   [ "$status" -eq 0 ]
   [ "$output" = "SECRET=roundtrip" ]
 
-  rm .prod.env
-  git checkout -- .prod.env
-  [ "$(cat .prod.env)" = "SECRET=roundtrip" ]
+  rm .prod.enc.env
+  git checkout -- .prod.enc.env
+  [ "$(cat .prod.enc.env)" = "SECRET=roundtrip" ]
+}
+
+# ── Regression: the filter must actually work in a real strut project ──────
+# (strut#178 gap #2) — the shipped filter routed .*.env through
+# clean/smudge, but the generated project .gitignore ALSO ignores .*.env,
+# so `git add` silently skipped the file (no -f) and clean never ran. This
+# test reproduces a real strut-style .gitignore (not the bare repo the test
+# above uses) and would FAIL before the .enc.env negation was added.
+@test "end-to-end: .enc.env round-trips through a real strut-style .gitignore (strut#178 gap #2)" {
+  _init_git_repo
+  export STRUT_HOME="$TEST_TMP"
+  cp "$BATS_TEST_DIRNAME/../strut" "$TEST_TMP/strut"
+  ln -s "$BATS_TEST_DIRNAME/../lib" "$TEST_TMP/lib"
+  ln -s "$BATS_TEST_DIRNAME/../templates" "$TEST_TMP/templates"
+
+  local mock_bin="$TEST_TMP/mock-bin"
+  mkdir -p "$mock_bin"
+  cat > "$mock_bin/age" <<'EOF'
+#!/bin/sh
+output=""
+input=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -e|-d) shift ;;
+    -o) output="$2"; shift 2 ;;
+    -R) shift 2 ;;
+    -i) shift 2 ;;
+    *) input="$1"; shift ;;
+  esac
+done
+if [ -n "$input" ]; then
+  if [ -n "$output" ]; then cp "$input" "$output"; else cat "$input"; fi
+else
+  cat
+fi
+EOF
+  chmod +x "$mock_bin/age"
+  export PATH="$mock_bin:$PATH"
+
+  echo "age1qtest" > "$TEST_TMP/.strut-recipients"
+  cmd_secrets_filter install >/dev/null
+
+  cd "$TEST_TMP"
+  printf '.env\n.env.*\n.*.env\n!.env.template\n!*.env.age\n!*.env.gpg\n!*.enc.env\n!.*.enc.env\n' > .gitignore
+  git add .gitignore
+  git commit -q -m "add gitignore"
+
+  # A plaintext .prod.env stays ignored — sanity check the fixture is real.
+  run git check-ignore .prod.env
+  [ "$status" -eq 0 ]
+
+  echo "SECRET=roundtrip" > .prod.enc.env
+  git add .prod.enc.env
+  run git status --porcelain
+  [[ "$output" == *".prod.enc.env"* ]]
+  git commit -q -m "add secret"
+
+  run git show HEAD:.prod.enc.env
+  [ "$status" -eq 0 ]
+  [ "$output" = "SECRET=roundtrip" ]
+
+  rm .prod.enc.env
+  git checkout -- .prod.enc.env
+  [ "$(cat .prod.enc.env)" = "SECRET=roundtrip" ]
+}
+
+@test "end-to-end: .enc.env under stacks/<name>/ round-trips through a strut-style .gitignore (strut#178 gap #2)" {
+  _init_git_repo
+  export STRUT_HOME="$TEST_TMP"
+  cp "$BATS_TEST_DIRNAME/../strut" "$TEST_TMP/strut"
+  ln -s "$BATS_TEST_DIRNAME/../lib" "$TEST_TMP/lib"
+  ln -s "$BATS_TEST_DIRNAME/../templates" "$TEST_TMP/templates"
+
+  local mock_bin="$TEST_TMP/mock-bin"
+  mkdir -p "$mock_bin"
+  cat > "$mock_bin/age" <<'EOF'
+#!/bin/sh
+output=""
+input=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -e|-d) shift ;;
+    -o) output="$2"; shift 2 ;;
+    -R) shift 2 ;;
+    -i) shift 2 ;;
+    *) input="$1"; shift ;;
+  esac
+done
+if [ -n "$input" ]; then
+  if [ -n "$output" ]; then cp "$input" "$output"; else cat "$input"; fi
+else
+  cat
+fi
+EOF
+  chmod +x "$mock_bin/age"
+  export PATH="$mock_bin:$PATH"
+
+  echo "age1qtest" > "$TEST_TMP/stacks/demo/.strut-recipients"
+  cmd_secrets_filter install >/dev/null
+
+  cd "$TEST_TMP"
+  printf '.env\n.env.*\n.*.env\n!.env.template\n!*.env.age\n!*.env.gpg\n!*.enc.env\n!.*.enc.env\n' > .gitignore
+  git add .gitignore
+  git commit -q -m "add gitignore"
+
+  echo "SECRET=roundtrip" > stacks/demo/.prod.enc.env
+  git add stacks/demo/.prod.enc.env
+  run git status --porcelain
+  [[ "$output" == *"stacks/demo/.prod.enc.env"* ]]
+  git commit -q -m "add stack secret"
+
+  run git show HEAD:stacks/demo/.prod.enc.env
+  [ "$status" -eq 0 ]
+  [ "$output" = "SECRET=roundtrip" ]
+
+  rm stacks/demo/.prod.enc.env
+  git checkout -- stacks/demo/.prod.enc.env
+  [ "$(cat stacks/demo/.prod.enc.env)" = "SECRET=roundtrip" ]
 }

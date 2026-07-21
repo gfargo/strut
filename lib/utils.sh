@@ -218,13 +218,19 @@ load_services_conf() {
 #   stacks/my-stack/.env.local → local
 #   .prod.env → prod
 #   .staging.env → staging
+#   .prod.enc.env → prod  (secrets-filter committed-secrets naming, strut#178)
 #   .env → prod (default)
 extract_env_name() {
   local env_file="$1"
   local filename
   filename=$(basename "$env_file")
 
+  # Checked before the generic ".(.+).env" pattern below: that pattern's
+  # greedy match would otherwise capture "prod.enc" out of ".prod.enc.env"
+  # instead of "prod".
   if [[ "$filename" =~ ^\.env\.(.+)$ ]]; then
+    echo "${BASH_REMATCH[1]}"
+  elif [[ "$filename" =~ ^\.(.+)\.enc\.env$ ]]; then
     echo "${BASH_REMATCH[1]}"
   elif [[ "$filename" =~ ^\.(.+)\.env$ ]]; then
     echo "${BASH_REMATCH[1]}"

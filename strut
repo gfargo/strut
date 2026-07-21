@@ -495,10 +495,18 @@ cmd_list() {
 # resolve_env_file <stack> [env_name]
 # Returns the path to the base env file.
 # Resolution order (stack-aware, since v0.29.0):
-#   1. stacks/<stack>/.<env>.env  (stack-level override)
-#   2. $CLI_ROOT/.<env>.env       (project-level)
-#   3. stacks/<stack>/.env        (stack-level default, no env name)
-#   4. $CLI_ROOT/.env             (project-level default)
+#   1. stacks/<stack>/.<env>.enc.env  (stack-level, committed via secrets-filter)
+#   2. stacks/<stack>/.<env>.env      (stack-level override)
+#   3. $CLI_ROOT/.<env>.enc.env       (project-level, committed via secrets-filter)
+#   4. $CLI_ROOT/.<env>.env           (project-level)
+#   5. stacks/<stack>/.env            (stack-level default, no env name)
+#   6. $CLI_ROOT/.env                 (project-level default)
+#
+# .<env>.enc.env is the secrets-filter naming convention (strut#178): the
+# working-tree copy is plaintext (smudged by the git filter), the git blob
+# is age ciphertext. Preferred over the plain .<env>.env at the same level
+# so a project that's moved to committed secrets doesn't need to touch its
+# gitignore or CLI invocations.
 #
 # This is only the base layer. When the stack maps to a host in
 # [stacks]→[hosts] (or --host is passed), topology_apply_to_env /
@@ -514,9 +522,12 @@ resolve_env_file() {
   local stack_dir="$CLI_ROOT/stacks/$stack"
 
   if [ -n "$env_name" ]; then
-    # Stack-level env file takes priority
-    if [ -f "$stack_dir/.$env_name.env" ]; then
+    if [ -f "$stack_dir/.$env_name.enc.env" ]; then
+      echo "$stack_dir/.$env_name.enc.env"
+    elif [ -f "$stack_dir/.$env_name.env" ]; then
       echo "$stack_dir/.$env_name.env"
+    elif [ -f "$CLI_ROOT/.$env_name.enc.env" ]; then
+      echo "$CLI_ROOT/.$env_name.enc.env"
     else
       echo "$CLI_ROOT/.$env_name.env"
     fi

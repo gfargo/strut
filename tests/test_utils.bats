@@ -84,6 +84,24 @@ _load_utils() {
   [ "$result" = "twenty-mcp-prod" ]
 }
 
+@test "extract_env_name: .prod.enc.env → prod (secrets-filter naming, strut#178)" {
+  _load_utils
+  result=$(extract_env_name ".prod.enc.env")
+  [ "$result" = "prod" ]
+}
+
+@test "extract_env_name: .jitsi-prod.enc.env → jitsi-prod" {
+  _load_utils
+  result=$(extract_env_name ".jitsi-prod.enc.env")
+  [ "$result" = "jitsi-prod" ]
+}
+
+@test "extract_env_name: full path stacks/kg/.prod.enc.env → prod" {
+  _load_utils
+  result=$(extract_env_name "stacks/knowledge-graph/.prod.enc.env")
+  [ "$result" = "prod" ]
+}
+
 
 # ── build_ssh_opts ────────────────────────────────────────────────────────────
 

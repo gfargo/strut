@@ -217,6 +217,34 @@ _hostile_org_names() {
   [ "$status" -ne 0 ]
 }
 
+# strut#178 gap #2: secrets-filter's committed-secrets naming (.<env>.enc.env)
+# must also stay commit-safe — unlike .env.age/.env.gpg, it DOES end in
+# literally ".env", so it needs its own explicit negation against .*.env.
+@test "init: .gitignore explicitly allows committed secrets-filter .enc.env files (strut#178 gap #2)" {
+  local project_dir="$TEST_TMP/init_gitignore_enc_env"
+  mkdir -p "$project_dir"
+
+  (cd "$project_dir" && cmd_init)
+
+  grep -qxF "!*.enc.env" "$project_dir/.gitignore"
+  grep -qxF "!.*.enc.env" "$project_dir/.gitignore"
+
+  command -v git &>/dev/null || skip "git not installed"
+  git -C "$project_dir" init -q
+  touch "$project_dir/.prod.enc.env" "$project_dir/prod.enc.env"
+
+  run git -C "$project_dir" check-ignore .prod.enc.env
+  [ "$status" -ne 0 ]
+  run git -C "$project_dir" check-ignore prod.enc.env
+  [ "$status" -ne 0 ]
+
+  # A plaintext .prod.env must stay ignored — the negation must not be broad
+  # enough to leak real secrets.
+  touch "$project_dir/.prod.env"
+  run git -C "$project_dir" check-ignore .prod.env
+  [ "$status" -eq 0 ]
+}
+
 @test "init: generated .gitignore matches strut's actual secret-file naming (issue #396)" {
   local project_dir="$TEST_TMP/init_gitignore_secret_names"
   mkdir -p "$project_dir"
@@ -254,6 +282,8 @@ _hostile_org_names() {
   grep -qxF ".env.*" "$project_dir/.gitignore"
   grep -qxF ".*.env" "$project_dir/.gitignore"
   grep -qxF "!.env.template" "$project_dir/.gitignore"
+  grep -qxF "!*.enc.env" "$project_dir/.gitignore"
+  grep -qxF "!.*.enc.env" "$project_dir/.gitignore"
   grep -qxF "*.backup-*" "$project_dir/.gitignore"
   grep -qxF "backups/" "$project_dir/.gitignore"
   grep -qxF "data/" "$project_dir/.gitignore"
@@ -264,7 +294,7 @@ _hostile_org_names() {
 @test "init: does not duplicate strut rules already present as bare lines" {
   local project_dir="$TEST_TMP/init_gitignore_no_dupe"
   mkdir -p "$project_dir"
-  printf 'node_modules/\n.env\n.env.*\n.*.env\n!.env.template\n!*.env.age\n!*.env.gpg\n*.backup-*\nbackups/\ndata/\n.rollback/\n.bluegreen\n' > "$project_dir/.gitignore"
+  printf 'node_modules/\n.env\n.env.*\n.*.env\n!.env.template\n!*.env.age\n!*.env.gpg\n!*.enc.env\n!.*.enc.env\n*.backup-*\nbackups/\ndata/\n.rollback/\n.bluegreen\n' > "$project_dir/.gitignore"
   local before
   before="$(cat "$project_dir/.gitignore")"
 
