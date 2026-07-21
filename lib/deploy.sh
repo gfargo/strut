@@ -585,6 +585,13 @@ vps_release() {
   fi
   local _release_actor
   _release_actor=$(history_actor)
+  # _release_actor is interpolated (not deferred like git_sha/release_id)
+  # into the remote command string below, so it must be shell-quoted here
+  # on the controller. history_actor() can resolve to CI_COMMIT_AUTHOR —
+  # an attacker-controlled git commit author — so an unescaped value would
+  # let shell metacharacters in a commit author execute on the deploy host.
+  local _release_actor_q
+  _release_actor_q="'$(printf '%s' "$_release_actor" | sed "s/'/'\\\\''/g")'"
   local _release_mode="${DEPLOY_MODE:-standard}"
 
   print_banner "VPS Release Deploy"
@@ -756,7 +763,7 @@ vps_release() {
     _release_snapshot=\$(ls -t 'stacks/$stack/.rollback'/*.json 2>/dev/null | head -1)
     _release_id=''
     [ -n \"\$_release_snapshot\" ] && _release_id=\$(basename \"\$_release_snapshot\" .json)
-    history_record 'stacks/$stack' release '$release_outcome' env=$env_name duration_s:=$release_duration mode=$_release_mode git_sha=\$_release_sha actor=$_release_actor release_id=\$_release_id
+    history_record 'stacks/$stack' release '$release_outcome' env=$env_name duration_s:=$release_duration mode=$_release_mode git_sha=\$_release_sha actor=$_release_actor_q release_id=\$_release_id
   " >/dev/null 2>&1 || true
 
   if [ "$health_ok" = "false" ]; then
