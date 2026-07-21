@@ -88,7 +88,10 @@ strut my-stack rollback diff HEAD~1 HEAD --env prod      # Compare it against th
 Note: a release's `release_id` is the snapshot captured *before* that
 release ran — i.e. what `rollback` (which always restores the latest
 snapshot) would put back if run right after that release, not a snapshot
-of what that release itself deployed.
+of what that release itself deployed. For the same reason, `releases show`
+labels its per-service image list "Rollback-to images (pre-release state)"
+(`rollback_images` in `--json` output) rather than "Images" — they're the
+tags that release would revert to, not the tags it shipped.
 
 ## Local vs VPS Semantics
 

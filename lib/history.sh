@@ -232,7 +232,10 @@ history_list_releases() {
 # back to an exact timestamp match). Joins with the paired rollback
 # snapshot's image data when rollback_snapshot_image_pairs is available
 # (source lib/rollback.sh before calling this for image detail) and the
-# snapshot file still exists.
+# snapshot file still exists. NOTE: the rollback snapshot is saved
+# *before* the new images are pulled/started, so these are the pre-release
+# images this release would revert to (via `rollback <id>`) — not the
+# images this release actually shipped.
 #
 # Best-effort by design, matching the rest of this module: a missing jq or
 # a missing snapshot degrades output rather than failing loudly, except
@@ -293,7 +296,7 @@ history_show() {
 
   if [ "$json_mode" = "true" ]; then
     if command -v jq &>/dev/null; then
-      echo "$line" | jq -c --argjson images "$images_json" '. + {images: $images}'
+      echo "$line" | jq -c --argjson images "$images_json" '. + {rollback_images: $images}'
     else
       echo "$line"
     fi
@@ -311,7 +314,7 @@ history_show() {
     echo "  Git SHA:   $(echo "$line" | jq -r '.git_sha // "-"')"
     echo "  Actor:     $(echo "$line" | jq -r '.actor // .user // "?"')"
     if [ "$images_json" != "[]" ]; then
-      echo "  Images:"
+      echo "  Rollback-to images (pre-release state):"
       echo "$images_json" | jq -r '.[] | "    \(.service) -> \(.image)"'
     fi
     echo ""

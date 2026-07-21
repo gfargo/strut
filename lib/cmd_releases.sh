@@ -52,8 +52,10 @@ cmd_releases() {
       show)
         show_mode=true
         shift
-        show_id="${1:-}"
-        [ -n "$show_id" ] && shift
+        if [ -n "${1:-}" ] && [[ "$1" != -* ]]; then
+          show_id="$1"
+          shift
+        fi
         ;;
       --limit) limit="$2"; shift 2 ;;
       --json)  json_mode=true; shift ;;

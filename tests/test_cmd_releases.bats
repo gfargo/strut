@@ -213,7 +213,7 @@ EOF
   [[ "$output" == *"No release found"* ]]
 }
 
-@test "cmd_releases show <id> --json: emits a JSON object with images array" {
+@test "cmd_releases show <id> --json: emits a JSON object with a rollback_images array" {
   _require_jq
   should_dispatch_remote() { return 1; }
   export -f should_dispatch_remote
@@ -226,6 +226,17 @@ EOF
   run cmd_releases show 20260420-090000 --json
   [ "$status" -eq 0 ]
   echo "$output" > "$TEST_TMP/show.json"
-  run jq -e '.git_sha == "abc1234" and (.images | length) == 1' "$TEST_TMP/show.json"
+  run jq -e '.git_sha == "abc1234" and (.rollback_images | length) == 1' "$TEST_TMP/show.json"
   [ "$status" -eq 0 ]
+}
+
+@test "cmd_releases show --json: --json is not swallowed as the <id>" {
+  should_dispatch_remote() { return 1; }
+  export -f should_dispatch_remote
+
+  _set_releases_ctx ""
+
+  run cmd_releases show --json
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"requires an <id>"* ]]
 }

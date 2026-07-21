@@ -263,7 +263,7 @@ teardown() {
   run cat "$SSH_CALL_LOG"
   # mode + actor are resolved on the controller and interpolated as literals.
   [[ "$output" == *"mode=standard"* ]]
-  [[ "$output" == *"actor=octocat"* ]]
+  [[ "$output" == *"actor='octocat'"* ]]
   # git_sha and release_id are computed remotely — the captured text still
   # contains the (unexpanded) remote variable reference, proving they were
   # NOT resolved on the controller (see comment above the heredoc).
