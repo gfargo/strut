@@ -132,13 +132,13 @@ _provision_remote_marker() {
   ssh $ssh_opts "$user@$host" "test -f '$deploy_dir/.provisioned'" 2>/dev/null
 }
 
-# _provision_run_legacy_model <host_alias> <script_path> <user> <host> <port> <ssh_opts> <dry_run> <verify_only>
+# _provision_run_legacy_model <host_alias> <script_path> <user> <host> <port> <ssh_opts> <dry_run> <verify_only> <scp_opts>
 #
 # Single-script provision model: SCP one script to the host, run it once,
 # gate on a single <deploy_dir>/.provisioned marker. Kept for existing
 # projects that predate the provision.d/ directory model.
 _provision_run_legacy_model() {
-  local host_alias="$1" script_path="$2" user="$3" host="$4" port="$5" ssh_opts="$6" dry_run="$7" verify_only="$8"
+  local host_alias="$1" script_path="$2" user="$3" host="$4" port="$5" ssh_opts="$6" dry_run="$7" verify_only="$8" scp_opts="$9"
 
   local script
   if ! script=$(_provision_find_script "$host_alias" "$script_path"); then
@@ -165,7 +165,7 @@ _provision_run_legacy_model() {
     echo -e "${YELLOW}[DRY-RUN] Execution plan:${NC}"
     run_cmd "Test SSH connectivity" ssh $ssh_opts "$user@$host" "echo ok"
     run_cmd "Check if already provisioned" ssh $ssh_opts "$user@$host" "test -f $deploy_dir/.provisioned"
-    run_cmd "SCP provision script to host" scp $ssh_opts "$script" "$user@$host:/tmp/provision-${host_alias}.sh"
+    run_cmd "SCP provision script to host" scp $scp_opts "$script" "$user@$host:/tmp/provision-${host_alias}.sh"
     if [ "$verify_only" = "true" ]; then
       run_cmd "Run verification section" ssh $ssh_opts "$user@$host" "sudo bash /tmp/provision-${host_alias}.sh --verify"
     else
@@ -192,7 +192,7 @@ _provision_run_legacy_model() {
   # ── Execute ─────────────────────────────────────────────────────────────
   log "Copying provision script to $host..."
   local remote_script="/tmp/provision-${host_alias}.sh"
-  scp $ssh_opts "$script" "$user@$host:$remote_script" || fail "Failed to copy script"
+  scp $scp_opts "$script" "$user@$host:$remote_script" || fail "Failed to copy script"
   ok "Script uploaded"
 
   log "Executing provision script..."
@@ -223,7 +223,7 @@ _provision_run_legacy_model() {
   ok "Provisioning complete for $host_alias ($host)"
 }
 
-# _provision_run_dir_model <host_alias> <scripts_dir> <user> <host> <port> <ssh_opts> <dry_run> <force>
+# _provision_run_dir_model <host_alias> <scripts_dir> <user> <host> <port> <ssh_opts> <dry_run> <force> <scp_opts>
 #
 # Ordered, marker-gated provision.d/ batch. Each script is SCP'd to the
 # host and run once via sudo; a per-script marker on the host
@@ -231,7 +231,7 @@ _provision_run_legacy_model() {
 # succeeded, unless --force is set. pre_provision/post_provision hooks
 # fire around the whole batch (see lib/hooks.sh).
 _provision_run_dir_model() {
-  local host_alias="$1" scripts_dir="$2" user="$3" host="$4" port="$5" ssh_opts="$6" dry_run="$7" force="$8"
+  local host_alias="$1" scripts_dir="$2" user="$3" host="$4" port="$5" ssh_opts="$6" dry_run="$7" force="$8" scp_opts="$9"
   local marker_dir="/var/lib/strut/provisioned"
   local hooks_dir; hooks_dir=$(_provision_host_hooks_dir "$host_alias")
 
@@ -269,7 +269,7 @@ _provision_run_dir_model() {
       else
         run_cmd "Check marker: $name" ssh $ssh_opts "$user@$host" "test -f '$marker_dir/${name}.done'"
       fi
-      run_cmd "SCP $name to host" scp $ssh_opts "$script" "$user@$host:$remote_script"
+      run_cmd "SCP $name to host" scp $scp_opts "$script" "$user@$host:$remote_script"
       run_cmd "Execute $name" ssh $ssh_opts "$user@$host" "sudo bash $remote_script"
       run_cmd "Write marker for $name" ssh $ssh_opts "$user@$host" "mkdir -p $marker_dir && date -u +%Y-%m-%dT%H:%M:%SZ > $marker_dir/${name}.done"
     done
@@ -298,7 +298,7 @@ _provision_run_dir_model() {
     fi
 
     log "Provisioning: $name"
-    if ! scp $ssh_opts "$script" "$user@$host:$remote_script"; then
+    if ! scp $scp_opts "$script" "$user@$host:$remote_script"; then
       fail "Failed to copy $name to host"
       return 1
     fi
@@ -366,6 +366,9 @@ cmd_provision() {
   local ssh_opts
   ssh_opts=$(build_ssh_opts -p "$port" -k "$key_path" --tty)
 
+  local scp_opts
+  scp_opts=$(build_scp_opts -p "$port" -k "$key_path") || return 1
+
   # Directory model takes precedence unless an explicit --script overrides it.
   local scripts_dir=""
   if [ -z "$script_path" ]; then
@@ -373,9 +376,9 @@ cmd_provision() {
   fi
 
   if [ -n "$scripts_dir" ]; then
-    _provision_run_dir_model "$host_alias" "$scripts_dir" "$user" "$host" "$port" "$ssh_opts" "$dry_run" "$force"
+    _provision_run_dir_model "$host_alias" "$scripts_dir" "$user" "$host" "$port" "$ssh_opts" "$dry_run" "$force" "$scp_opts"
     return $?
   fi
 
-  _provision_run_legacy_model "$host_alias" "$script_path" "$user" "$host" "$port" "$ssh_opts" "$dry_run" "$verify_only"
+  _provision_run_legacy_model "$host_alias" "$script_path" "$user" "$host" "$port" "$ssh_opts" "$dry_run" "$verify_only" "$scp_opts"
 }

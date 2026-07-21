@@ -23,6 +23,10 @@ setup() {
   build_ssh_opts() { echo "-o StrictHostKeyChecking=no"; }
   export -f build_ssh_opts
 
+  # Stub build_scp_opts
+  build_scp_opts() { echo "-o StrictHostKeyChecking=no"; }
+  export -f build_scp_opts
+
   source "$CLI_ROOT/lib/hooks.sh"
   source "$CLI_ROOT/lib/cmd_provision.sh"
 
@@ -390,6 +394,95 @@ _provision_setup_dir_host() {
   [ "$status" -ne 0 ]
   [[ "$output" == *"pre_provision hook failed"* ]]
   ! grep -q "sudo bash" "$TEST_TMP/ssh_calls.log"
+}
+
+# ── cmd_provision: scp uses build_scp_opts, not ssh_opts (issue #401) ────────
+
+@test "cmd_provision: dir model scp call uses -P (uppercase) for a non-default port and omits -t" {
+  _provision_setup_dir_host "testhost"
+  export VPS_PORT="2222"
+
+  # Use the real build_scp_opts (setup() stubs it) to exercise the actual builder.
+  unset -f build_scp_opts
+  source "$(dirname "$BATS_TEST_FILENAME")/../lib/utils.sh"
+
+  # shellcheck disable=SC2317
+  ssh() {
+    local remote_cmd="${*: -1}"
+    echo "$remote_cmd" >> "$TEST_TMP/ssh_calls.log"
+    case "$remote_cmd" in
+      *"test -f"*".done"*) return 1 ;;
+      *) return 0 ;;
+    esac
+  }
+  export -f ssh
+
+  run cmd_provision
+  [ "$status" -eq 0 ]
+
+  grep -q -- "-P 2222" "$TEST_TMP/scp_calls.log"
+  ! grep -qE -- '(^| )-t( |$)' "$TEST_TMP/scp_calls.log"
+}
+
+@test "cmd_provision: dir model scp call omits -P for the default port 22" {
+  _provision_setup_dir_host "testhost"
+  export VPS_PORT="22"
+
+  unset -f build_scp_opts
+  source "$(dirname "$BATS_TEST_FILENAME")/../lib/utils.sh"
+
+  # shellcheck disable=SC2317
+  ssh() {
+    local remote_cmd="${*: -1}"
+    echo "$remote_cmd" >> "$TEST_TMP/ssh_calls.log"
+    case "$remote_cmd" in
+      *"test -f"*".done"*) return 1 ;;
+      *) return 0 ;;
+    esac
+  }
+  export -f ssh
+
+  run cmd_provision
+  [ "$status" -eq 0 ]
+
+  ! grep -q -- "-P " "$TEST_TMP/scp_calls.log"
+}
+
+@test "cmd_provision: legacy model scp call uses -P (uppercase) for a non-default port and omits -t" {
+  mkdir -p "$TEST_TMP/scripts"
+  echo "#!/bin/bash" > "$TEST_TMP/scripts/provision-legacyhost.sh"
+
+  topology_load() { :; }
+  topology_is_host_alias() { return 1; }
+  export -f topology_load topology_is_host_alias
+  export VPS_HOST="10.0.0.9"
+  export VPS_USER="deploy"
+  export VPS_PORT="2222"
+  export CMD_STACK="legacyhost"
+  export DRY_RUN=false
+
+  unset -f build_scp_opts
+  source "$(dirname "$BATS_TEST_FILENAME")/../lib/utils.sh"
+
+  # shellcheck disable=SC2317
+  scp() { echo "SCP: $*" >> "$TEST_TMP/scp_calls.log"; return 0; }
+  export -f scp
+
+  # shellcheck disable=SC2317
+  ssh() {
+    local remote_cmd="${*: -1}"
+    case "$remote_cmd" in
+      *".provisioned"*) return 1 ;;
+      *) return 0 ;;
+    esac
+  }
+  export -f ssh
+
+  run cmd_provision
+  [ "$status" -eq 0 ]
+
+  grep -q -- "-P 2222" "$TEST_TMP/scp_calls.log"
+  ! grep -qE -- '(^| )-t( |$)' "$TEST_TMP/scp_calls.log"
 }
 
 @test "cmd_provision: dir model warns (but still succeeds) when post_provision hook fails" {
