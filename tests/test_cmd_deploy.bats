@@ -67,6 +67,11 @@ teardown() {
   [[ "$output" == *'"action":"deploy"'* ]]
   [[ "$output" == *'"outcome":"success"'* ]]
   [[ "$output" == *'"mode":"standard"'* ]]
+  [[ "$output" == *'"git_sha":"'* ]]
+  # release_id is the rollback snapshot deploy_stack just saved — empty here
+  # since deploy_stack is stubbed (no real snapshot created), but the key
+  # must still be present so `releases` output has a consistent shape.
+  [[ "$output" == *'"release_id":"'* ]]
 }
 
 @test "cmd_deploy: records a failed history entry when deploy_stack fails, and propagates the exit code" {
