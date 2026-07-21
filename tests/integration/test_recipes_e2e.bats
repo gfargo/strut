@@ -27,6 +27,19 @@ setup_file() {
   export CLI_ROOT
   export STRUT_HOME="$CLI_ROOT"
 
+  # `strut scaffold` now requires a real project (PROJECT_ROOT resolved via
+  # a strut.conf) to exist before it will write anything (strut#403 — it
+  # used to silently fall back to writing into CLI_ROOT/STRUT_HOME, which
+  # is exactly this engine checkout). Every recipe here is scaffolded
+  # straight into this repo's own stacks/ dir and cleaned up below, so
+  # give it a throwaway strut.conf for the duration of this file only.
+  _WROTE_STRUT_CONF=false
+  if [ ! -f "$CLI_ROOT/strut.conf" ]; then
+    : > "$CLI_ROOT/strut.conf"
+    _WROTE_STRUT_CONF=true
+  fi
+  export _WROTE_STRUT_CONF
+
   # Track every stack we scaffold so teardown nukes them even if a test
   # aborts partway.
   export SCAFFOLDED_STACKS_FILE="$(mktemp)"
@@ -34,6 +47,10 @@ setup_file() {
 }
 
 teardown_file() {
+  if [ "${_WROTE_STRUT_CONF:-false}" = "true" ]; then
+    rm -f "$CLI_ROOT/strut.conf"
+  fi
+
   # Best-effort cleanup of anything we scaffolded or deployed.
   if [ -f "${SCAFFOLDED_STACKS_FILE:-}" ]; then
     while IFS= read -r entry; do

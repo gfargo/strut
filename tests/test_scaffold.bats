@@ -188,20 +188,67 @@ _hostile_names() {
   done < <(_hostile_names)
 }
 
-@test "scaffold: hostile-character stack name substitutes cleanly, no STACK_NAME_PLACEHOLDER left" {
+@test "scaffold: hostile-character stack name is rejected outright, not sanitized-then-scaffolded (strut#403)" {
+  # A stack name with a space/slash/quote/etc. would break directory paths,
+  # Docker Compose project naming, and every downstream shell interpolation
+  # that treats it as a bare identifier — strut#403 added name validation
+  # so these are rejected up front instead of relying on sed-escaping to
+  # make substitution merely "safe" for an otherwise-invalid name.
   local i=0
   while IFS= read -r name_part; do
     i=$((i + 1))
     local stack_name="hostile-$i-${name_part}"
 
-    cmd_scaffold "$stack_name"
+    run cmd_scaffold "$stack_name"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"Invalid stack name"* ]]
 
     local target="$TEST_TMP/stacks/$stack_name"
-    [ -f "$target/docker-compose.yml" ]
-
-    run grep -r "STACK_NAME_PLACEHOLDER" "$target"
-    [ "$status" -ne 0 ] || { echo "FAIL: STACK_NAME_PLACEHOLDER survived for stack name '$stack_name'"; return 1; }
+    [ ! -d "$target" ]
   done < <(_hostile_names)
+}
+
+# ── strut#403: --help interception, invalid names, no-project guard ──────────
+
+@test "scaffold --help: prints usage instead of creating a stack literally named '--help'" {
+  run cmd_scaffold --help
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Usage:"* ]]
+  [ ! -d "$TEST_TMP/stacks/--help" ]
+}
+
+@test "scaffold -h: prints usage instead of creating a stack literally named '-h'" {
+  run cmd_scaffold -h
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Usage:"* ]]
+  [ ! -d "$TEST_TMP/stacks/-h" ]
+}
+
+@test "scaffold --recipe python-api (no name): fails with a usage error, does not scaffold a stack named '--recipe'" {
+  run cmd_scaffold --recipe python-api
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"Missing stack name"* ]]
+  [ ! -d "$TEST_TMP/stacks/--recipe" ]
+}
+
+@test "scaffold: rejects a name starting with a dot or dash" {
+  run cmd_scaffold ".hidden-stack"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"Invalid stack name"* ]]
+}
+
+@test "scaffold: accepts names with letters, digits, dots, underscores, and dashes" {
+  run cmd_scaffold "my-app_2.0"
+  [ "$status" -eq 0 ]
+  [ -d "$TEST_TMP/stacks/my-app_2.0" ]
+}
+
+@test "scaffold: fails clearly instead of scaffolding into CLI_ROOT/STRUT_HOME when PROJECT_ROOT is unset" {
+  unset PROJECT_ROOT
+  run cmd_scaffold "test-stack"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"Not inside a strut project"* ]]
+  [ ! -d "$CLI_ROOT/stacks/test-stack" ]
 }
 
 # ── Unit tests ────────────────────────────────────────────────────────────────

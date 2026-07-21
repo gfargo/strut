@@ -85,6 +85,34 @@ EOF
   [ "${_TOPO_STACK_HOST[plane]}" = "compass" ]
 }
 
+@test "topology_load: tolerates trailing whitespace on a section header, matching config.sh's preprocessor (strut#377)" {
+  printf 'REGISTRY_TYPE=none\n\n[hosts] \ncompass = gfargo@compass.local:22 ~/.ssh/id_rsa\n\n[stacks]  \nplane = compass\n' > "$TEST_TMP/strut.conf"
+
+  export PROJECT_ROOT="$TEST_TMP"
+  topology_load
+
+  [ "${_TOPO_HOSTS[compass]}" = "gfargo@compass.local:22 ~/.ssh/id_rsa" ]
+  [ "${_TOPO_STACK_HOST[plane]}" = "compass" ]
+}
+
+@test "topology_load: parses space-less 'key=value' host/stack entries (strut#377)" {
+  cat > "$TEST_TMP/strut.conf" <<'EOF'
+REGISTRY_TYPE=none
+
+[hosts]
+web=ubuntu@1.2.3.4
+
+[stacks]
+api=web
+EOF
+
+  export PROJECT_ROOT="$TEST_TMP"
+  topology_load
+
+  [ "${_TOPO_HOSTS[web]}" = "ubuntu@1.2.3.4" ]
+  [ "${_TOPO_STACK_HOST[api]}" = "web" ]
+}
+
 @test "topology_load: no-op when no strut.conf exists" {
   export PROJECT_ROOT="$TEST_TMP/nonexistent"
   topology_load

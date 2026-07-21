@@ -64,20 +64,26 @@ _preprocess_config() {
       continue
     fi
 
-    # Lines inside a section use "key = value" format (spaces around =).
-    # A bash-style assignment (KEY=value, no spaces around =) or another
-    # section header signals the end of the section.
+    # Lines inside a section use topology.sh's own "key = value" /
+    # "key=value" shape (strut#377 — same matcher, spaces optional on
+    # both sides, so a valid space-less entry like "web=ubuntu@1.2.3.4"
+    # is recognized as content rather than mistaken for having left the
+    # section). Because that shape is indistinguishable from a plain
+    # bash assignment, content alone can no longer signal the section's
+    # end — a blank line does (every fixture in this codebase uses blank
+    # lines exactly as block separators: before a header, or before
+    # global content resumes; never as filler between two entries of the
+    # same section), matching a new header, or EOF.
     if [ "$_in_section" = "true" ]; then
-      # Stay in section for: blank lines and comments
-      if [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]]; then
+      if [ -z "$line" ]; then
+        _in_section=false
+      elif [[ "$line" =~ ^[[:space:]]*# ]]; then
         continue
-      fi
-      # Section content: "key = value" (has space before =)
-      if [[ "$line" =~ ^[[:space:]]*[a-zA-Z0-9_-]+[[:space:]]+= ]]; then
+      elif [[ "$line" =~ ^[[:space:]]*[a-zA-Z0-9_-]+[[:space:]]*= ]]; then
         continue
+      else
+        _in_section=false
       fi
-      # Anything else (bash assignment KEY=val, other content) = left section
-      _in_section=false
     fi
 
     if [[ "$line" =~ ^[[:space:]]*include[[:space:]]*=[[:space:]]*(.+)$ ]]; then

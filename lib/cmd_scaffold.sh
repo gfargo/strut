@@ -33,6 +33,15 @@ cmd_scaffold() {
   local first="${1:-}"
   [ -n "$first" ] || fail "Usage: strut scaffold <new-stack-name> [--recipe <recipe>]"
 
+  # `--help`/`-h` was previously treated as a literal stack name — nothing
+  # else intercepts it before the "create a stack" path below (strut#403).
+  case "$first" in
+    --help|-h)
+      _usage_scaffold
+      return 0
+      ;;
+  esac
+
   # ── Subcommand: list ────────────────────────────────
   if [ "$first" = "list" ]; then
     shift
@@ -55,6 +64,25 @@ cmd_scaffold() {
   local new_name="$first"
   shift || true
 
+  # Any other flag-shaped first positional (--recipe, an unrecognized
+  # flag, etc.) is a usage error, not a stack name — without this,
+  # `strut scaffold --recipe python-api` silently named the stack
+  # "--recipe" and failed confusingly downstream (strut#403).
+  #
+  # The explicit `return 1` after each fail() below matters: fail() exits
+  # in production, but tests stub it to return, and a bare `check ||
+  # fail "msg"` only aborts the surrounding function under errexit — bats'
+  # `run` disables errexit for the call it wraps, so without the explicit
+  # return, execution would fall through and scaffold the invalid name
+  # anyway (belt-and-suspenders, same pattern as load_strut_config).
+  case "$new_name" in
+    -*) fail "Missing stack name. Usage: strut scaffold <new-stack-name> [--recipe <recipe>]"; return 1 ;;
+  esac
+  [[ "$new_name" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || {
+    fail "Invalid stack name: '$new_name' (must start with a letter/digit and contain only letters, digits, '.', '_', '-')"
+    return 1
+  }
+
   # ── Parse flags ─────────────────────────────────────
   local recipe_flag=""
   while [[ $# -gt 0 ]]; do
@@ -65,12 +93,17 @@ cmd_scaffold() {
     esac
   done
 
-  local target
-  if [ -n "${PROJECT_ROOT:-}" ]; then
-    target="$PROJECT_ROOT/stacks/$new_name"
-  else
-    target="$CLI_ROOT/stacks/$new_name"
-  fi
+  # Without a project, CLI_ROOT falls back to STRUT_HOME (the engine
+  # install), so scaffolding here silently pollutes ~/.strut/stacks/ and
+  # the stack "disappears" once a project is later initialized (strut#403).
+  # Stack-scoped commands already guard this at the entrypoint; scaffold
+  # is dispatched as a top-level command and never went through that check.
+  [ -n "${PROJECT_ROOT:-}" ] || {
+    fail "Not inside a strut project (no strut.conf found walking up from $PWD). Run 'strut init' to create one, or cd into an existing project."
+    return 1
+  }
+
+  local target="$PROJECT_ROOT/stacks/$new_name"
   [ -d "$target" ] && fail "Stack already exists: $target"
 
   local templates_dir="${STRUT_HOME:-$CLI_ROOT}/templates"

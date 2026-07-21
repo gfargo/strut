@@ -59,7 +59,10 @@ topology_load() {
     [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]] && continue
 
     # Detect section headers
-    if [[ "$line" =~ ^\[([a-zA-Z_-]+)\]$ ]]; then
+    # Trailing-whitespace-tolerant, matching config.sh's preprocessor
+    # header regex (strut#377) — the two used to disagree, so a header
+    # with trailing spaces parsed under one and not the other.
+    if [[ "$line" =~ ^\[([a-zA-Z_-]+)\][[:space:]]*$ ]]; then
       section="${BASH_REMATCH[1]}"
       continue
     fi
