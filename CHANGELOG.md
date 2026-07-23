@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.43.2](https://github.com/gfargo/strut/compare/v0.43.1...v0.43.2) (2026-07-23)
+
+
+### Bug Fixes
+
+* **mcp:** protect stdin during entrypoint init phase When Kiro (or any MCP client) spawns 'strut mcp serve', it holds stdin open as a pipe and writes JSON-RPC messages to it. The strut entrypoint sources ~40 lib files before reaching the mcp dispatch, and something in that init phase consumes the initialize message from stdin — causing a 60s timeout in the client (it sends initialize, but the response never comes because the message was eaten during source-time). Fix: when the args are 'mcp serve', save stdin to fd 8 and redirect fd 0 from /dev/null BEFORE the source phase. _mcp_cmd_serve restores the real client stdin (from fd 8) just before entering the mcp_serve loop. This ensures no source-time side effects can consume MCP messages. The technique is safe because: - Only 'strut mcp serve' triggers the guard (all other commands use stdin normally) - fd 8 is restored before mcp_serve reads, so the protocol works unchanged - If something in the source phase legitimately needs stdin (e.g. interactive prompts), those code paths are never reached for 'mcp serve' ([#480](https://github.com/gfargo/strut/issues/480)) ([b205783](https://github.com/gfargo/strut/commit/b20578375c6fe5f2fb4840b992540d501e054ba0))
+
 ## [0.43.1](https://github.com/gfargo/strut/compare/v0.43.0...v0.43.1) (2026-07-23)
 
 
