@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.42.1](https://github.com/gfargo/strut/compare/v0.42.0...v0.42.1) (2026-07-23)
+
+
+### Bug Fixes
+
+* **mcp:** wrap responses with Content-Length framing (stdio transport spec) The MCP stdio transport spec requires both directions to use Content-Length framing. _mcp_read_message already handles framed input (from [#442](https://github.com/gfargo/strut/issues/442)), but responses were still written as bare newline-delimited JSON. Clients like Kiro and VS Code Copilot that strictly follow the spec could not parse the unframed responses, resulting in 'no tools' after a successful handshake. Add _mcp_write() that prepends 'Content-Length: N\r\n\r\n' to every response body. Update _mcp_respond and _mcp_error to use it. The output format is now: Content-Length: 36\r\n\r\n{"jsonrpc":"2.0","id":1,"result":{}} Add two tests asserting Content-Length output framing and byte-count accuracy. Closes [#468](https://github.com/gfargo/strut/issues/468) ([#469](https://github.com/gfargo/strut/issues/469)) ([97bf162](https://github.com/gfargo/strut/commit/97bf162b6aad38fead690b9ff214811a8fb632f3))
+
 ## [0.42.0](https://github.com/gfargo/strut/compare/v0.41.1...v0.42.0) (2026-07-21)
 
 
