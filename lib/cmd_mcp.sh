@@ -54,6 +54,13 @@ cmd_mcp() {
 _mcp_cmd_serve() {
   command -v jq >/dev/null 2>&1 || fail "strut mcp serve requires 'jq' (apt install jq / brew install jq)"
 
+  # Restore the real client stdin (saved to fd 8 by the entrypoint's MCP
+  # stdin protection guard). Without this, mcp_serve would read /dev/null
+  # and exit immediately.
+  if [ "${_STRUT_MCP_STDIN_SAVED:-false}" = "true" ]; then
+    exec 0<&8 8<&-
+  fi
+
   local strut_home="${STRUT_HOME:-${CLI_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}}"
   source "$strut_home/lib/mcp/protocol.sh"
   mcp_serve
