@@ -214,7 +214,7 @@ _bg_any_container_restarted() {
 
 # _bg_wait_healthy <stack_dir> <compose_cmd> <compose_file> [timeout_seconds] [label]
 #
-# Polls health_check_green (scoped to the target compose project) until it
+# Polls health_check_project (scoped to the target compose project) until it
 # reports healthy or the timeout elapses. Returns 0 healthy, 1 on timeout.
 # `label` names what we're waiting on in log output (default "green") — the
 # standard deploy path reuses this loop with label "stack" (strut#407).
@@ -223,6 +223,9 @@ _bg_any_container_restarted() {
 # doesn't leak into the caller.
 _bg_wait_healthy() {
   local stack_dir="$1" compose_cmd="$2" compose_file="$3"
+  # Standard deploy (deploy.sh) always passes arg 4 explicitly (DEPLOY_HEALTH_TIMEOUT,
+  # default 60s). The BLUE_GREEN_HEALTH_TIMEOUT fallback only applies when called from
+  # the blue-green path without an explicit timeout argument.
   local timeout="${4:-${BLUE_GREEN_HEALTH_TIMEOUT:-30}}"
   local label="${5:-green}"
   # Overridable only for tests — production callers always get the real 3s
@@ -248,7 +251,7 @@ _bg_wait_healthy() {
     # latter probes host ports (answered by the still-live blue color, so a
     # dead green would pass) and host-global resources (a load spike during
     # pull would fail a healthy deploy). Subshell keeps its counters local.
-    if ( health_check_green "$(basename "$stack_dir")" "$compose_cmd" "$compose_file" >/dev/null 2>&1 ); then
+    if ( health_check_project "$(basename "$stack_dir")" "$compose_cmd" "$compose_file" >/dev/null 2>&1 ); then
       # Check RestartCount on every passing poll, not just once we've hit
       # the consecutive threshold: a restart spotted on poll 2 should reset
       # progress immediately instead of waiting to be re-derived at the end.

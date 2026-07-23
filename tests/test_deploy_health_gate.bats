@@ -130,6 +130,26 @@ teardown() { common_teardown; }
   [[ "$output" == *"HEALTH_STATUS=2"* ]]
 }
 
+@test "deploy_stack: DEPLOY_SKIP_HEALTH_GATE=true skips the gate entirely" {
+  export GATE_EXIT=1
+  export DEPLOY_SKIP_HEALTH_GATE=true
+  run deploy_stack "hub" "$TEST_TMP/.prod.env" ""
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Deploy complete"* ]]
+  [[ "$output" == *"Health gate skipped"* ]]
+  # Gate stub was never called
+  run cat "$TEST_TMP/gate_calls"
+  [ -z "$output" ]
+}
+
+@test "deploy_stack: DEPLOY_SKIP_HEALTH_GATE=1 also skips the gate" {
+  export GATE_EXIT=1
+  export DEPLOY_SKIP_HEALTH_GATE=1
+  run deploy_stack "hub" "$TEST_TMP/.prod.env" ""
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Deploy complete"* ]]
+}
+
 # ── Real _bg_wait_healthy: label parameter ────────────────────────────────────
 
 # Sources the real loop with its probes stubbed healthy so it returns after
@@ -138,7 +158,7 @@ teardown() { common_teardown; }
 _run_real_wait_healthy() {
   unset -f _bg_wait_healthy
   source "$LIB/deploy_blue_green.sh"
-  health_check_green() { return 0; }
+  health_check_project() { return 0; }
   _bg_any_container_restarted() { return 1; }
   ok()   { echo "OK: $*"; }
   log()  { echo "LOG: $*"; }
@@ -159,4 +179,20 @@ _run_real_wait_healthy() {
   [[ "$output" == *"Waiting for stack health"* ]]
   [[ "$output" == *"stack healthy"* ]]
   [[ "$output" != *"green"* ]]
+}
+
+@test "_bg_wait_healthy: returns non-zero on timeout when health never passes" {
+  run bash -c '
+    source "'"$LIB"'/deploy_blue_green.sh"
+    source "'"$CLI_ROOT"'/lib/health.sh"
+    health_check_project() { return 1; }
+    _bg_any_container_restarted() { return 1; }
+    ok()   { echo "OK: $*"; }
+    log()  { echo "LOG: $*"; }
+    warn() { echo "WARN: $*" >&2; }
+    export STRUT_HOME="'"$CLI_ROOT"'"
+    BLUE_GREEN_HEALTH_POLL_INTERVAL=1 _bg_wait_healthy "'"$TEST_TMP/stacks/hub"'" "docker compose" "compose.yml" 2
+  '
+  [ "$status" -ne 0 ]
+  [[ "$output" != *"healthy"* ]]
 }

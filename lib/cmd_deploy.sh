@@ -144,6 +144,7 @@ _usage_deploy() {
   echo "  --services <profile> Service profile (messaging|ui|full)"
   echo "  --pull-only          Pull images without restarting containers"
   echo "  --skip-validation    Skip pre-deploy config validation and hooks"
+  echo "  --skip-health-gate   Skip post-up health polling (for one-shot/migration stacks)"
   echo "  --force-unlock       Break an existing deploy lock before acquiring"
   echo "  --no-lock            Skip lock acquisition (advanced; recovery only)"
   echo "  --blue-green         Stand up new version alongside current, health-gate,"
@@ -301,6 +302,7 @@ cmd_deploy() {
   # Parse deploy-specific flags
   local pull_only=false
   local skip_validation=false
+  local skip_health_gate=false
   local force_unlock=false
   local skip_lock=false
   local force_local=false
@@ -312,6 +314,7 @@ cmd_deploy() {
     case $1 in
       --pull-only) pull_only=true; shift ;;
       --skip-validation) skip_validation=true; shift ;;
+      --skip-health-gate) skip_health_gate=true; shift ;;
       --force-unlock) force_unlock=true; shift ;;
       --no-lock) skip_lock=true; shift ;;
       --force-local) force_local=true; shift ;;
@@ -325,6 +328,7 @@ cmd_deploy() {
 
   # Export for deploy_stack to read
   export SKIP_VALIDATION="$skip_validation"
+  export DEPLOY_SKIP_HEALTH_GATE="$skip_health_gate"
 
   # ── Concurrency lock ─────────────────────────────────────────────────────
   # Prevents two deploys racing against the same stack/env. Honor --no-lock

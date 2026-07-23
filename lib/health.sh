@@ -21,7 +21,7 @@ _health_record() {
   local status="$1" name="$2" message="$3" details="${4:-}"
 
   # Counters/overall status must update regardless of output mode — callers
-  # like health_check_green() poll in JSON mode (to suppress human output)
+  # like health_check_project() poll in JSON mode (to suppress human output)
   # and rely on HEALTH_PASSED/HEALTH_FAILED/HEALTH_WARNED to judge readiness.
   case "$status" in
     pass) HEALTH_PASSED=$((HEALTH_PASSED + 1)) ;;
@@ -129,17 +129,18 @@ health_check_containers() {
   $HEALTH_JSON_OUTPUT || echo ""
 }
 
-# health_check_green <stack> <compose_cmd> <compose_file>
+# health_check_project <stack> <compose_cmd> <compose_file>
 #
-# Project-scoped readiness gate for a blue-green color. Judges ONLY the target
-# project's own containers (running + Docker health) — never host ports (which
-# the other, still-live color answers) and never host-global resources (load
-# spikes during image pull are not a reason to fail a deploy). Intended to be
-# polled until healthy or timeout.
+# Project-scoped readiness gate. Judges ONLY the target project's own
+# containers (running + Docker health) — never host ports (which the other,
+# still-live color answers in blue-green) and never host-global resources
+# (load spikes during image pull are not a reason to fail a deploy). Intended
+# to be polled until healthy or timeout. Used by both the blue-green and
+# standard deploy paths.
 #
 # Returns: 0 when every container is running and healthy (or has no healthcheck),
 #          1 otherwise (a container is down, unhealthy, or still starting).
-health_check_green() {
+health_check_project() {
   local compose_cmd="$2" compose_file="$3"
   local prev_json="$HEALTH_JSON_OUTPUT"
   HEALTH_JSON_OUTPUT=true  # suppress human output while polling
@@ -150,6 +151,9 @@ health_check_green() {
   # merely "running but not yet healthy" (warn) — the latter keeps us polling.
   [ "$HEALTH_PASSED" -gt 0 ] && [ "$HEALTH_FAILED" -eq 0 ] && [ "$HEALTH_WARNED" -eq 0 ]
 }
+
+# Backward-compat alias — external hooks/scripts may reference the old name.
+health_check_green() { health_check_project "$@"; }
 
 # health_check_application <stack_dir>
 #
