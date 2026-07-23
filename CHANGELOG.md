@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.43.1](https://github.com/gfargo/strut/compare/v0.43.0...v0.43.1) (2026-07-23)
+
+
+### Bug Fixes
+
+* **mcp:** use newline-delimited JSON output per MCP stdio spec The MCP stdio transport spec states: 'Messages are delimited by newlines, and MUST NOT contain embedded newlines' and 'There is no header layer.' The previous _mcp_write wrapped responses in Content-Length headers (LSP-style framing), which caused Kiro and other spec-compliant MCP clients to time out waiting for a newline-terminated JSON line that never came. Change _mcp_write to emit one JSON object per line followed by \n — the canonical MCP stdio wire format. Input-side Content-Length parsing is retained since some older clients still send framed input. Fixes the 60s connection timeout in Kiro's MCP panel. ([#478](https://github.com/gfargo/strut/issues/478)) ([283a73d](https://github.com/gfargo/strut/commit/283a73d4f88e3b3a8757caac8240b4017f377821))
+
 ## [0.43.0](https://github.com/gfargo/strut/compare/v0.42.1...v0.43.0) (2026-07-23)
 
 
