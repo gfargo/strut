@@ -89,13 +89,13 @@ mcp_serve() {
   done
 }
 
-# _mcp_write — write a Content-Length framed message to stdout.
-# MCP stdio transport spec requires both directions use Content-Length framing.
-# The body is a single JSON line; we prepend the Content-Length header block.
+# _mcp_write — write a single JSON-RPC message to stdout.
+# MCP stdio transport spec: one message per line, newline-delimited, no
+# embedded newlines, no header layer. Each call emits one complete JSON
+# object followed by \n.
 _mcp_write() {
   local body="$1"
-  local len=${#body}
-  printf 'Content-Length: %d\r\n\r\n%s' "$len" "$body"
+  printf '%s\n' "$body"
 }
 
 # _mcp_respond <id> <result_json>
