@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.43.3](https://github.com/gfargo/strut/compare/v0.43.2...v0.43.3) (2026-07-23)
+
+
+### Bug Fixes
+
+* **mcp:** compact stdio responses to one line ([#482](https://github.com/gfargo/strut/issues/482)) ([e49669f](https://github.com/gfargo/strut/commit/e49669f196d0f6b2c368538425365b08224094d3))
+
 ## [0.43.2](https://github.com/gfargo/strut/compare/v0.43.1...v0.43.2) (2026-07-23)
 
 
