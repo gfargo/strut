@@ -174,3 +174,91 @@ _serve() {
   result_id=$(jq -r '.id' < "$outfile")
   [ "$result_id" = "1" ]
 }
+
+@test "live open-pipe handshake returns tools/list as one JSON line" {
+  command -v node >/dev/null 2>&1 || skip "node is required for persistent stdio integration test"
+
+  run node - "$CLI_ROOT/strut" <<'NODE'
+const path = require("node:path");
+const { spawn } = require("node:child_process");
+
+const strut = process.argv[2];
+const child = spawn(strut, ["mcp", "serve"], {
+  cwd: path.dirname(strut),
+  stdio: ["pipe", "pipe", "pipe"],
+});
+
+let buffer = "";
+let stderr = "";
+let done = false;
+const timer = setTimeout(() => finish("timed out waiting for tools/list"), 5000);
+
+function finish(error) {
+  if (done) return;
+  done = true;
+  clearTimeout(timer);
+  child.kill("SIGTERM");
+  if (error) {
+    console.error(`${error}${stderr ? `; stderr: ${stderr}` : ""}`);
+    process.exitCode = 1;
+  }
+}
+
+function send(message) {
+  child.stdin.write(`${JSON.stringify(message)}\n`);
+}
+
+child.stderr.on("data", (chunk) => {
+  stderr += chunk.toString("utf8");
+});
+
+child.on("error", (error) => finish(`spawn failed: ${error.message}`));
+child.on("exit", (code, signal) => {
+  if (!done) finish(`server exited before tools/list: code=${code} signal=${signal}`);
+});
+
+child.stdout.on("data", (chunk) => {
+  buffer += chunk.toString("utf8");
+  let newline;
+  while (!done && (newline = buffer.indexOf("\n")) >= 0) {
+    const line = buffer.slice(0, newline);
+    buffer = buffer.slice(newline + 1);
+
+    let message;
+    try {
+      message = JSON.parse(line);
+    } catch (error) {
+      finish(`invalid newline-delimited JSON: ${error.message}`);
+      return;
+    }
+
+    if (message.id === 1) {
+      send({ jsonrpc: "2.0", method: "notifications/initialized" });
+      send({ jsonrpc: "2.0", id: 2, method: "tools/list", params: {} });
+    } else if (message.id === 2) {
+      const tools = message.result && message.result.tools;
+      if (!Array.isArray(tools) || tools.length === 0) {
+        finish("tools/list response did not contain tools");
+        return;
+      }
+      console.log(`tools=${tools.length}`);
+      finish();
+    }
+  }
+});
+
+send({
+  jsonrpc: "2.0",
+  id: 1,
+  method: "initialize",
+  params: {
+    protocolVersion: "2024-11-05",
+    capabilities: {},
+    clientInfo: { name: "persistent-pipe-test", version: "1.0.0" },
+  },
+});
+NODE
+
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"tools="* ]]
+}
