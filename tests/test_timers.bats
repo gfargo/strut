@@ -649,8 +649,8 @@ setup_cmd_timers() {
 # Confirms the post-deploy call site (lib/deploy.sh, after the post_deploy
 # hook) actually fires timers_install with (stack, stack_dir) on a
 # successful deploy. Mirrors the full-success harness in
-# tests/test_deploy_up_failure.bats (same stub set) plus a sleep no-op —
-# deploy_stack's post-`up -d` wait is a real 60s sleep loop otherwise.
+# tests/test_deploy_up_failure.bats (same stub set) plus a passing
+# _bg_wait_healthy — deploy_stack health-gates after `up -d` otherwise.
 
 @test "deploy_stack: fires timers_install with (stack, stack_dir) on a successful deploy" {
   source "$LIB/config.sh"
@@ -669,11 +669,12 @@ setup_cmd_timers() {
   print_banner() { :; }
   require_cmd() { :; }
   is_running_on_vps() { return 1; }
-  sleep() { :; }
+  _bg_wait_healthy() { return 0; }
   export -f registry_login docker_pull_stack docker_require_images \
             rollback_save_snapshot export_volume_paths fire_hook \
             fire_hook_or_warn fire_first_run_hook maybe_apply_db_schema \
-            notify_event print_banner require_cmd is_running_on_vps sleep
+            notify_event print_banner require_cmd is_running_on_vps \
+            _bg_wait_healthy
 
   docker() { return 0; }
   export -f docker

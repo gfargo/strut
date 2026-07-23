@@ -28,6 +28,9 @@ setup() {
   fire_hook_or_warn() { :; }
   fire_first_run_hook() { :; }
   maybe_apply_db_schema() { :; }
+  # Pass the post-up health gate — this suite exercises the `up -d` failure
+  # path; the gate itself is covered in test_deploy_health_gate.bats.
+  _bg_wait_healthy() { return 0; }
   notify_event() { echo "notify_event $*" >> "$TEST_TMP/notify_calls"; }
   print_banner() { :; }
   require_cmd() { :; }
@@ -42,6 +45,7 @@ setup() {
   export -f registry_login docker_pull_stack docker_require_images \
             rollback_save_snapshot export_volume_paths fire_hook \
             fire_hook_or_warn fire_first_run_hook maybe_apply_db_schema \
+            _bg_wait_healthy \
             notify_event print_banner require_cmd is_running_on_vps \
             cmd_validate diff_warn_env_divergence lock_acquire_local \
             lock_release_local lock_is_stale_local lock_force_break_local
