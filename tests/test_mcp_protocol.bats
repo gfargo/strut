@@ -143,3 +143,33 @@ _serve() {
   [ "$status" -eq 0 ]
   [[ "$output" == *'"id":1'* ]]
 }
+
+@test "responses use Content-Length framing (MCP stdio transport spec)" {
+  local msg='{"jsonrpc":"2.0","id":1,"method":"ping"}'
+  local infile="$TEST_TMP/in"
+  printf '%s\n' "$msg" > "$infile"
+
+  local outfile="$TEST_TMP/out"
+  _serve "$infile" > "$outfile"
+  # Output must start with Content-Length header
+  local first_line
+  first_line=$(head -c 50 "$outfile")
+  [[ "$first_line" == Content-Length:* ]]
+}
+
+@test "Content-Length value matches actual body byte count" {
+  local msg='{"jsonrpc":"2.0","id":1,"method":"ping"}'
+  local infile="$TEST_TMP/in"
+  printf '%s\n' "$msg" > "$infile"
+
+  local outfile="$TEST_TMP/out"
+  _serve "$infile" > "$outfile"
+  # Parse the Content-Length value and compare to actual body bytes
+  local declared_len body
+  declared_len=$(sed -n '1s/Content-Length: //p' "$outfile" | tr -d '\r')
+  # Body starts after \r\n\r\n (the blank line separator)
+  body=$(sed '1,/^\r$/d' "$outfile")
+  local actual_len
+  actual_len=$(printf '%s' "$body" | wc -c | tr -d ' ')
+  [ "$declared_len" -eq "$actual_len" ]
+}

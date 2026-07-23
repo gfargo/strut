@@ -89,13 +89,24 @@ mcp_serve() {
   done
 }
 
+# _mcp_write — write a Content-Length framed message to stdout.
+# MCP stdio transport spec requires both directions use Content-Length framing.
+# The body is a single JSON line; we prepend the Content-Length header block.
+_mcp_write() {
+  local body="$1"
+  local len=${#body}
+  printf 'Content-Length: %d\r\n\r\n%s' "$len" "$body"
+}
+
 # _mcp_respond <id> <result_json>
 _mcp_respond() {
   local id="$1"
   local result="$2"
-  printf '{"jsonrpc":"2.0","id":%s,"result":%s}\n' \
+  local body
+  body=$(printf '{"jsonrpc":"2.0","id":%s,"result":%s}' \
     "$(jq -n --arg id "$id" 'if ($id | test("^[0-9]+$")) then ($id | tonumber) else $id end')" \
-    "$result"
+    "$result")
+  _mcp_write "$body"
 }
 
 # _mcp_error <id> <code> <message>
@@ -103,10 +114,12 @@ _mcp_error() {
   local id="$1"
   local code="$2"
   local message="$3"
-  printf '{"jsonrpc":"2.0","id":%s,"error":{"code":%d,"message":%s}}\n' \
+  local body
+  body=$(printf '{"jsonrpc":"2.0","id":%s,"error":{"code":%d,"message":%s}}' \
     "$(jq -n --arg id "$id" 'if ($id | test("^[0-9]+$")) then ($id | tonumber) else $id end')" \
     "$code" \
-    "$(jq -n --arg m "$message" '$m')"
+    "$(jq -n --arg m "$message" '$m')")
+  _mcp_write "$body"
 }
 
 # _mcp_initialize — return server capabilities
