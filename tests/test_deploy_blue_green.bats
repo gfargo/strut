@@ -721,8 +721,8 @@ EOF
 # ── Wait-healthy: restart resets progress instead of accepting early ────────
 
 @test "_bg_wait_healthy: a restart spotted mid-poll resets progress rather than being missed" {
-  health_check_green() { return 0; }
-  export -f health_check_green
+  health_check_project() { return 0; }
+  export -f health_check_project
 
   local poll_count_file="$TEST_TMP/restart_poll_count"
   echo 0 > "$poll_count_file"
@@ -745,8 +745,8 @@ EOF
 }
 
 @test "_bg_wait_healthy: never accepts a container that keeps restarting" {
-  health_check_green() { return 0; }
-  export -f health_check_green
+  health_check_project() { return 0; }
+  export -f health_check_project
   _bg_any_container_restarted() { return 0; }
   export -f _bg_any_container_restarted
 
