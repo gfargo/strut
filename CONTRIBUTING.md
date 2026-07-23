@@ -35,7 +35,8 @@ Requirements: a working Docker daemon (`docker info` must succeed) and the
 `docker pull nginx:alpine`). Individual tests skip cleanly if Docker isn't
 available, so this is safe to run on any dev machine.
 
-A single run takes ~60–90s (deploy pauses 60s waiting for services). In CI
+A single run takes ~30–90s (deploy polls container health until ready
+rather than pausing a fixed 60s). In CI
 they run in their own job — `.github/workflows/integration.yml` — so a
 broken Docker runner doesn't mask failures in the fast unit-test matrix.
 

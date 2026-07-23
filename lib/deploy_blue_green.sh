@@ -212,16 +212,19 @@ _bg_any_container_restarted() {
   return 1
 }
 
-# _bg_wait_healthy <stack_dir> <compose_cmd> <compose_file> [timeout_seconds]
+# _bg_wait_healthy <stack_dir> <compose_cmd> <compose_file> [timeout_seconds] [label]
 #
-# Polls health_run_all (scoped to the green compose project) until it
+# Polls health_check_green (scoped to the target compose project) until it
 # reports healthy or the timeout elapses. Returns 0 healthy, 1 on timeout.
+# `label` names what we're waiting on in log output (default "green") — the
+# standard deploy path reuses this loop with label "stack" (strut#407).
 #
 # We snapshot HEALTH_* globals across the probe so the suite's own state
 # doesn't leak into the caller.
 _bg_wait_healthy() {
   local stack_dir="$1" compose_cmd="$2" compose_file="$3"
   local timeout="${4:-${BLUE_GREEN_HEALTH_TIMEOUT:-30}}"
+  local label="${5:-green}"
   # Overridable only for tests — production callers always get the real 3s
   # poll cadence.
   local interval="${BLUE_GREEN_HEALTH_POLL_INTERVAL:-3}"
@@ -239,7 +242,7 @@ _bg_wait_healthy() {
   local required_consecutive=3
   local consecutive_ok=0
 
-  log "Waiting for green health (timeout: ${timeout}s)"
+  log "Waiting for $label health (timeout: ${timeout}s)"
   while [ "$elapsed" -lt "$timeout" ]; do
     # Use the project-scoped green readiness gate, NOT health_run_all: the
     # latter probes host ports (answered by the still-live blue color, so a
@@ -253,12 +256,12 @@ _bg_wait_healthy() {
       # window a single State snapshot does — it's still nonzero long after
       # the container cycles back to "running".
       if _bg_any_container_restarted "$compose_cmd"; then
-        warn "green container(s) restarted during health checks — not trusting this as healthy"
+        warn "$label container(s) restarted during health checks — not trusting this as healthy"
         consecutive_ok=0
       else
         consecutive_ok=$((consecutive_ok + 1))
         if [ "$consecutive_ok" -ge "$required_consecutive" ]; then
-          ok "green healthy"
+          ok "$label healthy"
           return 0
         fi
       fi

@@ -512,9 +512,24 @@ deploy_stack() {
     return 1
   fi
 
-  echo -n "  Waiting for services to start"
-  for i in $(seq 1 12); do sleep 5; echo -n "."; done
-  echo ""
+  # Health-gate the deploy instead of a fixed 60s sleep (strut#407): poll
+  # this project's own containers (running + Docker health + RestartCount,
+  # via _bg_wait_healthy) until healthy, and fail the deploy on timeout or
+  # crash-loop instead of falling through to the success banner. Stacks
+  # without healthchecks pass as soon as their containers hold "running"
+  # across consecutive polls, so most deploys get FASTER, not slower.
+  declare -F _bg_wait_healthy >/dev/null || source "$LIB/deploy_blue_green.sh"
+  local _deploy_health_timeout="${DEPLOY_HEALTH_TIMEOUT:-60}"
+  local _deploy_health_rc=0
+  _bg_wait_healthy "$stack_dir" "$compose_cmd" "$compose_file" \
+    "$_deploy_health_timeout" "stack" || _deploy_health_rc=$?
+  if [ "$_deploy_health_rc" -ne 0 ]; then
+    error "services did not become healthy within ${_deploy_health_timeout}s — NOT printing the success banner (raise with DEPLOY_HEALTH_TIMEOUT=<seconds>)"
+    # Fire on_health_fail hook (warn-only — never mask the gate's failure)
+    HEALTH_STATUS="$_deploy_health_rc" fire_hook_or_warn on_health_fail "$stack_dir"
+    notify_event deploy.failed stack="$stack" env="$env_name" reason="health_gate_failed"
+    return 1
+  fi
 
   # Reload reverse proxy to pick up any new container IPs
   local proxy="${REVERSE_PROXY:-nginx}"
