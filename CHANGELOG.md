@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.43.0](https://github.com/gfargo/strut/compare/v0.42.1...v0.43.0) (2026-07-23)
+
+
+### Features
+
+* **deploy:** health-gate the standard deploy path instead of the fixed 60s sleep ([#471](https://github.com/gfargo/strut/issues/471)) ([7ee9bb9](https://github.com/gfargo/strut/commit/7ee9bb92ff885340deca097601ac712d0b5cbff8))
+
+
+### Bug Fixes
+
+* **deploy:** health-gate follow-ups ([#472](https://github.com/gfargo/strut/issues/472), [#473](https://github.com/gfargo/strut/issues/473), [#474](https://github.com/gfargo/strut/issues/474), [#475](https://github.com/gfargo/strut/issues/475)) - [#472](https://github.com/gfargo/strut/issues/472): Rename health_check_green → health_check_project with backward-compat alias. Update call site in deploy_blue_green.sh and comment references. - [#473](https://github.com/gfargo/strut/issues/473): Add --skip-health-gate flag and DEPLOY_SKIP_HEALTH_GATE env var to opt out of post-up health polling (for one-shot/migration stacks that exit immediately). Checked in deploy.sh before calling _bg_wait_healthy. - [#474](https://github.com/gfargo/strut/issues/474): Add clarifying comment in _bg_wait_healthy explaining that the standard deploy path always provides arg 4 explicitly (DEPLOY_HEALTH_TIMEOUT default 60s) and BLUE_GREEN_HEALTH_TIMEOUT only applies to the blue-green caller path. - [#475](https://github.com/gfargo/strut/issues/475): Add timeout-path test exercising the real _bg_wait_healthy loop with health_check_project stubbed to always fail, confirming non-zero exit after the timeout elapses. Closes [#472](https://github.com/gfargo/strut/issues/472), closes [#473](https://github.com/gfargo/strut/issues/473), closes [#474](https://github.com/gfargo/strut/issues/474), closes [#475](https://github.com/gfargo/strut/issues/475) ([#477](https://github.com/gfargo/strut/issues/477)) ([b6ceb77](https://github.com/gfargo/strut/commit/b6ceb7769de59cf41b1846372d4fcf36982ba5aa))
+
 ## [0.42.1](https://github.com/gfargo/strut/compare/v0.42.0...v0.42.1) (2026-07-23)
 
 
