@@ -81,6 +81,19 @@ LIB="$STRUT_HOME/lib"
 STRUT_LIB="$LIB"
 export STRUT_LIB
 
+# ── MCP stdin protection ──────────────────────────────────────────────────────
+# When invoked as `strut mcp serve`, the client (Kiro, VS Code, etc.) holds
+# stdin open as a pipe and writes JSON-RPC messages to it. The ~40 lib files
+# sourced below must not accidentally consume that data (any `read` without an
+# explicit fd, or a subshell inheriting stdin, could swallow the client's
+# initialize message). Save stdin to fd 8 and reopen /dev/null for the source
+# phase; _mcp_cmd_serve restores it before entering the serve loop.
+_STRUT_MCP_STDIN_SAVED=false
+if [ "${1:-}" = "mcp" ] && [ "${2:-}" = "serve" ]; then
+  exec 8<&0 0</dev/null
+  _STRUT_MCP_STDIN_SAVED=true
+fi
+
 # Source config first, then load project config
 source "$LIB/config.sh"
 find_project_root || true  # OK if not in a project (init, --version, etc.)
