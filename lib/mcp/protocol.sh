@@ -91,11 +91,11 @@ mcp_serve() {
 
 # _mcp_write — write a single JSON-RPC message to stdout.
 # MCP stdio transport spec: one message per line, newline-delimited, no
-# embedded newlines, no header layer. Each call emits one complete JSON
-# object followed by \n.
+# embedded newlines, no header layer. Compact the complete envelope here so
+# multi-line handler results cannot split one response into multiple records.
 _mcp_write() {
   local body="$1"
-  printf '%s\n' "$body"
+  printf '%s' "$body" | jq -c .
 }
 
 # _mcp_respond <id> <result_json>
