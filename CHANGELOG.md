@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.44.0](https://github.com/gfargo/strut/compare/v0.43.3...v0.44.0) (2026-07-24)
+
+
+### Features
+
+* add individual VHS tapes for workflow section ([#484](https://github.com/gfargo/strut/issues/484)) ([594c268](https://github.com/gfargo/strut/commit/594c268664aa7578a66fbfc5a98e8a1c34a06a82))
+
+
+### Bug Fixes
+
+* workflow tapes — add monospace font + arrow/checkmark icons ([#486](https://github.com/gfargo/strut/issues/486)) ([7336959](https://github.com/gfargo/strut/commit/7336959061609fdcbc5acc7b89ebe2ccb7261b92))
+
 ## [0.43.3](https://github.com/gfargo/strut/compare/v0.43.2...v0.43.3) (2026-07-23)
 
 
