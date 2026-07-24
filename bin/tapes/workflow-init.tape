@@ -4,6 +4,7 @@
 # Story: Show `strut init` creating the project scaffold in one clean beat.
 
 Set Shell "bash"
+Set FontFamily "JetBrains Mono"
 Set FontSize 20
 Set Padding 24
 Set Theme "Catppuccin Mocha"

@@ -4,6 +4,7 @@
 # Story: Show `strut release` deploying containers with health checks.
 
 Set Shell "bash"
+Set FontFamily "JetBrains Mono"
 Set FontSize 20
 Set Padding 24
 Set Theme "Catppuccin Mocha"
@@ -23,4 +24,4 @@ Show
 # ── Scene: Deploy ─────────────────────────────────────────────────────────────
 Sleep 800ms
 Type "strut my-app release --env prod" Enter
-Sleep 4000ms
+Sleep 4500ms
