@@ -71,6 +71,16 @@ Per-stack:  deploy, stop, release, update, health, logs, status, shell, exec,
   over `.<env>.env` by `resolve_env_file` at the same level, and explicitly
   un-ignored (`!*.enc.env` / `!.*.enc.env`) so it can be committed under
   `stacks/<stack>/` where the plain `.*.env` rule would otherwise sweep it.
+- `env/stack.gen.enc.env`, `env/hosts/<alias>.gen.enc.env` — committed,
+  age/gpg-encrypted values generated once by `strut <stack> gen <VAR>`
+  (`lib/cmd_gen.sh`) and applied as the **final** layer of the env chain
+  (`env_apply_gen_layer`, `lib/utils.sh`, `strut#179`), overriding the base
+  env file (including a resolved `.<env>.enc.env`), `env/hosts/<alias>.env`,
+  and `common.env` on conflicting keys — stack-scope applies first,
+  host-scope last (most specific wins). Decrypted on demand via
+  `_secrets_unlock`; decrypt failure (e.g. no age identity) warns and skips
+  rather than failing the deploy, so read-only commands still work without
+  the key.
 
 ## Design Principles
 
