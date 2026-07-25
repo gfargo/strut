@@ -124,3 +124,41 @@ EOF
   '
   [ "$status" -eq 0 ]
 }
+
+# strut#400: `_group_logs` had no --env case, so `strut group <name> logs
+# --env <e>` silently dropped the flag and every child ran against the
+# default env. Assert --env actually reaches the per-stack child dispatch
+# (`"$0" <stack> logs ... --env <e>`) by pointing $0 at a stub that records
+# its argv instead of the real strut entrypoint.
+@test "group logs: --env reaches child dispatch as '--env <value>'" {
+  local stack="test-group-logs-env-$$"
+  mkdir -p "$CLI_ROOT/stacks/$stack"
+  cat > "$STRUT_GROUPS_CONF" <<EOF
+[grp]
+$stack
+EOF
+
+  local fake_strut="$TEST_TMP/fake_strut.sh"
+  local marker="$TEST_TMP/child_args.txt"
+  cat > "$fake_strut" <<SCRIPT
+#!/usr/bin/env bash
+printf '%s\n' "\$@" > "$marker"
+SCRIPT
+  chmod +x "$fake_strut"
+
+  run bash -c '
+    source "'"$CLI_ROOT"'/lib/utils.sh"
+    source "'"$CLI_ROOT"'/lib/groups.sh"
+    source "'"$CLI_ROOT"'/lib/cmd_group.sh"
+    export STRUT_GROUPS_CONF="'"$STRUT_GROUPS_CONF"'"
+    _group_logs grp --env prod
+  ' "$fake_strut"
+  [ "$status" -eq 0 ]
+
+  [ -f "$marker" ]
+  run cat "$marker"
+  [[ "$output" == *"--env"* ]]
+  [[ "$output" == *"prod"* ]]
+
+  rm -rf "$CLI_ROOT/stacks/$stack"
+}

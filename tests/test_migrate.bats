@@ -94,6 +94,39 @@ teardown() {
   [ "$status" -ne 0 ]
 }
 
+# ── strut#400: flags in a positional slot must not leak into vps_user/etc ────
+
+@test "migrate_wizard: '--yes' in the vps_user slot doesn't leak — vps_user stays 'ubuntu'" {
+  # Simulates `strut migrate myhost --yes` (user omits vps_user, so --yes
+  # lands in slot 2). Stub every phase function to print its resolved args
+  # instead of touching SSH, and stub confirm to auto-approve.
+  run _timeout 5 bash -c '
+    source "$CLI_ROOT/lib/utils.sh"
+    source "$CLI_ROOT/lib/migrate.sh"
+    migrate_phase_preflight() { echo "PREFLIGHT host=$1 user=$2 port=$3 key=$4"; exit 0; }
+    migrate_wizard "myhost" "--yes" 2>&1
+  '
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"PREFLIGHT host=myhost user=ubuntu port= key="* ]]
+  [[ "$output" != *"user=--yes"* ]]
+}
+
+@test "migrate_wizard: '--sudo' and '--start-phase=N' in positional slots don't leak into ssh_port/ssh_key" {
+  # Simulates `strut migrate myhost ubuntu --sudo --start-phase=2` — --sudo
+  # would otherwise land in the ssh_port slot without filtering.
+  run _timeout 5 bash -c '
+    source "$CLI_ROOT/lib/utils.sh"
+    source "$CLI_ROOT/lib/migrate.sh"
+    export STRUT_YES=1
+    migrate_phase_setup() { echo "SETUP host=$1 user=$2 port=$3 key=$4"; exit 0; }
+    migrate_wizard "myhost" "ubuntu" "--sudo" "--start-phase=2" 2>&1
+  '
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"SETUP host=myhost user=ubuntu port= key="* ]]
+  # --sudo was recognized as a flag (not leaked into the ssh_port slot)
+  [[ "$output" == *"Docker sudo: enabled (--sudo)"* ]]
+}
+
 # ── migrate_status ────────────────────────────────────────────────────────────
 
 @test "migrate_status: runs without error when no audits exist" {

@@ -44,7 +44,7 @@ _strut_envs() {
     name=$(basename "$f")
     # Strip leading dot and trailing .env; map .env itself to "prod"
     case "$name" in
-      .env) printf '%s\n' "prod" ;;
+      .env) ;;  # bare .env never resolves via --env (strict .<name>.env match)
       .*.env)
         name=${name#.}
         name=${name%.env}
@@ -68,7 +68,7 @@ _strut_completions() {
   prev="${COMP_WORDS[COMP_CWORD-1]}"
   cword=$COMP_CWORD
 
-  local top_cmds="init list scaffold upgrade doctor status-all dashboard posture group monitoring audit audit:list audit:diff audit:generate migrate migrate:status notify sync fleet webhook secrets-filter mcp skills help completions remote:init --version -v --help -h"
+  local top_cmds="init list scaffold upgrade doctor status-all dashboard posture group monitoring audit audit:list audit:diff audit:generate migrate migrate:status notify sync fleet webhook secrets-filter mcp skills help completions remote:init gateway --version -v --help -h"
   local per_stack_cmds="update release deploy rebuild ship stop first-run destroy diff lock health logs logs:download logs:rotate backup drift migrate restore db:pull db:push db:schema shell exec remote:init adopt provision ssh:keygen ci:init cert:renew cert:status init-secrets secrets gen status briefing preflight volumes timers prune local prod staging dev debug keys validate rollback history releases domain --help"
   local profiles="messaging ui full"
 
@@ -132,6 +132,9 @@ _strut_completions() {
       mapfile -t COMPREPLY < <(compgen -W "--check-vps --json --fix" -- "$cur")
       return 0
       ;;
+    gateway)
+      [ "$cword" -eq 2 ] && mapfile -t COMPREPLY < <(compgen -W "deploy status reload validate" -- "$cur") && return 0
+      ;;
   esac
 
   # Stack-level: strut <stack> <cmd> ...
@@ -147,7 +150,7 @@ _strut_completions() {
       [ "$cword" -eq 3 ] && mapfile -t COMPREPLY < <(compgen -W "postgres neo4j mysql sqlite all verify list health schedule retention" -- "$cur") && return 0
       ;;
     drift)
-      [ "$cword" -eq 3 ] && mapfile -t COMPREPLY < <(compgen -W "detect report fix monitor history auto-fix" -- "$cur") && return 0
+      [ "$cword" -eq 3 ] && mapfile -t COMPREPLY < <(compgen -W "detect report diff fix monitor history images auto-fix" -- "$cur") && return 0
       ;;
     db:pull|db:push)
       [ "$cword" -eq 3 ] && mapfile -t COMPREPLY < <(compgen -W "postgres neo4j mysql sqlite all --download-only --upload-only --file" -- "$cur") && return 0
@@ -171,7 +174,7 @@ _strut_completions() {
       [ "$cword" -eq 3 ] && mapfile -t COMPREPLY < <(compgen -W "exec shell port-forward copy snapshot inspect-env stats" -- "$cur") && return 0
       ;;
     keys)
-      [ "$cword" -eq 3 ] && mapfile -t COMPREPLY < <(compgen -W "rotate status check env ssh github" -- "$cur") && return 0
+      [ "$cword" -eq 3 ] && mapfile -t COMPREPLY < <(compgen -W "discover inventory audit export status recent test test:ssh test:vps test:env test:api test:db test:github ssh:add ssh:rotate ssh:revoke ssh:list ssh:audit ssh:sync-github api:generate api:rotate api:revoke api:list api:test env:rotate env:set env:sync env:validate env:backup env:diff db:rotate db:create-readonly pull rotate-registry registry-status github:list github:set github:rotate-vps-key github:rotate-pat github:sync github:audit" -- "$cur") && return 0
       ;;
     migrate)
       [ "$cword" -eq 3 ] && mapfile -t COMPREPLY < <(compgen -W "neo4j postgres --status --up --down" -- "$cur") && return 0

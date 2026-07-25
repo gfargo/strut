@@ -303,10 +303,12 @@ usage() {
   echo "  lock     <status|release> [--env <name>] [--force]            Inspect/manage deploy locks"
   echo "  health   [--env <name>] [--services <profile>] [--json]       Health checks"
   echo "  logs     [--env <name>] [service] [--since <dur>] [--follow]  View logs"
+  echo "  logs:download [--env <name>] [service] [--since <dur>]        Download logs to file"
+  echo "  logs:rotate [days]                                             Rotate old log files"
   echo "  migrate  [--env <name>] [neo4j|postgres] [--status|--up|--down N]  Run schema migrations"
   echo "  backup   [--env <name>] [neo4j|postgres|mysql|sqlite|all|verify|list|health|schedule|retention]"
   echo "                                                                 Backup management (create, verify, schedule, health)"
-  echo "  drift    [--env <name>] [detect|report|fix|monitor|history|auto-fix]"
+  echo "  drift    [--env <name>] [detect|report|diff|fix|monitor|history|images|auto-fix]"
   echo "                                                                 Configuration drift detection and auto-fix"
   echo "  db:schema [--env <name>] [apply|verify|all]                  Apply/verify stack Postgres schema SQL"
   echo "  restore  [--env <name>] <file>                                Restore backup"
@@ -319,6 +321,8 @@ usage() {
   echo "  remote:init [--env <name>] [--host <h>] [--user <u>]          Bootstrap strut on VPS"
   echo "  adopt    --host <h> [--env <name>] [--remote-dir <path>]       Adopt a hand-deployed stack"
   echo "  status   [--env <name>]                                        Stack status"
+  echo "  validate [--env <name>]                                        Validate stack config files"
+  echo "  history  [--env <name>] [--limit N] [--json]                   Deploy/release/rollback history"
   echo "  briefing [--env <name>] [--json]                               One-call situation report (posture + actions)"
   echo "  preflight [--env <name>] [--json]                              Deploy go/no-go verdict (GO/CAUTION/NO-GO)"
   echo "  volumes  [--env <name>] [status|init|config]                   Volume management"
@@ -354,8 +358,8 @@ usage() {
   echo "  releases   [--env <name>] [--json] | show <id>                Deploy history / audit trail"
   echo "  prune      [--env <name>]                                      Remove unused containers/images/volumes on VPS"
   echo "  gateway    deploy|status|reload|validate --host <alias>        Caddy gateway management"
-  echo "  cert:renew [--host <alias>]                                    Renew SSL/TLS certificates"
-  echo "  cert:status [--host <alias>]                                   Show certificate status/expiry"
+  echo "  cert:renew                                                     Renew SSL/TLS certificates"
+  echo "  cert:status                                                    Show certificate status/expiry"
   echo "  provision  <host-alias> [--force] [--script <path>]            Run hosts/<host>/provision.d/ (or legacy script) on VPS"
   echo "  ssh:keygen [--env <name>]                                      Generate/rotate SSH deploy keys"
   echo "  ci:init    [--env <name>]                                      Bootstrap CI/CD integration"
@@ -742,10 +746,19 @@ case "${1:-}" in
 
   audit)
     # audit <vps-host> [vps-user] [ssh-key] [ssh-port] [--sudo]
-    VPS_HOST="${2:-}"
-    VPS_USER="${3:-ubuntu}"
-    AUDIT_SSH_KEY="${4:-}"
-    AUDIT_SSH_PORT="${5:-}"
+    # Filter out --* flags before assigning positionals, so a flag in any
+    # slot (e.g. `strut audit myhost --sudo`) can't be captured as VPS_USER.
+    _AUDIT_POS=()
+    for arg in "${@:2}"; do
+      case "$arg" in
+        --*) ;;
+        *) _AUDIT_POS+=("$arg") ;;
+      esac
+    done
+    VPS_HOST="${_AUDIT_POS[0]:-}"
+    VPS_USER="${_AUDIT_POS[1]:-ubuntu}"
+    AUDIT_SSH_KEY="${_AUDIT_POS[2]:-}"
+    AUDIT_SSH_PORT="${_AUDIT_POS[3]:-}"
     # Check for --sudo flag in any position
     for arg in "$@"; do
       [ "$arg" = "--sudo" ] && export VPS_SUDO=true
@@ -759,10 +772,18 @@ case "${1:-}" in
     exit 0
     ;;
   audit:diff)
-    VPS_HOST="${2:-}"
-    VPS_USER="${3:-ubuntu}"
-    AUDIT_SSH_KEY="${4:-}"
-    AUDIT_SSH_PORT="${5:-}"
+    # audit:diff <vps-host> [vps-user] [ssh-key] [ssh-port]
+    _AUDIT_POS=()
+    for arg in "${@:2}"; do
+      case "$arg" in
+        --*) ;;
+        *) _AUDIT_POS+=("$arg") ;;
+      esac
+    done
+    VPS_HOST="${_AUDIT_POS[0]:-}"
+    VPS_USER="${_AUDIT_POS[1]:-ubuntu}"
+    AUDIT_SSH_KEY="${_AUDIT_POS[2]:-}"
+    AUDIT_SSH_PORT="${_AUDIT_POS[3]:-}"
     [ -n "$VPS_HOST" ] || { usage; fail "Usage: strut audit:diff <vps-host> [vps-user] [ssh-key] [ssh-port]"; }
     audit_diff "$VPS_HOST" "$VPS_USER" "$AUDIT_SSH_KEY" "$AUDIT_SSH_PORT"
     exit 0

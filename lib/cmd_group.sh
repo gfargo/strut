@@ -19,7 +19,7 @@ Usage:
   strut group remove <name> <stack>             Remove a stack from a group
   strut group <name> <command> [--env <name>] [--stop-on-error] [options]
                                                 Run command for all stacks in group
-  strut group <name> logs [--follow] [--since <dur>] [--grep <pat>] [--service <svc>]
+  strut group <name> logs [--follow] [--since <dur>] [--grep <pat>] [--service <svc>] [--env <name>]
                                                 Multiplex logs with [stack] prefixes
 
 Flags (for group execution):
@@ -219,6 +219,7 @@ _group_logs() {
   local since=""
   local grep_pattern=""
   local service=""
+  local env_name=""
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --follow|-f)  follow="--follow"; shift ;;
@@ -228,6 +229,8 @@ _group_logs() {
       --grep=*)     grep_pattern="${1#*=}"; shift ;;
       --service)    service="${2:-}"; shift 2 ;;
       --service=*)  service="${1#*=}"; shift ;;
+      --env)        env_name="${2:-}"; shift 2 ;;
+      --env=*)      env_name="${1#*=}"; shift ;;
       --help|-h)    _usage_group; return 0 ;;
       *)            warn "Unknown flag: $1"; shift ;;
     esac
@@ -285,6 +288,7 @@ _group_logs() {
     local -a child_args=("$stack" "logs")
     [ -n "$follow" ] && child_args+=("$follow")
     [ -n "$since" ]  && child_args+=("--since" "$since")
+    [ -n "$env_name" ] && child_args+=("--env" "$env_name")
     [ -n "$service" ] && child_args+=("$service")
 
     # One background process per stack. Output flows into the parent's stdout

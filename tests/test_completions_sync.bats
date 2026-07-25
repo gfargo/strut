@@ -32,6 +32,7 @@ teardown() {
 # in the file) are not mistaken for the real dispatch table.
 _dispatch_arms() {
   local start="$1"
+  local file="${2:-$STRUT_BIN}"
   awk -v start="$start" '
     BEGIN { depth = 0; capturing = 0; n = 0 }
     {
@@ -57,16 +58,16 @@ _dispatch_arms() {
       }
     }
     END { for (i = 1; i <= n; i++) print arr[i] }
-  ' "$STRUT_BIN"
+  ' "$file"
 }
 
-# _dispatch_commands <start-pattern>
+# _dispatch_commands <start-pattern> [file]
 # Expands |-joined arm labels into individual command tokens, dropping
 # flag-only alias arms (--version|-v|version, --help|-h|help) and
 # housekeeping arms (the "*" plugin-fallthrough/unknown-command arm and the
 # "" missing-argument arm).
 _dispatch_commands() {
-  local start="$1" arm token first
+  local start="$1" file="${2:-$STRUT_BIN}" arm token first
   while IFS= read -r arm; do
     [ -z "$arm" ] && continue
     IFS='|' read -ra toks <<< "$arm"
@@ -78,7 +79,7 @@ _dispatch_commands() {
       [[ "$token" == -* ]] && continue
       printf '%s\n' "$token"
     done
-  done < <(_dispatch_arms "$start")
+  done < <(_dispatch_arms "$start" "$file")
 }
 
 # _word_list_commands <word...> — filters a flat completion command list
@@ -199,6 +200,122 @@ _dispatch_stack() {
     echo "$missing" >&2
     return 1
   fi
+}
+
+# ── Subcommand word-lists (keys / drift / gateway) ─────────────────────────
+# The commands above only check the flat top-level/per-stack command names.
+# `keys`, `drift`, and `gateway` each have their own subcommand dispatch
+# (lib/keys.sh, lib/cmd_drift.sh, lib/cmd_gateway.sh) that drifted from the
+# hardcoded completion word-lists (strut#400). These extract the real
+# subcommand set from each handler's case statement and diff it against
+# what each shell's completion script offers.
+
+_dispatch_keys() {
+  _dispatch_commands 'case "$subcommand" in' "$CLI_ROOT/lib/keys.sh" | sort -u
+}
+
+_dispatch_drift() {
+  _dispatch_commands 'case "$target" in' "$CLI_ROOT/lib/cmd_drift.sh" | sort -u
+}
+
+_dispatch_gateway() {
+  _dispatch_commands 'case "$subcmd" in' "$CLI_ROOT/lib/cmd_gateway.sh" | sort -u
+}
+
+# _bash_case_word_list <arm-name> — the compgen -W word list on the line
+# right after a `    <arm-name>)` case arm in completions/bash.sh.
+_bash_case_word_list() {
+  awk -v want="    $1)" '
+    $0 == want { grab=1; next }
+    grab { print; exit }
+  ' "$CLI_ROOT/completions/bash.sh" | sed -n 's/.*compgen -W "\([^"]*\)".*/\1/p'
+}
+
+# _zsh_case_word_list <arm-name> — the compadd word list on the line right
+# after a `    <arm-name>)` case arm in completions/zsh.sh.
+_zsh_case_word_list() {
+  awk -v want="    $1)" '
+    $0 == want { grab=1; next }
+    grab { print; exit }
+  ' "$CLI_ROOT/completions/zsh.sh" | sed -n 's/.*compadd \(.*\); return 0 }.*/\1/p'
+}
+
+# _fish_case_word_list <arm-name> — the `-a '...'` word list on the line
+# right after the `complete` line gated on `__strut_tok 3 = <arm-name>` in
+# completions/fish.fish.
+_fish_case_word_list() {
+  grep -A1 -- "= $1;" "$CLI_ROOT/completions/fish.fish" | sed -n "s/.*-a '\\(.*\\)'.*/\\1/p"
+}
+
+@test "completions: keys subcommand word-lists match lib/keys.sh dispatch (bash/zsh/fish)" {
+  _dispatch_keys > "$TEST_TMP/dispatch_keys.txt"
+
+  local shell words missing
+  for shell in bash zsh fish; do
+    case "$shell" in
+      bash) words=$(_bash_case_word_list keys) ;;
+      zsh)  words=$(_zsh_case_word_list keys) ;;
+      fish) words=$(_fish_case_word_list keys) ;;
+    esac
+    _word_list_commands $words | sort -u > "$TEST_TMP/have_$shell.txt"
+    missing=$(_missing "$TEST_TMP/dispatch_keys.txt" "$TEST_TMP/have_$shell.txt")
+    if [ -n "$missing" ]; then
+      echo "completions/$shell keys word-list is missing subcommands dispatched by lib/keys.sh:" >&2
+      echo "$missing" >&2
+      return 1
+    fi
+  done
+}
+
+@test "completions: drift subcommand word-lists match lib/cmd_drift.sh dispatch (bash/zsh/fish)" {
+  _dispatch_drift > "$TEST_TMP/dispatch_drift.txt"
+
+  local shell words missing
+  for shell in bash zsh fish; do
+    case "$shell" in
+      bash) words=$(_bash_case_word_list drift) ;;
+      zsh)  words=$(_zsh_case_word_list drift) ;;
+      fish) words=$(_fish_case_word_list drift) ;;
+    esac
+    _word_list_commands $words | sort -u > "$TEST_TMP/have_$shell.txt"
+    missing=$(_missing "$TEST_TMP/dispatch_drift.txt" "$TEST_TMP/have_$shell.txt")
+    if [ -n "$missing" ]; then
+      echo "completions/$shell drift word-list is missing subcommands dispatched by lib/cmd_drift.sh:" >&2
+      echo "$missing" >&2
+      return 1
+    fi
+  done
+}
+
+# ── gateway: virtual first-word "stack" ────────────────────────────────────
+# `gateway` is dispatched by STACK (strut:947), not by the top-level
+# `case "${1:-}" in` or per-stack `case "$COMMAND" in` tables, so it's
+# invisible to the generic dispatch-sync tests above. Check it directly.
+
+@test "completions: gateway is completable at position 1 (bash/zsh/fish)" {
+  grep -q '\bgateway\b' <<< "$(sed -n 's/^[[:space:]]*local top_cmds="\(.*\)"$/\1/p' "$CLI_ROOT/completions/bash.sh")"
+  grep -q '\bgateway\b' <<< "$(sed -n 's/^[[:space:]]*top_cmds=(\(.*\))$/\1/p' "$CLI_ROOT/completions/zsh.sh")"
+  grep -q '\bgateway\b' <<< "$(sed -n 's/^set -l top_cmds \(.*\)$/\1/p' "$CLI_ROOT/completions/fish.fish")"
+}
+
+@test "completions: gateway subcommand word-lists match lib/cmd_gateway.sh dispatch (bash/zsh/fish)" {
+  _dispatch_gateway > "$TEST_TMP/dispatch_gateway.txt"
+
+  local shell words missing
+  for shell in bash zsh fish; do
+    case "$shell" in
+      bash) words=$(_bash_case_word_list gateway) ;;
+      zsh)  words=$(_zsh_case_word_list gateway) ;;
+      fish) words=$(_fish_case_word_list gateway) ;;
+    esac
+    _word_list_commands $words | sort -u > "$TEST_TMP/have_$shell.txt"
+    missing=$(_missing "$TEST_TMP/dispatch_gateway.txt" "$TEST_TMP/have_$shell.txt")
+    if [ -n "$missing" ]; then
+      echo "completions/$shell gateway word-list is missing subcommands dispatched by lib/cmd_gateway.sh:" >&2
+      echo "$missing" >&2
+      return 1
+    fi
+  done
 }
 
 # ── Sanity: the parser itself finds a non-trivial dispatch table ─────────

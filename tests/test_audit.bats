@@ -369,3 +369,31 @@ EOF
   [ "$status" -eq 0 ]
   [[ "$output" == *"incomplete"* ]]
 }
+
+# ── strut#400: `--sudo` in the vps-user slot ─────────────────────────────────
+# `strut audit <host> --sudo` used to capture --sudo as VPS_USER (positionals
+# were assigned before flags were filtered). Drive the real `strut` entrypoint
+# — audit_vps logs "Auditing VPS: <user>@<host>" before attempting any SSH, so
+# this catches the regression without needing real VPS connectivity. Runs
+# under a short timeout since the (nonexistent) host fails SSH fast, but is
+# not otherwise guaranteed to be quick in every environment.
+
+@test "strut audit <host> --sudo: --sudo doesn't leak into vps-user (any position)" {
+  run _timeout 15 bash "$CLI_ROOT/strut" audit myhost --sudo
+  [[ "$output" == *"Auditing VPS: ubuntu@myhost"* ]]
+  [[ "$output" != *"Auditing VPS: --sudo@myhost"* ]]
+}
+
+@test "strut audit <host> <user> <key> <port> --sudo: positional args resolve correctly with a trailing flag" {
+  run _timeout 15 bash "$CLI_ROOT/strut" audit myhost deploy "" 2222 --sudo
+  [[ "$output" == *"Auditing VPS: deploy@myhost"* ]]
+}
+
+@test "strut audit:diff <host> --dry-run: flag in the vps-user slot doesn't leak" {
+  # audit_diff falls back to a fresh audit_vps call when no prior audit
+  # exists for the host, which logs "Auditing VPS: <user>@<host>" — same
+  # observable used for the `audit` command above.
+  run _timeout 15 bash "$CLI_ROOT/strut" audit:diff myhost --dry-run
+  [[ "$output" == *"Auditing VPS: ubuntu@myhost"* ]]
+  [[ "$output" != *"Auditing VPS: --dry-run@myhost"* ]]
+}

@@ -78,58 +78,51 @@ prompt_with_default() {
 # migrate_wizard <vps_host> [vps_user] [ssh_port] [ssh_key] [--yes] [--sudo] [--start-phase N] [--stack <name>]
 # Interactive wizard for complete VPS migration
 migrate_wizard() {
-  local vps_host="$1"
-  local vps_user="${2:-ubuntu}"
-  local ssh_port="${3:-}"
-  local ssh_key="${4:-}"
-  local arg5="${5:-}"
-  local arg6="${6:-}"
-
   # Stack filter (empty = all stacks)
   local MIGRATE_STACK_FILTER=""
 
-  # Parse flags from any position
+  # Parse flags from any position and build a flag-free positional list, so
+  # --yes/--sudo/--start-phase N/--stack <name> (space or "=" form) can never
+  # leak into vps_user/ssh_port/ssh_key regardless of where they appear.
   local args=("$@")
+  local pos=()
   local i=0
-  for arg in "${args[@]}"; do
-    if [ "$arg" = "--yes" ] || [ "$arg" = "-y" ]; then
-      MIGRATE_AUTO_YES=true
-      export STRUT_YES=1  # so the (guarded) utils confirm auto-approves too
-    elif [ "$arg" = "--sudo" ]; then
-      export VPS_SUDO=true
-    elif [[ "$arg" =~ ^--start-phase=([0-9]+)$ ]]; then
-      MIGRATE_START_PHASE="${BASH_REMATCH[1]}"
-    elif [ "$arg" = "--start-phase" ]; then
-      # Next arg should be the phase number
-      local next_is_phase=false
-      for a in "${args[@]}"; do
-        if $next_is_phase; then
-          MIGRATE_START_PHASE="$a"
-          break
-        fi
-        [ "$a" = "--start-phase" ] && next_is_phase=true
-      done
-    elif [[ "$arg" =~ ^--stack=(.+)$ ]]; then
-      MIGRATE_STACK_FILTER="${BASH_REMATCH[1]}"
-    elif [ "$arg" = "--stack" ]; then
-      # Next arg should be the stack name
-      local next_is_stack=false
-      for a in "${args[@]}"; do
-        if $next_is_stack; then
-          MIGRATE_STACK_FILTER="$a"
-          break
-        fi
-        [ "$a" = "--stack" ] && next_is_stack=true
-      done
-    fi
+  local n=${#args[@]}
+  while [ "$i" -lt "$n" ]; do
+    local arg="${args[$i]}"
+    case "$arg" in
+      --yes|-y)
+        MIGRATE_AUTO_YES=true
+        export STRUT_YES=1  # so the (guarded) utils confirm auto-approves too
+        ;;
+      --sudo)
+        export VPS_SUDO=true
+        ;;
+      --start-phase=*)
+        MIGRATE_START_PHASE="${arg#*=}"
+        ;;
+      --start-phase)
+        i=$((i + 1))
+        MIGRATE_START_PHASE="${args[$i]:-}"
+        ;;
+      --stack=*)
+        MIGRATE_STACK_FILTER="${arg#*=}"
+        ;;
+      --stack)
+        i=$((i + 1))
+        MIGRATE_STACK_FILTER="${args[$i]:-}"
+        ;;
+      *)
+        pos+=("$arg")
+        ;;
+    esac
     i=$((i + 1))
   done
 
-  # Clean up positional args (remove flags)
-  [ "$ssh_port" = "--yes" ] || [ "$ssh_port" = "-y" ] || [[ "$ssh_port" =~ ^--start-phase ]] || [[ "$ssh_port" =~ ^--stack ]] && ssh_port=""
-  [ "$ssh_key" = "--yes" ] || [ "$ssh_key" = "-y" ] || [[ "$ssh_key" =~ ^--start-phase ]] || [[ "$ssh_key" =~ ^--stack ]] && ssh_key=""
-  [ "$ssh_port" = "--sudo" ] && ssh_port=""
-  [ "$ssh_key" = "--sudo" ] && ssh_key=""
+  local vps_host="${pos[0]:-}"
+  local vps_user="${pos[1]:-ubuntu}"
+  local ssh_port="${pos[2]:-}"
+  local ssh_key="${pos[3]:-}"
 
   [ -n "$vps_host" ] || fail "Usage: migrate_wizard <vps_host> [vps_user] [ssh_port] [ssh_key] [--yes] [--sudo] [--start-phase N] [--stack <name>]"
 

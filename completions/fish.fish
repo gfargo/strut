@@ -31,7 +31,7 @@ function __strut_envs
         set -l name (basename $f)
         switch $name
             case .env
-                echo prod
+                # bare .env never resolves via --env (strict .<name>.env match)
             case '.*.env'
                 set name (string replace -r '^\.' '' $name)
                 set name (string replace -r '\.env$' '' $name)
@@ -60,7 +60,7 @@ function __strut_tok
     end
 end
 
-set -l top_cmds init list scaffold upgrade doctor status-all dashboard posture group monitoring audit audit:list audit:diff audit:generate migrate migrate:status notify sync fleet webhook secrets-filter mcp skills help completions remote:init
+set -l top_cmds init list scaffold upgrade doctor status-all dashboard posture group monitoring audit audit:list audit:diff audit:generate migrate migrate:status notify sync fleet webhook secrets-filter mcp skills help completions remote:init gateway
 set -l per_stack_cmds update release deploy rebuild ship stop first-run destroy diff lock health logs logs:download logs:rotate backup drift migrate restore db:pull db:push db:schema shell exec remote:init adopt provision ssh:keygen ci:init cert:renew cert:status init-secrets secrets gen status briefing preflight volumes timers prune local prod staging dev debug keys validate rollback history releases domain
 
 # Disable file completion by default; re-enable where relevant
@@ -90,6 +90,9 @@ complete -c strut -n '__strut_tok 2 = group; and __strut_at_pos 2' -a 'list show
 # monitoring subcommand
 complete -c strut -n '__strut_tok 2 = monitoring; and __strut_at_pos 2' -a 'deploy add-target remove-target alert-channel status'
 
+# gateway subcommand (virtual "stack" — deploy|status|reload|validate --host <alias>)
+complete -c strut -n '__strut_tok 2 = gateway; and __strut_at_pos 2' -a 'deploy status reload validate'
+
 # notify subcommand
 complete -c strut -n '__strut_tok 2 = notify; and __strut_at_pos 2' -a 'test'
 complete -c strut -n '__strut_tok 2 = notify; and __strut_tok 3 = test; and __strut_at_pos 3' -a 'slack discord webhook'
@@ -107,7 +110,7 @@ complete -c strut -n 'contains -- (__strut_tok 2) (__strut_stacks); and __strut_
 complete -c strut -n 'contains -- (__strut_tok 2) (__strut_stacks); and __strut_tok 3 = backup; and __strut_at_pos 3' \
     -a 'postgres neo4j mysql sqlite all verify list health schedule retention'
 complete -c strut -n 'contains -- (__strut_tok 2) (__strut_stacks); and __strut_tok 3 = drift; and __strut_at_pos 3' \
-    -a 'detect report fix monitor history auto-fix'
+    -a 'detect report diff fix monitor history images auto-fix'
 complete -c strut -n 'contains -- (__strut_tok 2) (__strut_stacks); and contains -- (__strut_tok 3) db:pull db:push; and __strut_at_pos 3' \
     -a 'postgres neo4j mysql sqlite all'
 complete -c strut -n 'contains -- (__strut_tok 2) (__strut_stacks); and __strut_tok 3 = db:schema; and __strut_at_pos 3' \
@@ -123,6 +126,6 @@ complete -c strut -n 'contains -- (__strut_tok 2) (__strut_stacks); and contains
 complete -c strut -n 'contains -- (__strut_tok 2) (__strut_stacks); and __strut_tok 3 = debug; and __strut_at_pos 3' \
     -a 'exec shell port-forward copy snapshot inspect-env stats'
 complete -c strut -n 'contains -- (__strut_tok 2) (__strut_stacks); and __strut_tok 3 = keys; and __strut_at_pos 3' \
-    -a 'rotate status check env ssh github'
+    -a 'discover inventory audit export status recent test test:ssh test:vps test:env test:api test:db test:github ssh:add ssh:rotate ssh:revoke ssh:list ssh:audit ssh:sync-github api:generate api:rotate api:revoke api:list api:test env:rotate env:set env:sync env:validate env:backup env:diff db:rotate db:create-readonly pull rotate-registry registry-status github:list github:set github:rotate-vps-key github:rotate-pat github:sync github:audit'
 complete -c strut -n 'contains -- (__strut_tok 2) (__strut_stacks); and __strut_tok 3 = migrate; and __strut_at_pos 3' \
     -a 'neo4j postgres'
