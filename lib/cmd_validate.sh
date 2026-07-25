@@ -174,8 +174,8 @@ _validate_services_conf() {
       fi
     fi
 
-    # DB flag validation
-    if [[ "$key" == DB_* ]]; then
+    # DB flag validation (skip *_PORT keys — those are owned by the port rule above)
+    if [[ "$key" == DB_* && "$key" != *_PORT ]]; then
       db_count=$((db_count + 1))
       if ! _is_valid_boolean "$val"; then
         _val_error "services.conf" "$key='$val' (must be true or false)"
