@@ -71,10 +71,14 @@ Generated GIFs in `bin/output/` are **gitignored** — the `.tape` + shim files 
 ## Syncing to the Marketing Site
 
 ```bash
-cd ../strut-www && npm run sync-demos
+cd .www && npm run sync-demos
 ```
 
-This copies `bin/output/gif/*.gif` and `bin/output/png/*.png` into `public/demos/`. Commit the GIFs in strut-www — VHS cannot run in Vercel's build environment, so assets must be generated ahead of time and checked in.
+The strut-www repo is checked out inside this one as `.www/`, and its `sync-demos` script
+reads `../bin/output/` — so it only works from that nested location. It copies
+`bin/output/gif/*.gif` and `bin/output/png/*.png` into `public/demos/`. Commit the GIFs in
+strut-www: VHS cannot run in Vercel's build environment, so assets must be generated ahead
+of time and checked in.
 
 ## Running VHS in a Linux Container / CI
 

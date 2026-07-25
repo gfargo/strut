@@ -222,11 +222,13 @@ source of truth here. The marketing site commits its own copies because they're
 served as static assets:
 
 ```bash
-cd ../strut-www && npm run sync-demos
+cd .www && npm run sync-demos
 ```
 
-VHS can't run in Vercel's build environment (needs Chromium + ttyd + ffmpeg), so
-assets are always generated ahead of time and checked into strut-www.
+The site repo is checked out inside this one as `.www/`; its `sync-demos` script reads
+`../bin/output/`, so it only works from there. VHS can't run in Vercel's build environment
+(needs Chromium + ttyd + ffmpeg), so assets are always generated ahead of time and
+checked into strut-www.
 
 ## Running headless (Linux / CI)
 
