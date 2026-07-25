@@ -7,9 +7,15 @@ Captures real terminal recordings of `strut` commands using [Charm VHS](https://
 ```bash
 brew install vhs        # terminal recorder (pulls in ffmpeg + ttyd)
 brew install gifsicle   # lossless GIF optimization
+brew install font-jetbrains-mono   # the font tapes pin via Set FontFamily
 ```
 
 Verify: `vhs --version && gifsicle --version`
+
+> **A monospace font must be installed.** Tapes pin `Set FontFamily "JetBrains Mono"`.
+> If that font is missing, VHS falls back to whatever the system offers — on a bare
+> Linux box that's a *proportional* font, and the GIF renders with broken kerning
+> without any error. See [Running headless](#running-headless-linux--ci).
 
 ## Usage
 
@@ -34,11 +40,21 @@ bin/
 ├── README.md           # This file
 ├── record.sh           # Main driver — renders tapes, optimizes output
 ├── optimize.sh         # Lossless GIF optimization (gifsicle -O3)
+├── record-live.sh      # Renders live/*.tape against a real VPS (needs credentials)
 ├── tapes/              # VHS tape files (the "screenplays")
 │   ├── hero-deploy.tape        # Init → scaffold → deploy flow (hero GIF)
+│   ├── workflow-init.tape      # strut init — homepage workflow tab 01
+│   ├── workflow-scaffold.tape  # strut scaffold — homepage workflow tab 02
+│   ├── workflow-deploy.tape    # strut release — homepage workflow tab 03
+│   ├── ship.tape               # Commit → push → rebuild
+│   ├── local-dev.tape          # Start → sync-db → logs
+│   ├── rollback.tape           # Failed health → rollback
 │   ├── backup-restore.tape     # Backup + verify workflow (feature GIF)
 │   ├── drift-detect.tape       # Drift detection + auto-fix (feature GIF)
-│   └── health-status.tape      # Health check overview (still PNG)
+│   ├── secrets.tape            # Secret rotation
+│   ├── health-status.tape      # Health check overview (still PNG)
+│   ├── shims/                  # Per-tape strut() stubs printing canned output
+│   └── live/                   # Tapes that run REAL commands against a VPS
 └── output/             # Generated assets (gitignored except .gitkeep)
     ├── gif/            # Optimized animated GIFs
     └── png/            # Still screenshots
@@ -58,6 +74,7 @@ Every tape follows this pattern:
 ```tape
 # ── Settings (determinism + brand) ────────────────────────
 Set Shell "bash"
+Set FontFamily "JetBrains Mono"
 Set FontSize 20
 Set Padding 24
 Set Theme "Catppuccin Mocha"
@@ -90,14 +107,34 @@ for staged reveal). See `shims/hero-deploy.sh` for the canonical example.
 
 ### Key conventions
 
+- **Font is pinned** — every tape sets `Set FontFamily "JetBrains Mono"`. Never omit this (see Prerequisites)
 - **Output paths** are relative to the tape file: `../output/gif/` and `../output/png/`
 - **Output comes from a shim** (`shims/<name>.sh`), never the real CLI — no live VPS, no stray errors, no visible `printf` lines
 - **Embedded quotes** in a typed command (e.g. `-m 'msg'`) need a backtick Type: `` Type `strut ... -m 'msg'` `` then `Enter` on the next line
-- **Gold accent** for success: `\\033[1;33m✓ text\\033[0m`
+- **Arrow steps** for progress: `→ Doing a thing...` (unindented)
+- **Indented green checks** for sub-items: `  \\033[32m✓\\033[0m Detail`
+- **Gold accent** for the closing success line: `\\033[1;33m✓ text\\033[0m`
 - **Red** for errors/warnings: `\\033[1;31m✗ text\\033[0m`
 - **Green dots** for status: `\\033[32m●\\033[0m`
 - **PS1 prompt** is set to `~/project $ ` for consistency across all tapes
 - **Sleep timings** — hold long enough for a viewer to read, short enough to stay tight
+
+### Scene shape
+
+Structure output as arrow steps → indented checks → one gold summary line:
+
+```
+→ Connecting to VPS (prod)...
+→ Pulling images: ghcr.io/acme/my-app:latest
+→ Deploying containers (3/3)...
+  ✓ Health check: api       healthy
+  ✓ Health check: worker    healthy
+  ✓ Health check: postgres  healthy
+✓ my-app deployed successfully — 12s
+```
+
+A GIF that skips the arrows or the indentation reads as visually inconsistent when
+placed next to the others on the marketing site.
 
 ### GIF vs PNG
 
@@ -164,6 +201,9 @@ Set FontSize 16    # smaller font → smaller canvas (VHS auto-sizes)
 | File | Optimized | Notes |
 |------|-----------|-------|
 | hero-deploy.gif | ~132 KB | init → scaffold → deploy |
+| workflow-init.gif | ~48 KB | strut init (homepage tab 01) |
+| workflow-scaffold.gif | ~52 KB | strut scaffold (homepage tab 02) |
+| workflow-deploy.gif | ~67 KB | strut release (homepage tab 03) |
 | ship.gif | ~32 KB | commit → push → rebuild |
 | local-dev.gif | ~120 KB | start → sync-db → logs |
 | rollback.gif | ~76 KB | failed health → rollback |
@@ -175,9 +215,54 @@ Sizes dropped sharply after moving to shims (no error output or visible
 `printf` frames). For aggressive reduction, trim Sleep durations and increase
 TypingSpeed first.
 
+## Syncing to the marketing site
+
+Generated GIFs in `bin/output/` are gitignored — the `.tape` and shim files are the
+source of truth here. The marketing site commits its own copies because they're
+served as static assets:
+
+```bash
+cd ../strut-www && npm run sync-demos
+```
+
+VHS can't run in Vercel's build environment (needs Chromium + ttyd + ffmpeg), so
+assets are always generated ahead of time and checked into strut-www.
+
+## Running headless (Linux / CI)
+
+The pipeline is macOS-first but works headless. On a bare Linux container you need:
+
+| Dependency | Install |
+|------------|---------|
+| `vhs` | `go install github.com/charmbracelet/vhs@latest` |
+| `ffmpeg` | Static build from [johnvansickle.com](https://johnvansickle.com/ffmpeg/) — no distro package on Amazon Linux 2023 |
+| `ttyd` | Single binary from [ttyd releases](https://github.com/tsl0922/ttyd/releases) |
+| JetBrains Mono | Drop the TTFs in `/usr/share/fonts/` then run `fc-cache -f` |
+| Chromium | Any recent build; VHS drives it through go-rod |
+
+Two gotchas specific to containers:
+
+1. **Fonts need `fc-cache -f`.** Copying TTFs into place isn't enough — without
+   refreshing the fontconfig cache, `Set FontFamily` silently resolves to nothing.
+2. **Chromium refuses to run as root** without `--no-sandbox`, and VHS doesn't expose
+   a way to pass browser flags. Wrap the binary:
+
+   ```bash
+   mv /path/to/chrome /path/to/chrome-real
+   cat > /path/to/chrome <<'EOF'
+   #!/bin/bash
+   exec /path/to/chrome-real --no-sandbox --disable-gpu --disable-dev-shm-usage "$@"
+   EOF
+   chmod +x /path/to/chrome
+   ```
+
+`gifsicle` is optional — skipping it only means no post-render optimization.
+
 ## Design Decisions
 
-- **Deterministic**: tapes pin timing, theme, cursor blink, and prompt
+- **Deterministic**: tapes pin timing, theme, font, cursor blink, and prompt — nothing
+  is left to the host environment, because host-dependent fallbacks (especially fonts)
+  fail silently rather than loudly
 - **Brand-aligned**: Catppuccin Mocha maps well to our Charcoal/Bone/Gold palette
 - **No real infra**: a hidden per-tape `strut()` shim prints canned output — no SSH, no Docker, no VPS, and no stray errors from real commands
 - **Web-ready**: all GIFs are losslessly optimized as a pipeline step
@@ -203,6 +288,12 @@ TypingSpeed first.
 Full DSL: https://github.com/charmbracelet/vhs
 
 ## Troubleshooting
+
+**Text has uneven spacing / columns don't line up**  
+The tape is missing `Set FontFamily "JetBrains Mono"`, or that font isn't installed on
+the recording machine, so VHS fell back to a proportional font. Add the directive, install
+the font, run `fc-cache -f` on Linux, and re-record. This produces no error — it's only
+visible by looking at the GIF.
 
 **Real strut errors in the GIF (e.g. "Project already initialized", "Env file not found")**  
 The tape's `strut()` shim didn't load, so the typed command ran the *real* strut against the fixture. Ensure the Hide block sources the shim (`Type "source shims/<name>.sh" Enter`) and that a matching `shims/<name>.sh` exists and defines `strut()` for that command.

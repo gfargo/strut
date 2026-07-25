@@ -150,6 +150,10 @@ Key maintenance tasks:
 - **Docs**: Auto-fetched from wiki via ISR (1hr revalidation) — no manual sync needed
 - **Changelog**: `/changelog` page fetches from GitHub Releases API
 - **After releases**: Push version update to `.www` repo to trigger Vercel redeploy
+- **Terminal demo GIFs**: Recorded here via VHS (`bin/tapes/`), then synced into the
+  site with `npm run sync-demos`. Generated GIFs are gitignored in this repo but
+  committed in strut-www since they're served as static assets. See
+  `.kiro/steering/demo-recordings.md` and `bin/README.md`.
 
 ## Wiki Updates
 
