@@ -151,8 +151,29 @@ teardown() {
 
 # ── Health-gated auto-rollback ────────────────────────────────────────────────
 
-@test "vps_release: a failing final health check triggers rollback and returns non-zero" {
-  export SSH_FAIL_PATTERN="health --env"
+# Helper: override ssh() to return <rc> for health calls, 0 otherwise.
+# stub_ssh_conditional only supports exit 1; unhealthy is exit 2 (≥2).
+_stub_ssh_health_rc() {
+  local health_rc="$1"
+  SSH_CALL_LOG="$TEST_TMP/ssh_calls.log"
+  : > "$SSH_CALL_LOG"
+  export SSH_CALL_LOG
+  export _HEALTH_RC="$health_rc"
+  # shellcheck disable=SC2317
+  ssh() {
+    local remote_cmd
+    remote_cmd="$(echo "${@: -1}" | tr '\n' ' ')"
+    echo "$remote_cmd" >> "$SSH_CALL_LOG"
+    case "$remote_cmd" in
+      *"health --env"*) return "${_HEALTH_RC:-2}" ;;
+      *) return 0 ;;
+    esac
+  }
+  export -f ssh
+}
+
+@test "vps_release: unhealthy health check (exit 2) triggers rollback and returns non-zero" {
+  _stub_ssh_health_rc 2
 
   run vps_release "test-stack" "$TEST_TMP/.test.env" ""
   [ "$status" -ne 0 ]
@@ -168,14 +189,30 @@ teardown() {
 @test "vps_release: still returns non-zero even when the rollback itself succeeds" {
   # A recovered rollback still means the requested release did not happen —
   # callers (CI, scripts) must see this as a failure, not a silent success.
-  export SSH_FAIL_PATTERN="health --env"
+  _stub_ssh_health_rc 2
 
   run vps_release "test-stack" "$TEST_TMP/.test.env" ""
   [ "$status" -ne 0 ]
 }
 
-@test "vps_release: --no-rollback (auto_rollback=false) skips rollback but still fails" {
-  export SSH_FAIL_PATTERN="health --env"
+@test "vps_release: degraded health check (exit 1) does NOT trigger rollback and returns zero" {
+  # exit 1 = degraded (warnings only) — the deploy succeeded; release should
+  # surface the warning but not undo a working deploy.
+  _stub_ssh_health_rc 1
+
+  run vps_release "test-stack" "$TEST_TMP/.test.env" ""
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"degraded"* ]]
+  # Must NOT emit the "rolling back to the previous release" action message
+  [[ "$output" != *"rolling back to the previous release"* ]]
+
+  run cat "$SSH_CALL_LOG"
+  [[ "$output" == *"health --env test"* ]]
+  [[ "$output" != *"rollback --env test"* ]]
+}
+
+@test "vps_release: --no-rollback (auto_rollback=false) skips rollback but still fails on unhealthy" {
+  _stub_ssh_health_rc 2
 
   run vps_release "test-stack" "$TEST_TMP/.test.env" "" "false"
   [ "$status" -ne 0 ]
@@ -186,17 +223,18 @@ teardown() {
 }
 
 @test "vps_release: warns but doesn't mask the original failure when rollback itself fails" {
-  # stub_ssh_conditional only supports one glob pattern — need both the
-  # health check AND the rollback call to fail here, so stub ssh() directly.
+  # Both the health check AND the rollback call must fail here.
   SSH_CALL_LOG="$TEST_TMP/ssh_calls.log"
   : > "$SSH_CALL_LOG"
   export SSH_CALL_LOG
+  # shellcheck disable=SC2317
   ssh() {
     local remote_cmd
     remote_cmd="$(echo "${@: -1}" | tr '\n' ' ')"
     echo "$remote_cmd" >> "$SSH_CALL_LOG"
     case "$remote_cmd" in
-      *"health --env"*|*"rollback --env"*) return 1 ;;
+      *"health --env"*) return 2 ;;
+      *"rollback --env"*) return 1 ;;
       *) return 0 ;;
     esac
   }
@@ -272,7 +310,7 @@ teardown() {
 }
 
 @test "vps_release: records outcome=failed when the final health check fails" {
-  export SSH_FAIL_PATTERN="health --env"
+  _stub_ssh_health_rc 2
 
   run vps_release "test-stack" "$TEST_TMP/.test.env" ""
   # Health failure is fatal (auto-rollback) — history must still be
@@ -415,7 +453,7 @@ EOF
 #!/bin/bash
 echo "post_deploy_local ran"
 EOF
-  export SSH_FAIL_PATTERN="health --env"
+  _stub_ssh_health_rc 2
 
   run vps_release "test-stack" "$TEST_TMP/.test.env" ""
   [ "$status" -ne 0 ]

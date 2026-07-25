@@ -142,10 +142,10 @@ _rand_port() {
   [[ "$output" == *"No services.conf"* ]]
 }
 
-@test "Property 7 edge case: services.conf with no PORT entries emits warning" {
+@test "Property 7 edge case: services.conf with no PORT entries but DB flag emits skip, not warning" {
   _load_health
 
-  local stack_dir="$TEST_TMP/empty_ports"
+  local stack_dir="$TEST_TMP/db_only"
   mkdir -p "$stack_dir"
   cat > "$stack_dir/services.conf" <<'EOF'
 # Just comments
@@ -155,7 +155,27 @@ EOF
 
   local output
   output=$(health_check_application "$stack_dir" 2>&1)
+  # DB-only stacks should NOT emit the "No *_PORT entries" warning
+  [[ "$output" != *"No *_PORT entries"* ]]
+  # Instead they should emit the informational skip message
+  [[ "$output" == *"DB-only stack"* ]]
+}
+
+@test "Property 7 edge case: services.conf with no PORT entries and no DB flag emits warning" {
+  _load_health
+
+  local stack_dir="$TEST_TMP/empty_ports_no_db"
+  mkdir -p "$stack_dir"
+  cat > "$stack_dir/services.conf" <<'EOF'
+# Just comments
+SOME_OTHER_VAR=hello
+EOF
+
+  local output
+  output=$(health_check_application "$stack_dir" 2>&1)
   [[ "$output" == *"No *_PORT entries"* ]]
+  # Must NOT emit the DB-only skip message
+  [[ "$output" != *"DB-only stack"* ]]
 }
 
 @test "Property 7 edge case: DB_* prefixed PORT vars are excluded from app checks" {
