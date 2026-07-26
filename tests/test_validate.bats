@@ -121,6 +121,7 @@ API_HEALTH_PATH=/health
 WORKER_PORT=8001
 DB_POSTGRES=true
 DB_NEO4J=false
+DB_PORT=5436
 EOF
 
   _VALIDATE_ERRORS=0
@@ -163,6 +164,46 @@ EOF
   _VALIDATE_ERRORS=0
   run _validate_services_conf "$stack_dir"
   [[ "$output" == *"must be true or false"* ]]
+}
+
+@test "validate_services_conf: DB_PORT numeric passes (no boolean error)" {
+  local stack_dir="$TEST_TMP/stack"
+  mkdir -p "$stack_dir"
+  cat > "$stack_dir/services.conf" <<'EOF'
+DB_POSTGRES=true
+DB_PORT=5436
+EOF
+
+  _VALIDATE_ERRORS=0
+  _VALIDATE_WARNINGS=0
+  _validate_services_conf "$stack_dir"
+  [ "$_VALIDATE_ERRORS" -eq 0 ]
+}
+
+@test "validate_services_conf: DB_PORT out of range fails via port rule" {
+  local stack_dir="$TEST_TMP/stack"
+  mkdir -p "$stack_dir"
+  cat > "$stack_dir/services.conf" <<'EOF'
+DB_PORT=99999
+EOF
+
+  _VALIDATE_ERRORS=0
+  run _validate_services_conf "$stack_dir"
+  [[ "$output" == *"must be numeric"* ]]
+  [[ "$output" != *"must be true or false"* ]]
+}
+
+@test "validate_services_conf: DB_PORT non-numeric fails via port rule not boolean rule" {
+  local stack_dir="$TEST_TMP/stack"
+  mkdir -p "$stack_dir"
+  cat > "$stack_dir/services.conf" <<'EOF'
+DB_PORT=abc
+EOF
+
+  _VALIDATE_ERRORS=0
+  run _validate_services_conf "$stack_dir"
+  [[ "$output" == *"must be numeric"* ]]
+  [[ "$output" != *"must be true or false"* ]]
 }
 
 @test "validate_services_conf: health path without leading slash warns" {
