@@ -380,6 +380,23 @@ cmd_deploy() {
     fi
   fi
 
+  # Guard against a silent local fallback (strut#488). VPS_HOST is resolved
+  # from the env-file cascade plus the [stacks]->[hosts] topology layer in
+  # strut.conf — NOT from services.conf. If a stack isn't mapped in [stacks]
+  # and its env file has no VPS_HOST, VPS_HOST resolves empty and the block
+  # above never fires, so deploy falls through to the local Docker daemon
+  # with no signal at all. When the stack's own services.conf declares a
+  # VPS_HOST, that's a strong sign the deploy was meant to reach a VPS —
+  # `validate` treats it as an unrecognized-but-harmless key, which reads as
+  # "this will deploy there" even though it's never consulted for dispatch.
+  if [ "$force_local" != "true" ] && [ -z "${VPS_HOST:-}" ]; then
+    local _stack_dir="${CMD_STACK_DIR:-$CLI_ROOT/stacks/$stack}"
+    if [ -f "$_stack_dir/services.conf" ] && grep -qE '^[[:space:]]*(export[[:space:]]+)?VPS_HOST[[:space:]]*=[[:space:]]*[^[:space:]]' "$_stack_dir/services.conf"; then
+      fail "Stack '$stack' has no VPS_HOST resolved (not mapped under [stacks] in strut.conf, and no VPS_HOST in ${env_name:-the env file}), but its services.conf declares VPS_HOST — that file isn't used for dispatch. Deploying now would run against the LOCAL Docker daemon, not the VPS. Add '$stack = <host_alias>' under [stacks] (and the host under [hosts]) in strut.conf, or set VPS_HOST in the stack's env file, to deploy remotely — or pass --force-local to confirm this is intentional."
+      return 1
+    fi
+  fi
+
   if $pull_only; then
     pull_only_stack "$stack" "$env_file" "$services"
     return 0
