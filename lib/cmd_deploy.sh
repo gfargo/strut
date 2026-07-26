@@ -393,6 +393,7 @@ cmd_deploy() {
     local _stack_dir="${CMD_STACK_DIR:-$CLI_ROOT/stacks/$stack}"
     if [ -f "$_stack_dir/services.conf" ] && grep -qE '^[[:space:]]*(export[[:space:]]+)?VPS_HOST[[:space:]]*=[[:space:]]*[^[:space:]]' "$_stack_dir/services.conf"; then
       fail "Stack '$stack' has no VPS_HOST resolved (not mapped under [stacks] in strut.conf, and no VPS_HOST in ${env_name:-the env file}), but its services.conf declares VPS_HOST — that file isn't used for dispatch. Deploying now would run against the LOCAL Docker daemon, not the VPS. Add '$stack = <host_alias>' under [stacks] (and the host under [hosts]) in strut.conf, or set VPS_HOST in the stack's env file, to deploy remotely — or pass --force-local to confirm this is intentional."
+      return 1
     fi
   fi
 
