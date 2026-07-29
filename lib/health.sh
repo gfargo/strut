@@ -225,7 +225,15 @@ health_check_application() {
   done <<< "$conf_content"
 
   if ! $found_service; then
-    _health_record warn "Services" "No *_PORT entries found in services.conf"
+    # A DB-only stack structurally cannot have *_PORT entries — if the conf
+    # declares at least one DB_*=true flag, treat DB readiness as the health
+    # signal and emit a skip (no counter change, no status downgrade) rather
+    # than a spurious "degraded" warning that would cause release rollback.
+    if echo "$conf_content" | grep -qE '^[[:space:]]*DB_[A-Z0-9_]+[[:space:]]*=[[:space:]]*true'; then
+      _health_record skip "Services" "No HTTP services — DB-only stack (health verified via database checks)"
+    else
+      _health_record warn "Services" "No *_PORT entries found in services.conf"
+    fi
   fi
 
   $HEALTH_JSON_OUTPUT || echo ""

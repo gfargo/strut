@@ -896,13 +896,22 @@ vps_release() {
   # Step 6: Verify deployment
   log "[6/6] Verifying deployment..."
   sleep 10  # Give services time to start
-  local health_ok=true
+  local health_rc=0
   # shellcheck disable=SC2029
   ssh $ssh_opts "$vps_user@$vps_host" "
     cd '$deploy_dir'
     ./strut $stack health --env $env_name $profile_flag
-  " || health_ok=false
-  if [ "$health_ok" = "false" ]; then
+  " || health_rc=$?
+
+  # Distinguish warning-only (degraded, exit 1) from unhealthy (exit ≥ 2).
+  # A degraded result means the stack passed with warnings — it is a working
+  # deploy and should NOT be rolled back.  Only an unhealthy result (or an
+  # SSH connection failure, which ssh maps to exit 255) triggers rollback.
+  local health_failed=false
+  if [ "$health_rc" -eq 1 ]; then
+    warn "Health check passed with warnings (degraded) — not rolling back a working deploy"
+  elif [ "$health_rc" -ge 2 ]; then
+    health_failed=true
     if [ "$auto_rollback" = "true" ]; then
       warn "Health check failed — rolling back to the previous release..."
       # shellcheck disable=SC2029
@@ -925,7 +934,7 @@ vps_release() {
   # Recorded before the fail() below so a failed release still gets an
   # outcome=failed entry instead of history recording being skipped by exit.
   local release_outcome="success"
-  [ "$health_ok" = "false" ] && release_outcome="failed"
+  [ "$health_failed" = "true" ] && release_outcome="failed"
   local _release_end_epoch
   _release_end_epoch=$(date +%s 2>/dev/null || echo "$_release_start_epoch")
   local release_duration=$(( _release_end_epoch - _release_start_epoch ))
@@ -946,7 +955,7 @@ vps_release() {
     history_record 'stacks/$stack' release '$release_outcome' env=$env_name duration_s:=$release_duration mode=$_release_mode git_sha=\$_release_sha actor=$_release_actor_q release_id=\$_release_id
   " >/dev/null 2>&1 || true
 
-  if [ "$health_ok" = "false" ]; then
+  if [ "$health_failed" = "true" ]; then
     fail "Release failed health checks after deploy — check logs with: strut $stack logs --env $env_name"
   fi
 
