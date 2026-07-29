@@ -369,7 +369,8 @@ usage() {
   echo "  secrets     push|pull|diff|validate|hydrate|status|set|lock|unlock|rotate|template|export [--env <name>]"
   echo "                                                                 Sync/manage .env files and secrets"
   echo "  gen      <VAR> [--scope host|stack] [--host <alias>] [--recipe hex32|uuid] [--dry-run]"
-  echo "                                                                 Generate-if-absent: persist VAR once, encrypted at rest"
+  echo "                                                                 Generate-if-absent: persist VAR once, encrypted at rest;"
+  echo "                                                                 applied as the final layer at deploy time"
   echo "  init     [--registry <type>] [--org <name>]                    Initialize new project"
   echo "  upgrade                                                        Upgrade strut to latest version"
   echo "  skills   [list|install] [--format kiro|claude|cursor|generic|all]  AI agent context"
@@ -532,6 +533,12 @@ cmd_list() {
 # re-applied by env_apply_layers (lib/utils.sh) anywhere the base file gets
 # re-sourced downstream, so host-layer values survive to the final
 # `docker compose --env-file` step.
+#
+# The final layer on top of all of that is env_apply_gen_layer (lib/utils.sh,
+# strut#179): stacks/<stack>/env/stack.gen.enc.env, then
+# stacks/<stack>/env/hosts/<alias>.gen.enc.env, decrypted via _secrets_unlock
+# and applied last — so a value generated once via `strut <stack> gen <VAR>`
+# always wins on a conflicting key, host-scope beating stack-scope.
 resolve_env_file() {
   local stack="$1"
   local env_name="${2:-}"

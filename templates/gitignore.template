@@ -56,3 +56,11 @@ logs/
 # so the .*.env rule above WOULD sweep it without this explicit negation.
 !*.enc.env
 !.*.enc.env
+
+# ── Generated per-host/stack secrets (`strut gen`, strut#179) ────────────────
+# env/hosts/<alias>.gen.enc.env and env/stack.gen.enc.env are age/gpg
+# ciphertext produced by `strut <stack> gen <VAR>` — safe, and meant, to
+# commit so generated values survive a clean git-redeploy. Neither is a
+# dotfile so the .*.env rule above never swept them; this negation just
+# makes that explicit rather than relying on the glob missing them.
+!*.gen.enc.env

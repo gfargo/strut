@@ -809,14 +809,72 @@ safe_load_env() {
 # base file downstream of the initial topology_apply_to_env/
 # topology_apply_host_override call that set the active alias.
 #
-# No-op when topology.sh hasn't been sourced or no host layer is active
-# (e.g. single-host projects with no [hosts]/[stacks] topology).
+# The tracked per-host layer is a no-op when topology.sh hasn't been sourced
+# or no host layer is active (e.g. single-host projects with no
+# [hosts]/[stacks] topology) — but the gen layer below still runs
+# unconditionally, since a stack-scoped env/stack.gen.enc.env has no
+# dependency on a host alias.
 env_apply_layers() {
   local stack="$1" stack_dir="$2"
-  declare -F topology_apply_host_layer &>/dev/null || return 0
-  [ -n "${_TOPO_ACTIVE_HOST_ALIAS:-}" ] || return 0
-  [ -n "$stack" ] && [ -n "$stack_dir" ] || return 0
-  topology_apply_host_layer "$stack" "$_TOPO_ACTIVE_HOST_ALIAS" "$stack_dir"
+  if declare -F topology_apply_host_layer &>/dev/null \
+    && [ -n "${_TOPO_ACTIVE_HOST_ALIAS:-}" ] \
+    && [ -n "$stack" ] && [ -n "$stack_dir" ]; then
+    topology_apply_host_layer "$stack" "$_TOPO_ACTIVE_HOST_ALIAS" "$stack_dir"
+  fi
+  env_apply_gen_layer "$stack" "$stack_dir"
+}
+
+# env_apply_gen_layer <stack> <stack_dir>
+#
+# Final layer of the env chain (strut#179): decrypts and applies the
+# generated-once values produced by `strut <stack> gen <VAR>`
+# (lib/cmd_gen.sh) — env/stack.gen.enc.env, then env/hosts/<alias>.gen.enc.env
+# (most specific wins) — on top of everything env_apply_layers already
+# loaded, so a gen'd value overrides both the base/secrets env file and the
+# tracked per-host layer on conflicting keys.
+#
+# No-op when cmd_secrets.sh hasn't been sourced (some test contexts), no
+# encryption backend is installed, or neither gen file exists. Decryption
+# failure (e.g. missing age identity) is a warning, not a fatal error — this
+# runs on every validate_env_file call, including read-only commands like
+# `logs`/`status` on a host without the age key.
+env_apply_gen_layer() {
+  local stack="$1" stack_dir="$2"
+  [ -n "$stack_dir" ] || return 0
+  declare -F _secrets_unlock >/dev/null 2>&1 || return 0
+  declare -F _secrets_detect_backend >/dev/null 2>&1 || return 0
+
+  local backend
+  backend=$(_secrets_detect_backend 2>/dev/null) || return 0
+
+  local -a gen_files=()
+  [ -f "$stack_dir/env/stack.gen.enc.env" ] && gen_files+=("$stack_dir/env/stack.gen.enc.env")
+
+  local host_alias="${_TOPO_ACTIVE_HOST_ALIAS:-}"
+  if [[ "$host_alias" =~ ^[A-Za-z0-9_-]+$ ]] && [ -f "$stack_dir/env/hosts/$host_alias.gen.enc.env" ]; then
+    gen_files+=("$stack_dir/env/hosts/$host_alias.gen.enc.env")
+  fi
+  [ ${#gen_files[@]} -gt 0 ] || return 0
+
+  local f tmp
+  for f in "${gen_files[@]}"; do
+    tmp=$(mktemp "${TMPDIR:-/tmp}/strut-genlayer-XXXXXX") || continue
+    chmod 600 "$tmp"
+    # Subshell isolates _secrets_unlock's fail()=exit so a missing age
+    # identity can't kill a read-only command (logs/status/...) that also
+    # routes through this chain. The trailing `trap - EXIT ...; exit "$rc"`
+    # mirrors cmd_gen.sh's own convention: _secrets_unlock arms an EXIT trap
+    # on a `local` temp-file var that goes out of scope the instant it
+    # returns, so without disarming it here the subshell's own exit would
+    # fire that trap against an unbound variable under `set -u`.
+    local rc
+    if ( CMD_STACK="$stack" CMD_STACK_DIR="$stack_dir" _secrets_unlock --file "$f" --output "$tmp" --backend "$backend" --keep --force; rc=$?; trap - EXIT INT TERM; exit "$rc" ) >/dev/null 2>&1; then
+      safe_load_env "$tmp"
+    else
+      warn "Could not decrypt generated env layer: $f (skipping)"
+    fi
+    rm -f "$tmp"
+  done
 }
 
 # load_common_env
