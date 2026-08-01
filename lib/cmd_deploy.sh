@@ -134,7 +134,10 @@ _deploy_volguard() {
 
 _usage_deploy() {
   echo ""
-  echo "Usage: strut <stack> deploy [--env <name>] [--services <profile>] [--local] [--pull-only] [--skip-validation] [--blue-green] [--standard] [--dry-run] [--confirm-data-move]"
+  echo "Usage: strut <stack> deploy [--env <name>] [--services <profile>]"
+  echo "                            [--local | --require-remote] [--no-sync] [--no-migrate]"
+  echo "                            [--pull-only] [--skip-validation] [--blue-green | --standard]"
+  echo "                            [--dry-run] [--confirm-data-move]"
   echo ""
   echo "Deploy a stack. The target comes from the stack's topology, not from"
   echo "where you type this: a stack mapped to a VPS deploys to that VPS, and"
@@ -175,7 +178,7 @@ _usage_deploy() {
   echo "  --dry-run            Show execution plan without making changes"
   echo ""
   echo "Related commands:"
-  echo "  release              Alias for deploy (kept for existing scripts)"
+  echo "  release              Alias for 'deploy --require-remote' (kept for existing scripts)"
   echo "  update               Sync the repo on the VPS without restarting anything"
   echo "  stop                 Stop running containers"
   echo "  health               Run health checks after deploy"
