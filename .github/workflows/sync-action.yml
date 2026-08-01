@@ -4,9 +4,19 @@ name: Sync strut-action
 # same version so consumers of @v1 pick up the matching strut CLI version.
 # Also updates the default strut-version input to point at the new release.
 
+# workflow_dispatch exists because a release-triggered run is otherwise
+# unrecoverable: re-running it replays the workflow file as of that tag, so a
+# bug fixed on main never applies to the release that hit it, and the only way
+# to resync was to cut another release. That is how v0.45.1 ended up tagged
+# onto a commit still pinning v0.45.0.
 on:
   release:
     types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'strut release tag to sync (e.g. v0.45.1)'
+        required: true
 
 permissions:
   contents: read
@@ -14,6 +24,10 @@ permissions:
 jobs:
   sync:
     runs-on: ubuntu-latest
+    env:
+      # Manual runs carry the branch in GITHUB_REF_NAME, not the tag — take
+      # the explicit input when present.
+      TAG: ${{ inputs.tag || github.ref_name }}
     steps:
       # Fail with a readable message instead of actions/checkout's opaque
       # "Input required and not supplied: token". Without this the job died on
@@ -24,7 +38,7 @@ jobs:
           STRUT_ACTION_PAT: ${{ secrets.STRUT_ACTION_PAT }}
         run: |
           if [ -z "${STRUT_ACTION_PAT}" ]; then
-            echo "::error title=STRUT_ACTION_PAT missing::The secret STRUT_ACTION_PAT is unset or empty, so gfargo/strut-action cannot be checked out. This release will NOT be synced: strut-action keeps its previous strut-version default, gets no ${GITHUB_REF_NAME} tag, and its v1 tag stays where it is (so @v1 consumers do not track this release). Fix: create a PAT with contents:write on gfargo/strut-action and add it as the STRUT_ACTION_PAT repository secret, then re-run this workflow."
+            echo "::error title=STRUT_ACTION_PAT missing::The secret STRUT_ACTION_PAT is unset or empty, so gfargo/strut-action cannot be checked out. This release will NOT be synced: strut-action keeps its previous strut-version default, gets no ${TAG} tag, and its v1 tag stays where it is (so @v1 consumers do not track this release). Fix: create a PAT with contents:write on gfargo/strut-action and add it as the STRUT_ACTION_PAT repository secret, then re-run this workflow."
             exit 1
           fi
 
@@ -40,7 +54,6 @@ jobs:
         working-directory: strut-action
         run: |
           set -euo pipefail
-          TAG="${GITHUB_REF_NAME}"  # e.g. v0.30.4
 
           # Pin the strut-version default to this release tag.
           #
@@ -71,7 +84,6 @@ jobs:
         working-directory: strut-action
         run: |
           set -euo pipefail
-          TAG="${GITHUB_REF_NAME}"
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -104,7 +116,6 @@ jobs:
           GH_TOKEN: ${{ secrets.STRUT_ACTION_PAT }}
         run: |
           set -euo pipefail
-          TAG="${GITHUB_REF_NAME}"
           NOTES="Synced from [gfargo/strut ${TAG}](https://github.com/gfargo/strut/releases/tag/${TAG}).
 
           Pins the action's \`strut-version\` default to \`${TAG}\`. \`@v1\` now resolves here."
