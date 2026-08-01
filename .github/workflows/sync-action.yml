@@ -42,14 +42,30 @@ jobs:
           set -euo pipefail
           TAG="${GITHUB_REF_NAME}"  # e.g. v0.30.4
 
-          # Update the strut-version default in action.yml from 'latest' to the release tag
-          # This ensures @v1 consumers get the exact matching CLI version
-          sed -i "s|default: 'latest'|default: '${TAG}'|" action.yml
+          # Pin the strut-version default to this release tag.
+          #
+          # This used to be `sed s|default: 'latest'|default: '${TAG}'|`, which
+          # could only ever fire ONCE: after the first sync the line reads
+          # `default: 'v0.45.0'`, the literal no longer matches, nothing
+          # changes, and the commit guard below skips. main then stops
+          # advancing while tags keep being created — so @v1 consumers silently
+          # stay pinned to whatever version synced first. Match the current
+          # value instead of a literal, so every release re-pins.
+          #
+          # Scoped to the strut-version block: a blind `default:` rewrite would
+          # also clobber command/port/working-directory.
+          awk -v tag="$TAG" -v q="'" '
+            /^  strut-version:/ { inblk = 1 }
+            inblk && /^    default:/ { print "    default: " q tag q; inblk = 0; next }
+            { print }
+          ' action.yml > action.yml.tmp && mv action.yml.tmp action.yml
 
-          # Update entrypoint.sh default if it references a version
-          if grep -q "strut_version=\"\${INPUT_STRUT_VERSION:-latest}\"" entrypoint.sh; then
-            sed -i "s|strut_version=\"\${INPUT_STRUT_VERSION:-latest}\"|strut_version=\"\${INPUT_STRUT_VERSION:-${TAG}}\"|" entrypoint.sh
-          fi
+          grep -q "default: '${TAG}'" action.yml \
+            || { echo "::error::failed to pin strut-version to ${TAG} in action.yml"; exit 1; }
+
+          # Same idempotence problem in entrypoint.sh: match whatever version
+          # is currently defaulted, not the literal 'latest'.
+          sed -i -E "s|(strut_version=\"\\\$\{INPUT_STRUT_VERSION:-)[^}]*(\})|\1${TAG}\2|" entrypoint.sh
 
       - name: Commit, tag, and push
         working-directory: strut-action
@@ -68,10 +84,34 @@ jobs:
             git push origin main
           fi
 
-          # Create the exact version tag matching the strut release
-          git tag -a "$TAG" -m "strut-action ${TAG} (synced from gfargo/strut)"
-          git push origin "$TAG"
+          # Create the exact version tag matching the strut release.
+          # -f/--force so re-running a sync (after fixing it, or after a failed
+          # run left a tag pointing at the wrong commit) succeeds instead of
+          # dying on "tag already exists".
+          git tag -fa "$TAG" -m "strut-action ${TAG} (synced from gfargo/strut)"
+          git push -f origin "$TAG"
 
           # Move the major tag (v1) so @v1 consumers get automatic updates
           git tag -fa v1 -m "strut-action v1 -> ${TAG}"
           git push -f origin v1
+
+      # Tags alone leave the Releases page looking frozen — it still showed
+      # v1.0.0 from July while v0.45.x tags were being pushed, so there was no
+      # visible signal that a sync had happened at all.
+      - name: Publish a matching GitHub Release
+        working-directory: strut-action
+        env:
+          GH_TOKEN: ${{ secrets.STRUT_ACTION_PAT }}
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+          NOTES="Synced from [gfargo/strut ${TAG}](https://github.com/gfargo/strut/releases/tag/${TAG}).
+
+          Pins the action's \`strut-version\` default to \`${TAG}\`. \`@v1\` now resolves here."
+
+          if gh release view "$TAG" --repo gfargo/strut-action >/dev/null 2>&1; then
+            gh release edit "$TAG" --repo gfargo/strut-action --notes "$NOTES" --latest
+          else
+            gh release create "$TAG" --repo gfargo/strut-action \
+              --title "$TAG" --notes "$NOTES" --latest
+          fi
