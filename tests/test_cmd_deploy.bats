@@ -143,6 +143,49 @@ EOF
   [[ "$output" != *"primary-host.internal"* ]]
 }
 
+# strut#488: a stack unmapped in [stacks] topology, with no VPS_HOST in its
+# env file, used to fall through to a local deploy with zero indication —
+# even when services.conf (not consulted for dispatch) declared VPS_HOST.
+
+@test "cmd_deploy: fails loudly when VPS_HOST is unresolved but services.conf declares one" {
+  cat > "$TEST_TMP/.test.env" <<'EOF'
+GH_PAT=test
+EOF
+  cat > "$TEST_TMP/stacks/test-stack/services.conf" <<'EOF'
+VPS_HOST=vps.example.com
+VPS_USER=deploy
+EOF
+
+  run cmd_deploy
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"services.conf declares VPS_HOST"* ]]
+  [[ "$output" == *"--force-local"* ]]
+  [[ "$output" != *"deploy_stack"* ]]
+}
+
+@test "cmd_deploy: --force-local bypasses the unresolved-VPS_HOST guard" {
+  cat > "$TEST_TMP/.test.env" <<'EOF'
+GH_PAT=test
+EOF
+  cat > "$TEST_TMP/stacks/test-stack/services.conf" <<'EOF'
+VPS_HOST=vps.example.com
+EOF
+
+  run cmd_deploy --force-local
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"deploy_stack"* ]]
+}
+
+@test "cmd_deploy: no guard fires when VPS_HOST is unresolved and services.conf doesn't mention it" {
+  cat > "$TEST_TMP/.test.env" <<'EOF'
+GH_PAT=test
+EOF
+
+  run cmd_deploy
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"deploy_stack"* ]]
+}
+
 @test "cmd_update: dispatches to vps_update_repo" {
   run cmd_update
   [ "$status" -eq 0 ]
