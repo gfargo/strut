@@ -195,11 +195,17 @@ teardown() {
   run migrate_phase_cutover "host" "user" "" ""
   [ "$status" -eq 0 ]
 
-  run grep -q "cd /home/user/strut && ./strut $STACK deploy --env $STACK-prod" "$CALL_LOG"
+  # STRUT_REMOTE_EXEC=1 prefixes every remote invocation (strut#415) — it marks
+  # the far end as "already on the target" so it can't dispatch back over SSH.
+  run grep -q "cd /home/user/strut && STRUT_REMOTE_EXEC=1 ./strut $STACK deploy --env $STACK-prod" "$CALL_LOG"
   [ "$status" -eq 0 ]
 
-  run grep -q "cd /home/user/strut && ./strut $STACK health --env $STACK-prod" "$CALL_LOG"
+  run grep -q "cd /home/user/strut && STRUT_REMOTE_EXEC=1 ./strut $STACK health --env $STACK-prod" "$CALL_LOG"
   [ "$status" -eq 0 ]
+
+  # The point of the original assertion: never a bare `strut` resolved from PATH.
+  run grep -qE "(^|[^./])\bstrut $STACK (deploy|health)" "$CALL_LOG"
+  [ "$status" -ne 0 ]
 }
 
 @test "cutover: one stack's deploy failure does not block cutover of other stacks" {
