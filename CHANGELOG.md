@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.45.1](https://github.com/gfargo/strut/compare/v0.45.0...v0.45.1) (2026-08-01)
+
+
+### Bug Fixes
+
+* **cron:** don't emit an unrunnable flock line where flock is absent ([88e1b38](https://github.com/gfargo/strut/commit/88e1b384319c4a73c7d417c7bf539fc2d55214fc))
+* **releases:** show image tags on macOS — awk -F needs octal, not hex ([8cde67d](https://github.com/gfargo/strut/commit/8cde67df7f117456000b292e93d7152aedcd51b7))
+
 ## [0.45.0](https://github.com/gfargo/strut/compare/v0.44.0...v0.45.0) (2026-08-01)
 
 
