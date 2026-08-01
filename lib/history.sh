@@ -286,7 +286,18 @@ history_show() {
   local images_json="[]"
   local snapshot_file="$stack_dir/.rollback/${release_id}.json"
   if [ -f "$snapshot_file" ] && declare -F rollback_snapshot_image_pairs >/dev/null && command -v jq &>/dev/null; then
-    images_json=$(rollback_snapshot_image_pairs "$snapshot_file" 2>/dev/null | awk -F'\x1f' '
+    # Octal \037, not hex \x1f. awk unescapes the -F argument itself, and
+    # BSD/macOS awk implements no \x escape there — it fails to match the
+    # separator at all, collapsing every record to a single field. The visible
+    # effect was that `releases show` printed no image tags on macOS and
+    # emitted an empty rollback_images array under --json. Octal is POSIX and
+    # correct on both awks.
+    #
+    # This bites only in -F. A \x1f inside an awk printf format is fine when
+    # the next character can't extend the hex literal, which is why
+    # lib/diff.sh's `printf "%s\x1f%s\n"` is unaffected — '%' stops it at two
+    # digits. Prefer \037 in new awk code regardless.
+    images_json=$(rollback_snapshot_image_pairs "$snapshot_file" 2>/dev/null | awk -F'\037' '
       BEGIN { printf "[" }
       { if (NR>1) printf ","; printf "{\"service\":\"%s\",\"image\":\"%s\"}", $1, $2 }
       END { printf "]" }
