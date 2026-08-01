@@ -73,7 +73,13 @@ _fake_crontab_setup() {
   [ -d "$CLI_ROOT/stacks/$stack/drift-history" ]
   grep -q "^PATH=" "$FAKE_CRONTAB"
   grep -q "^SHELL=" "$FAKE_CRONTAB"
-  grep -q "flock -n" "$FAKE_CRONTAB"
+  # flock is util-linux and absent from stock macOS; build_cron_job falls back
+  # to an unwrapped command there rather than emitting a line that can't run.
+  if command -v flock >/dev/null 2>&1; then
+    grep -q "flock -n" "$FAKE_CRONTAB"
+  else
+    grep -qv "flock" "$FAKE_CRONTAB"
+  fi
 
   rm -rf "$CLI_ROOT/stacks/$stack"
 }
@@ -131,7 +137,13 @@ _fake_crontab_setup() {
   [[ "$line" == *"$CLI_ROOT/strut"* ]]
   [[ "$line" != *" strut "* ]]
   [[ "$line" == *"--auto-fix"* ]]
-  grep -q "flock -n" "$FAKE_CRONTAB"
+  # flock is util-linux and absent from stock macOS; build_cron_job falls back
+  # to an unwrapped command there rather than emitting a line that can't run.
+  if command -v flock >/dev/null 2>&1; then
+    grep -q "flock -n" "$FAKE_CRONTAB"
+  else
+    grep -qv "flock" "$FAKE_CRONTAB"
+  fi
 
   rm -rf "$CLI_ROOT/stacks/$stack"
 }

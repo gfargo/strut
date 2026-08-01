@@ -1273,6 +1273,13 @@ ensure_cron_env_header() {
 # per-job flock (keyed on <name>) so overlapping runs no-op instead of
 # racing, and redirects stdout/stderr to <log_file>. Echoes the finished
 # line — callers still own the comment-line and dedup/replace logic.
+#
+# flock comes from util-linux and is absent from a stock macOS. Emitting the
+# wrapper unconditionally there produced a crontab line that could never run:
+# every scheduled backup or drift check died with "flock: command not found",
+# logged to a file nobody reads. A schedule that runs without overlap
+# protection is strictly better than one that never runs, so fall back to the
+# bare command and say so once, at install time.
 build_cron_job() {
   local name="$1" schedule="$2" command="$3" log_file="$4"
 
@@ -1286,7 +1293,14 @@ build_cron_job() {
   slug=$(echo "$name" | tr '[:upper:]' '[:lower:]' | tr -c '[:alnum:]' '-' | tr -s '-' | sed 's/^-//;s/-$//')
   local lock_file="$lock_dir/${slug}.lock"
 
-  echo "$schedule flock -n $lock_file -c '$command >> $log_file 2>&1'"
+  if command -v flock >/dev/null 2>&1; then
+    echo "$schedule flock -n $lock_file -c '$command >> $log_file 2>&1'"
+  else
+    # warn() writes to stdout, and this function's stdout IS the crontab line
+    # the caller installs — redirect, or the warning lands in the crontab.
+    warn "flock not found — scheduled job '$name' will run without overlap protection (install util-linux, or 'brew install flock' on macOS)" >&2
+    echo "$schedule $command >> $log_file 2>&1"
+  fi
 }
 
 # validate_subcommand <value> <valid_cmd1> [valid_cmd2] ...

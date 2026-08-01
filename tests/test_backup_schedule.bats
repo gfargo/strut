@@ -179,7 +179,13 @@ _fake_crontab_setup() {
   run install_backup_schedule "$stack" "postgres" "0 2 * * *" "prod"
   [ "$status" -eq 0 ]
   [ -d "$CLI_ROOT/stacks/$stack/backups" ]
-  grep -q "flock -n" "$FAKE_CRONTAB"
+  # flock is util-linux and absent from stock macOS; build_cron_job falls back
+  # to an unwrapped command there rather than emitting a line that can't run.
+  if command -v flock >/dev/null 2>&1; then
+    grep -q "flock -n" "$FAKE_CRONTAB"
+  else
+    grep -qv "flock" "$FAKE_CRONTAB"
+  fi
 
   rm -rf "$CLI_ROOT/stacks/$stack"
 }
