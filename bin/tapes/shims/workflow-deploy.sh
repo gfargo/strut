@@ -1,7 +1,7 @@
 # Canned strut output for the workflow-deploy demo (no real execution).
 strut() {
   case "$2" in
-    release)
+    deploy)
       sleep 0.4
       printf '→ Connecting to VPS (prod)...\n'
       sleep 0.6

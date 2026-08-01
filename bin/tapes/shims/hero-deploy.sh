@@ -11,7 +11,7 @@ strut() {
       printf '\033[32m✓\033[0m stacks/my-app/.env.template\n' ;;
     *)
       case "$2" in
-        release)
+        deploy)
           printf '→ Syncing repository on VPS...\n';      sleep 0.6
           printf '→ Running migrations...\n';              sleep 0.8
           printf '→ Deploying containers...\n';            sleep 0.6

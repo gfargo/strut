@@ -29,5 +29,5 @@ Type "strut init --registry ghcr --org acme" Enter
 Sleep 2000ms
 Type "strut scaffold my-app" Enter
 Sleep 2000ms
-Type "strut my-app release --env prod" Enter
+Type "strut my-app deploy --env prod" Enter
 Sleep 3000ms
