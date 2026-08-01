@@ -45,7 +45,7 @@ bin/
 │   ├── hero-deploy.tape        # Init → scaffold → deploy flow (hero GIF)
 │   ├── workflow-init.tape      # strut init — homepage workflow tab 01
 │   ├── workflow-scaffold.tape  # strut scaffold — homepage workflow tab 02
-│   ├── workflow-deploy.tape    # strut release — homepage workflow tab 03
+│   ├── workflow-deploy.tape    # strut deploy — homepage workflow tab 03
 │   ├── ship.tape               # Commit → push → rebuild
 │   ├── local-dev.tape          # Start → sync-db → logs
 │   ├── rollback.tape           # Failed health → rollback

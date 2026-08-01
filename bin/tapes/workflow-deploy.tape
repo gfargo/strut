@@ -1,7 +1,7 @@
 # workflow-deploy.tape — Focused deploy step for the "Three commands" section
 # Used for: strut-www homepage workflow tab 03
 #
-# Story: Show `strut release` deploying containers with health checks.
+# Story: Show `strut deploy` shipping containers to the VPS with health checks.
 
 Set Shell "bash"
 Set FontFamily "JetBrains Mono"
@@ -23,5 +23,5 @@ Show
 
 # ── Scene: Deploy ─────────────────────────────────────────────────────────────
 Sleep 800ms
-Type "strut my-app release --env prod" Enter
+Type "strut my-app deploy --env prod" Enter
 Sleep 4500ms
