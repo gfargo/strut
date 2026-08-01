@@ -15,6 +15,19 @@ jobs:
   sync:
     runs-on: ubuntu-latest
     steps:
+      # Fail with a readable message instead of actions/checkout's opaque
+      # "Input required and not supplied: token". Without this the job died on
+      # the checkout step for v0.43.3, v0.44.0 and v0.45.0 without anyone
+      # noticing that strut-action had stopped being tagged entirely.
+      - name: Verify STRUT_ACTION_PAT is configured
+        env:
+          STRUT_ACTION_PAT: ${{ secrets.STRUT_ACTION_PAT }}
+        run: |
+          if [ -z "${STRUT_ACTION_PAT}" ]; then
+            echo "::error title=STRUT_ACTION_PAT missing::The secret STRUT_ACTION_PAT is unset or empty, so gfargo/strut-action cannot be checked out. This release will NOT be synced: strut-action keeps its previous strut-version default, gets no ${GITHUB_REF_NAME} tag, and its v1 tag stays where it is (so @v1 consumers do not track this release). Fix: create a PAT with contents:write on gfargo/strut-action and add it as the STRUT_ACTION_PAT repository secret, then re-run this workflow."
+            exit 1
+          fi
+
       - name: Checkout strut-action
         uses: actions/checkout@v4
         with:
