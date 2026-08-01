@@ -126,21 +126,64 @@ teardown() {
   [[ "$output" == *"deploy_stack"* ]]
 }
 
-@test "cmd_deploy: VPS_HOST warning reflects dispatcher-resolved host, not env file value" {
+@test "cmd_deploy: dispatch targets the dispatcher-resolved host, not the env file value" {
   cat > "$TEST_TMP/.override.env" <<'EOF'
 VPS_HOST=primary-host.internal
 GH_PAT=test
 EOF
   export CMD_ENV_FILE="$TEST_TMP/.override.env"
   is_running_on_vps() { return 1; }
-  export -f is_running_on_vps
+  vps_release() { echo "vps_release target=$VPS_HOST"; }
+  export -f is_running_on_vps vps_release
   export VPS_HOST="standby-host.internal"
+
+  run cmd_deploy
+  [[ "$output" == *"standby-host.internal"* ]]
+  [[ "$output" != *"primary-host.internal"* ]]
+}
+
+# strut#415: STRUT_YES=1 is the global auto-approve for CI, and confirm()
+# honours it — so the old "deploying locally to a VPS stack, continue?" prompt
+# answered itself yes and silently deployed to the wrong target on every
+# unattended run. There is no prompt now: the stack's topology decides.
+
+@test "cmd_deploy: STRUT_YES=1 can no longer produce a silent local deploy of a VPS stack" {
+  is_running_on_vps() { return 1; }
+  export -f is_running_on_vps
+  export VPS_HOST="example.com"
   export STRUT_YES=1
 
   run cmd_deploy
   [ "$status" -eq 0 ]
-  [[ "$output" == *"standby-host.internal"* ]]
-  [[ "$output" != *"primary-host.internal"* ]]
+  [[ "$output" == *"vps_release"* ]]
+  [[ "$output" != *"deploy_stack"* ]]
+}
+
+@test "cmd_deploy: --force-local remains a working alias for --local" {
+  is_running_on_vps() { return 1; }
+  export -f is_running_on_vps
+  export VPS_HOST="example.com"
+  export STRUT_YES=1
+
+  run cmd_deploy --force-local
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"deploy_stack"* ]]
+  [[ "$output" != *"vps_release"* ]]
+}
+
+@test "cmd_deploy: STRUT_REMOTE_EXEC=1 suppresses the wrong-target guard entirely" {
+  # The release pipeline SSHes in and runs `deploy` on the VPS. That inner run
+  # has VPS_HOST set and must NOT be treated as a wrong-target local deploy.
+  unset -f is_running_on_vps
+  source "$CLI_ROOT/lib/utils.sh"
+  export VPS_HOST="box.tailnet.ts.net"   # a name `hostname` will never match
+  export STRUT_REMOTE_EXEC=1
+  export STRUT_YES=1
+
+  run cmd_deploy
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"deploy_stack"* ]]
+  [[ "$output" != *"Refusing to deploy"* ]]
 }
 
 # strut#488: a stack unmapped in [stacks] topology, with no VPS_HOST in its
@@ -201,36 +244,144 @@ EOF
   [[ "$output" == *"VPS_HOST"* ]] || [ "$status" -ne 0 ]
 }
 
+# ── release (alias for deploy) ───────────────────────────────────────────────
+# strut#415: `release` is now a permanently-supported alias for `deploy`.
+# Every flag it ever accepted must still reach vps_release unchanged — these
+# tests are the contract that existing scripts and CI jobs keep working.
+#
+# The file-level setup stubs is_running_on_vps → 0 ("we're on the VPS") so the
+# plain deploy tests take the local path; these need the remote one.
+_remote_target() {
+  is_running_on_vps() { return 1; }
+  export -f is_running_on_vps
+  # Dispatch reads VPS_HOST from the environment (topology/dispatcher-resolved),
+  # not from the env file — setting it in .test.env alone is not enough.
+  export VPS_HOST="example.com"
+}
+
 @test "cmd_release: dispatches to vps_release" {
+  _remote_target
   run cmd_release
   [ "$status" -eq 0 ]
   [[ "$output" == *"vps_release"* ]]
 }
 
 @test "cmd_release: auto_rollback defaults to true" {
+  _remote_target
   run cmd_release
   [ "$status" -eq 0 ]
   [[ "$output" == *" true"* ]]
 }
 
 @test "cmd_release: --no-rollback passes auto_rollback=false to vps_release" {
-  export CMD_ARGS=(--no-rollback)
-  run cmd_release
+  _remote_target
+  run cmd_release --no-rollback
   [ "$status" -eq 0 ]
   [[ "$output" == *" false"* ]]
 }
 
 @test "cmd_release: backup_first defaults to false" {
+  _remote_target
   run cmd_release
   [ "$status" -eq 0 ]
   [[ "$output" == *" true false"* ]]
 }
 
 @test "cmd_release: --backup-first passes backup_first=true to vps_release" {
-  export CMD_ARGS=(--backup-first)
-  run cmd_release
+  _remote_target
+  run cmd_release --backup-first
   [ "$status" -eq 0 ]
   [[ "$output" == *" true true"* ]]
+}
+
+@test "cmd_release: still refuses a stack that resolves to no VPS" {
+  # release has always meant "ship to the VPS". Delegating to deploy must not
+  # quietly turn that into a local deploy when the topology resolves nowhere.
+  _remote_target
+  cat > "$TEST_TMP/.novps.env" <<'EOF'
+GH_PAT=test
+EOF
+  export CMD_ENV_FILE="$TEST_TMP/.novps.env"
+  unset VPS_HOST
+
+  run cmd_release
+  [ "$status" -ne 0 ]
+  [[ "$output" != *"deploy_stack"* ]]
+}
+
+# ── deploy: target resolution ────────────────────────────────────────────────
+
+@test "cmd_deploy: a VPS-mapped stack runs the release pipeline, not a local deploy" {
+  _remote_target
+  run cmd_deploy
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"vps_release"* ]]
+  [[ "$output" != *"deploy_stack"* ]]
+}
+
+@test "cmd_deploy: --local sends a VPS-mapped stack to the local daemon instead" {
+  _remote_target
+  run cmd_deploy --local
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"deploy_stack"* ]]
+  [[ "$output" != *"vps_release"* ]]
+  [[ "$output" == *"LOCAL Docker daemon"* ]]
+}
+
+@test "cmd_deploy: --no-sync and --no-migrate reach the pipeline as skip flags" {
+  _remote_target
+  # `run` executes in a subshell, so read the exports from inside the stub
+  # rather than expecting them to survive back out here.
+  vps_release() { echo "vps_release sync=${RELEASE_SKIP_SYNC:-} migrate=${RELEASE_SKIP_MIGRATE:-}"; }
+  export -f vps_release
+
+  run cmd_deploy --no-sync --no-migrate
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"sync=true"* ]]
+  [[ "$output" == *"migrate=true"* ]]
+}
+
+# --require-remote: the local fallback is a footgun on CI runners and under the
+# MCP server, where "deployed to the runner's own Docker daemon, exit 0" reads
+# as success. `release` is defined as deploy + this flag.
+
+@test "cmd_deploy: --require-remote fails when the stack resolves to no VPS" {
+  cat > "$TEST_TMP/.novps.env" <<'EOF'
+GH_PAT=test
+EOF
+  export CMD_ENV_FILE="$TEST_TMP/.novps.env"
+  unset VPS_HOST
+
+  run cmd_deploy --require-remote
+  [ "$status" -ne 0 ]
+  [[ "$output" != *"deploy_stack"* ]]
+}
+
+@test "cmd_deploy: --require-remote is a no-op when the stack does resolve remotely" {
+  _remote_target
+  run cmd_deploy --require-remote
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"vps_release"* ]]
+}
+
+@test "cmd_deploy: --require-remote and --local are rejected together" {
+  _remote_target
+  run cmd_deploy --require-remote --local
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"contradictory"* ]]
+  [[ "$output" != *"deploy_stack"* ]]
+}
+
+@test "cmd_deploy: --pull-only on a VPS stack pulls on the target, not locally" {
+  _remote_target
+  run_remote_strut() { echo "run_remote_strut $*"; }
+  export -f run_remote_strut
+
+  run cmd_deploy --pull-only
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"run_remote_strut"* ]]
+  [[ "$output" == *"--pull-only"* ]]
+  [[ "$output" != *"pull_only_stack"* ]]
 }
 
 @test "cmd_health: dispatches to health_run_all" {
@@ -495,11 +646,11 @@ LOG_LEVEL=info"; }
 }
 
 @test "cmd_release: --confirm-data-move flag is recognized (no error)" {
+  _remote_target
   diff_fetch_remote() { echo ""; }
   export -f diff_fetch_remote
 
-  export CMD_ARGS=("--confirm-data-move")
-  run cmd_release
+  run cmd_release --confirm-data-move
   [ "$status" -eq 0 ]
   [[ "$output" == *"vps_release"* ]]
 }
@@ -743,4 +894,43 @@ LOG_LEVEL=debug"
   run deploy_prepare "missing" "$stack_dir" "$stack_dir/docker-compose.yml" "$TEST_TMP/.test.env"
   [ "$status" -ne 0 ]
   [[ "$output" == *"Missing required env var: UNSET_VAR"* ]]
+}
+
+# strut#415: a fresh stack's required_vars used to be discovered one per run.
+
+@test "deploy_prepare: reports every missing required var in one failure" {
+  local stack_dir="$TEST_TMP/stacks/multi"
+  mkdir -p "$stack_dir"
+  echo 'services: {}' > "$stack_dir/docker-compose.yml"
+  echo 'X=y' > "$TEST_TMP/.test.env"
+  printf 'ALPHA_VAR\nBETA_VAR\nGAMMA_VAR\n' > "$stack_dir/required_vars"
+
+  unset ALPHA_VAR BETA_VAR GAMMA_VAR 2>/dev/null || true
+  validate_env_file() { true; }
+  export_volume_paths() { true; }
+  export -f validate_env_file export_volume_paths
+
+  run deploy_prepare "multi" "$stack_dir" "$stack_dir/docker-compose.yml" "$TEST_TMP/.test.env"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"Missing 3 required env vars"* ]]
+  [[ "$output" == *"ALPHA_VAR"* ]]
+  [[ "$output" == *"BETA_VAR"* ]]
+  [[ "$output" == *"GAMMA_VAR"* ]]
+}
+
+@test "deploy_prepare: a malformed var name still fails immediately, not batched" {
+  local stack_dir="$TEST_TMP/stacks/badname"
+  mkdir -p "$stack_dir"
+  echo 'services: {}' > "$stack_dir/docker-compose.yml"
+  echo 'X=y' > "$TEST_TMP/.test.env"
+  printf 'GOOD_VAR\n1BAD-NAME\n' > "$stack_dir/required_vars"
+
+  unset GOOD_VAR 2>/dev/null || true
+  validate_env_file() { true; }
+  export_volume_paths() { true; }
+  export -f validate_env_file export_volume_paths
+
+  run deploy_prepare "badname" "$stack_dir" "$stack_dir/docker-compose.yml" "$TEST_TMP/.test.env"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"Invalid variable name in required_vars"* ]]
 }
