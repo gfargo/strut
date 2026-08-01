@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.45.0](https://github.com/gfargo/strut/compare/v0.44.0...v0.45.0) (2026-08-01)
+
+
+### ⚠ BREAKING CHANGES
+
+* **deploy:** `release` run while already on the VPS now performs a local deploy instead of SSHing to itself, which skips the repo-sync and migration steps it used to run. Run those explicitly (`update`, `migrate`) if you drive a release from the host itself.
+
+### Features
+
+* **deploy:** resolve deploy target from topology; release becomes an alias ([8bf0cb9](https://github.com/gfargo/strut/commit/8bf0cb9926768e56cd4162cf265f8a20942632e6))
+* **env:** apply .gen.enc.env as final layer of deploy env chain ([#493](https://github.com/gfargo/strut/issues/493)) ([6f46473](https://github.com/gfargo/strut/commit/6f464730a1b00482417cd6c631d9aad9d68f98ce))
+
+
+### Bug Fixes
+
+* **deploy:** fail instead of silently deploying locally when VPS_HOST is unresolved ([#496](https://github.com/gfargo/strut/issues/496)) ([df23de6](https://github.com/gfargo/strut/commit/df23de62d86edd3330ad9d5837dda6b7d85a20e8))
+* **deploy:** stamp remote-exec marker and report all missing env vars at once ([bd567ef](https://github.com/gfargo/strut/commit/bd567ef56a8e0c538fe67110403e372139743659))
+* **health:** DB-only stacks no longer degrade to 'degraded' or trigger spurious rollback ([#490](https://github.com/gfargo/strut/issues/490)) ([11ddd46](https://github.com/gfargo/strut/commit/11ddd4670cd7bff6c08560401ff86f9d218258f1)), closes [#489](https://github.com/gfargo/strut/issues/489)
+* **validate:** DB_PORT no longer triggers boolean rule in services.conf ([#492](https://github.com/gfargo/strut/issues/492)) ([5d4b3e9](https://github.com/gfargo/strut/commit/5d4b3e9859f7abce08136c7a49154969bac7bb5e)), closes [#487](https://github.com/gfargo/strut/issues/487)
+
 ## [0.44.0](https://github.com/gfargo/strut/compare/v0.43.3...v0.44.0) (2026-07-24)
 
 
