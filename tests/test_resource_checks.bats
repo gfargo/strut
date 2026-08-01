@@ -60,6 +60,32 @@ teardown() {
   [ "$status" -eq 1 ]
 }
 
+# strut#415: the hostname/IP probes below can't recognise a host reached by a
+# name it doesn't call itself (Tailscale MagicDNS, CNAME, any DNS alias). The
+# STRUT_REMOTE_EXEC marker is the authoritative signal and must win outright —
+# without it, strut on such a host SSHes to itself and recurses unbounded.
+
+@test "is_running_on_vps: returns 0 when STRUT_REMOTE_EXEC=1, whatever the hostname" {
+  export VPS_HOST="box.tailnet.ts.net"
+  export STRUT_REMOTE_EXEC=1
+  run is_running_on_vps
+  [ "$status" -eq 0 ]
+}
+
+@test "is_running_on_vps: STRUT_REMOTE_EXEC=1 wins even with VPS_HOST unset" {
+  unset VPS_HOST
+  export STRUT_REMOTE_EXEC=1
+  run is_running_on_vps
+  [ "$status" -eq 0 ]
+}
+
+@test "is_running_on_vps: STRUT_REMOTE_EXEC set to anything else is not the marker" {
+  export VPS_HOST="203.0.113.99"
+  export STRUT_REMOTE_EXEC=0
+  run is_running_on_vps
+  [ "$status" -eq 1 ]
+}
+
 # ── extract_env_name ──────────────────────────────────────────────────────────
 
 @test "extract_env_name: extracts 'prod' from .prod.env" {

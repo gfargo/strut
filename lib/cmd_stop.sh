@@ -137,7 +137,7 @@ _stop_remote() {
   ssh $ssh_opts "$vps_user@$vps_host" "
     set -e
     cd '$deploy_dir'
-    ./strut $stack stop --env ${env_name:-prod} $services_flag $volumes_flag $timeout_flag
+    STRUT_REMOTE_EXEC=1 ./strut $stack stop --env ${env_name:-prod} $services_flag $volumes_flag $timeout_flag
   " && ok "Stack $stack stopped on VPS" \
     || fail "Failed to stop stack on VPS — check VPS_HOST and SSH access"
 }

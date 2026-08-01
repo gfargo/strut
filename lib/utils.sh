@@ -376,9 +376,23 @@ vps_sudo_prefix() {
 
 # is_running_on_vps
 # Returns 0 if the current machine appears to be the VPS target.
-# Checks: hostname match, hostname.local match, and local IP match.
-# Requires VPS_HOST to be set in the environment.
+# Checks, in order: the STRUT_REMOTE_EXEC marker, hostname match,
+# hostname.local match, and local IP match.
+#
+# STRUT_REMOTE_EXEC=1 is set on every strut invocation that another strut
+# process dispatches over SSH (see run_remote_strut and the `./strut` call
+# sites in deploy.sh / cmd_stop.sh / cmd_destroy.sh). It is checked FIRST
+# because it is authoritative, while the hostname/IP probes below are only
+# inference — and that inference silently fails whenever the host is reached
+# by a name the box doesn't call itself: a Tailscale MagicDNS name
+# (VPS_HOST=box.tailnet.ts.net vs `hostname` → box), a CNAME, or any DNS
+# alias. On such a host every probe misses, is_running_on_vps returns 1, and
+# should_dispatch_remote() then SSHes strut to itself — which recurses
+# without bound, since the invocation on the far end reaches the same
+# conclusion. The marker breaks that cycle at the first hop. (strut#415)
 is_running_on_vps() {
+  [ "${STRUT_REMOTE_EXEC:-}" = "1" ] && return 0
+
   local vps_host="${VPS_HOST:-}"
   [ -n "$vps_host" ] || return 1  # silent check — no VPS_HOST means not on VPS
 
@@ -923,12 +937,23 @@ $hint"
   [ -n "$_vk" ] && export VPS_SSH_KEY="$_vk"
   [ -n "$_vd" ] && export VPS_DEPLOY_DIR="$_vd"
   env_apply_layers "${CMD_STACK:-}" "${CMD_STACK_DIR:-}"
+
+  # Collect every missing var before failing, rather than failing on the first.
+  # Failing early turns "configure this stack" into a serial guessing game: you
+  # add the var it named, re-run, and only then learn about the next one — which
+  # is how a single `release` can take three round trips to discover it wanted
+  # VPS_HOST, then GH_PAT, then whatever follows. (strut#415)
   local var
+  local -a _missing=()
   for var in "$@"; do
-    if [ -z "${!var:-}" ]; then
-      fail "Required variable '$var' is empty or missing in $env_file"
-    fi
+    [ -z "${!var:-}" ] && _missing+=("$var")
   done
+  if [ "${#_missing[@]}" -eq 1 ]; then
+    fail "Required variable '${_missing[0]}' is empty or missing in $env_file"
+  elif [ "${#_missing[@]}" -gt 1 ]; then
+    fail "${#_missing[@]} required variables are empty or missing in $env_file:
+$(printf '    - %s\n' "${_missing[@]}")"
+  fi
 }
 
 # deploy_prepare <stack> <stack_dir> <compose_file> <env_file>
@@ -955,7 +980,12 @@ $_hint"
 
   local required_vars_file="$stack_dir/required_vars"
   if [ -f "$required_vars_file" ]; then
+    # Same batching rationale as validate_env_file: report every missing var
+    # in one pass so a fresh stack can be configured in a single edit instead
+    # of one re-run per var. An invalid NAME still fails immediately — that's
+    # a malformed required_vars file, not a fixable-in-bulk config gap.
     local var val
+    local -a _missing=()
     while IFS= read -r var || [ -n "$var" ]; do
       [ -z "$var" ] && continue
       # Validate var name to prevent injection — only allow valid identifiers
@@ -964,8 +994,14 @@ $_hint"
       fi
       # Safe indirect expansion (no eval)
       val="${!var:-}"
-      [ -n "$val" ] || fail "Missing required env var: $var (check $env_file)"
+      [ -n "$val" ] || _missing+=("$var")
     done < "$required_vars_file"
+    if [ "${#_missing[@]}" -eq 1 ]; then
+      fail "Missing required env var: ${_missing[0]} (check $env_file)"
+    elif [ "${#_missing[@]}" -gt 1 ]; then
+      fail "Missing ${#_missing[@]} required env vars (check $env_file):
+$(printf '    - %s\n' "${_missing[@]}")"
+    fi
   fi
 }
 
@@ -1119,11 +1155,18 @@ build_proxy_reload_cmd() {
 #
 # Returns 0 (true) when:
 #   - VPS_HOST is non-empty (env/topology has a remote target), AND
+#   - We were not dispatched here over SSH by another strut process, AND
 #   - We are NOT already running on that host (avoids SSH-to-self recursion).
 #
 # Use this before any read-only introspection command (status, logs, health)
 # to decide whether to SSH to the remote or run locally.
 should_dispatch_remote() {
+  # Checked here as well as inside is_running_on_vps, deliberately. This is
+  # the function whose whole contract is "should I open an SSH connection?",
+  # and the failure it guards against is unbounded recursion (strut#415) —
+  # too sharp an edge to reach only through a second function that callers
+  # and tests routinely stub out.
+  [ "${STRUT_REMOTE_EXEC:-}" = "1" ] && return 1
   [ -n "${VPS_HOST:-}" ] || return 1
   if is_running_on_vps; then
     return 1
@@ -1165,7 +1208,7 @@ run_remote_strut() {
     echo ""
     echo -e "${YELLOW}[DRY-RUN] Execution plan for remote ${remote_cmd_args%% *}:${NC}"
     run_cmd "Run on VPS" ssh "$vps_user@$vps_host" \
-      "cd $deploy_dir && ./strut $stack $remote_cmd_args --env ${env_name:-prod}"
+      "cd $deploy_dir && STRUT_REMOTE_EXEC=1 ./strut $stack $remote_cmd_args --env ${env_name:-prod}"
     echo ""
     echo -e "${YELLOW}[DRY-RUN] No changes made.${NC}"
     return 0
@@ -1180,7 +1223,7 @@ run_remote_strut() {
   ssh $ssh_opts "$vps_user@$vps_host" "
     set -e
     cd '$deploy_dir'
-    ./strut $stack $remote_cmd_args --env ${env_name:-prod}
+    STRUT_REMOTE_EXEC=1 ./strut $stack $remote_cmd_args --env ${env_name:-prod}
   " || fail "Remote command failed — check VPS_HOST and SSH access"
 }
 

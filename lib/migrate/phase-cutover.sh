@@ -128,7 +128,7 @@ migrate_phase_cutover() {
     warn "competing for the same ports — a brief stop-old/deploy-new window"
     warn "may be unavoidable for this stack (not automated by this phase)."
     if ! ssh_exec "$vps_user" "$vps_host" "$ssh_port" "$ssh_key" \
-      "cd $dest_dir && ./strut $stack deploy --env $stack-prod"; then
+      "cd $dest_dir && STRUT_REMOTE_EXEC=1 ./strut $stack deploy --env $stack-prod"; then
       warn "Deploy failed for $stack — old containers were never stopped."
       any_failed=true
       continue
@@ -137,10 +137,10 @@ migrate_phase_cutover() {
     # ── Health-gate before touching anything on the old stack ────────────
     log "Running health check..."
     if ! ssh_exec "$vps_user" "$vps_host" "$ssh_port" "$ssh_key" \
-      "cd $dest_dir && ./strut $stack health --env $stack-prod"; then
+      "cd $dest_dir && STRUT_REMOTE_EXEC=1 ./strut $stack health --env $stack-prod"; then
       warn "Health check failed for $stack — rolling back the new stack."
       if ! ssh_exec "$vps_user" "$vps_host" "$ssh_port" "$ssh_key" \
-        "cd $dest_dir && ./strut $stack stop --env $stack-prod"; then
+        "cd $dest_dir && STRUT_REMOTE_EXEC=1 ./strut $stack stop --env $stack-prod"; then
         warn "Failed to stop the unhealthy new stack for $stack — check it manually on the VPS."
       fi
       warn "Old containers for $stack were never stopped."
