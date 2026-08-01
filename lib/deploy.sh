@@ -792,7 +792,7 @@ vps_release() {
     echo -e "${YELLOW}[DRY-RUN] Execution plan for release:${NC}"
     RELEASE_ENV_NAME="$env_name" fire_hook pre_deploy_local "$local_stack_dir"
     if [ "$backup_first" = "true" ]; then
-      run_cmd "Back up databases before release (--backup-first)" ssh "$vps_user@$vps_host" "cd $deploy_dir && ./strut $stack backup all --env $env_name"
+      run_cmd "Back up databases before release (--backup-first)" ssh "$vps_user@$vps_host" "cd $deploy_dir && STRUT_REMOTE_EXEC=1 ./strut $stack backup all --env $env_name"
     fi
     run_cmd "Update strut repo on VPS" ssh "$vps_user@$vps_host" "cd $deploy_dir && git fetch && git reset --hard origin/$branch"
     # git clean -nd is itself non-destructive, so show a real preview of what
@@ -807,13 +807,13 @@ vps_release() {
     else
       log "  git clean -fd would remove nothing (no untracked paths, or host unreachable)"
     fi
-    run_cmd "Run Postgres migrations" ssh "$vps_user@$vps_host" "cd $deploy_dir && ./strut $stack migrate postgres --env $env_name"
-    run_cmd "Run Neo4j migrations" ssh "$vps_user@$vps_host" "cd $deploy_dir && ./strut $stack migrate neo4j --env $env_name"
-    run_cmd "Pull latest images" ssh "$vps_user@$vps_host" "cd $deploy_dir && ./strut $stack deploy --env $env_name --pull-only"
-    run_cmd "Restart services" ssh "$vps_user@$vps_host" "cd $deploy_dir && ./strut $stack deploy --env $env_name"
-    run_cmd "Verify deployment" ssh "$vps_user@$vps_host" "cd $deploy_dir && ./strut $stack health --env $env_name"
+    run_cmd "Run Postgres migrations" ssh "$vps_user@$vps_host" "cd $deploy_dir && STRUT_REMOTE_EXEC=1 ./strut $stack migrate postgres --env $env_name"
+    run_cmd "Run Neo4j migrations" ssh "$vps_user@$vps_host" "cd $deploy_dir && STRUT_REMOTE_EXEC=1 ./strut $stack migrate neo4j --env $env_name"
+    run_cmd "Pull latest images" ssh "$vps_user@$vps_host" "cd $deploy_dir && STRUT_REMOTE_EXEC=1 ./strut $stack deploy --env $env_name --pull-only"
+    run_cmd "Restart services" ssh "$vps_user@$vps_host" "cd $deploy_dir && STRUT_REMOTE_EXEC=1 ./strut $stack deploy --env $env_name"
+    run_cmd "Verify deployment" ssh "$vps_user@$vps_host" "cd $deploy_dir && STRUT_REMOTE_EXEC=1 ./strut $stack health --env $env_name"
     if [ "$auto_rollback" = "true" ]; then
-      run_cmd "Roll back on health failure (auto)" ssh "$vps_user@$vps_host" "cd $deploy_dir && ./strut $stack rollback --env $env_name"
+      run_cmd "Roll back on health failure (auto)" ssh "$vps_user@$vps_host" "cd $deploy_dir && STRUT_REMOTE_EXEC=1 ./strut $stack rollback --env $env_name"
     fi
     RELEASE_ENV_NAME="$env_name" fire_hook post_deploy_local "$local_stack_dir"
     echo ""
@@ -837,41 +837,57 @@ vps_release() {
     # shellcheck disable=SC2029
     ssh $ssh_opts "$vps_user@$vps_host" "
       cd '$deploy_dir'
-      ./strut $stack backup all --env $env_name
+      STRUT_REMOTE_EXEC=1 ./strut $stack backup all --env $env_name
     " || fail "Pre-deploy backup failed — aborting release. Check backup config/logs, or omit --backup-first to skip."
     ok "Pre-deploy backup complete"
   fi
 
   # Step 1: Update repo
-  log "[1/6] Updating strut repository on VPS..."
-  vps_update_repo "$stack" "$env_file"
-
-  # Step 2: Run Postgres migrations
-  log "[2/6] Running Postgres migrations..."
-  local migration_mode="${MIGRATION_FAILURE_MODE:-warn}"
-  # shellcheck disable=SC2029
-  if ! ssh $ssh_opts "$vps_user@$vps_host" "
-    cd '$deploy_dir'
-    ./strut $stack migrate postgres --env $env_name
-  "; then
-    if [ "$migration_mode" = "halt" ]; then
-      fail "Postgres migration failed — halting release (MIGRATION_FAILURE_MODE=halt)"
-    else
-      warn "Postgres migration failed or no migrations to apply"
-    fi
+  #
+  # --no-sync (RELEASE_SKIP_SYNC) restarts the stack against the checkout
+  # already on the target instead of fast-forwarding it. This is the "apply an
+  # env/image change without shipping new code" case, which previously had no
+  # spelling at all — you had to hand-write the `exec 'cd … && strut deploy'`
+  # incantation. (strut#415)
+  if [ "${RELEASE_SKIP_SYNC:-false}" = "true" ]; then
+    log "[1/6] Skipping repo sync (--no-sync) — deploying the checkout already on the host"
+  else
+    log "[1/6] Updating strut repository on VPS..."
+    vps_update_repo "$stack" "$env_file"
   fi
 
-  # Step 3: Run Neo4j migrations
-  log "[3/6] Running Neo4j migrations..."
-  # shellcheck disable=SC2029
-  if ! ssh $ssh_opts "$vps_user@$vps_host" "
-    cd '$deploy_dir'
-    ./strut $stack migrate neo4j --env $env_name
-  "; then
-    if [ "$migration_mode" = "halt" ]; then
-      fail "Neo4j migration failed — halting release (MIGRATION_FAILURE_MODE=halt)"
-    else
-      warn "Neo4j migration failed or no migrations to apply"
+  # Steps 2-3: Run migrations
+  local migration_mode="${MIGRATION_FAILURE_MODE:-warn}"
+  if [ "${RELEASE_SKIP_MIGRATE:-false}" = "true" ]; then
+    log "[2/6] Skipping Postgres migrations (--no-migrate)"
+    log "[3/6] Skipping Neo4j migrations (--no-migrate)"
+  else
+    # Step 2: Run Postgres migrations
+    log "[2/6] Running Postgres migrations..."
+    # shellcheck disable=SC2029
+    if ! ssh $ssh_opts "$vps_user@$vps_host" "
+      cd '$deploy_dir'
+      STRUT_REMOTE_EXEC=1 ./strut $stack migrate postgres --env $env_name
+    "; then
+      if [ "$migration_mode" = "halt" ]; then
+        fail "Postgres migration failed — halting release (MIGRATION_FAILURE_MODE=halt)"
+      else
+        warn "Postgres migration failed or no migrations to apply"
+      fi
+    fi
+
+    # Step 3: Run Neo4j migrations
+    log "[3/6] Running Neo4j migrations..."
+    # shellcheck disable=SC2029
+    if ! ssh $ssh_opts "$vps_user@$vps_host" "
+      cd '$deploy_dir'
+      STRUT_REMOTE_EXEC=1 ./strut $stack migrate neo4j --env $env_name
+    "; then
+      if [ "$migration_mode" = "halt" ]; then
+        fail "Neo4j migration failed — halting release (MIGRATION_FAILURE_MODE=halt)"
+      else
+        warn "Neo4j migration failed or no migrations to apply"
+      fi
     fi
   fi
 
@@ -882,7 +898,7 @@ vps_release() {
   # shellcheck disable=SC2029
   ssh $ssh_opts "$vps_user@$vps_host" "
     cd '$deploy_dir'
-    ./strut $stack deploy --env $env_name $profile_flag --pull-only
+    STRUT_REMOTE_EXEC=1 ./strut $stack deploy --env $env_name $profile_flag --pull-only
   " || fail "Failed to pull images"
 
   # Step 5: Restart services
@@ -890,7 +906,7 @@ vps_release() {
   # shellcheck disable=SC2029
   ssh $ssh_opts "$vps_user@$vps_host" "
     cd '$deploy_dir'
-    ./strut $stack deploy --env $env_name $profile_flag
+    STRUT_REMOTE_EXEC=1 ./strut $stack deploy --env $env_name $profile_flag
   " || fail "Failed to restart services"
 
   # Step 6: Verify deployment
@@ -900,7 +916,7 @@ vps_release() {
   # shellcheck disable=SC2029
   ssh $ssh_opts "$vps_user@$vps_host" "
     cd '$deploy_dir'
-    ./strut $stack health --env $env_name $profile_flag
+    STRUT_REMOTE_EXEC=1 ./strut $stack health --env $env_name $profile_flag
   " || health_rc=$?
 
   # Distinguish warning-only (degraded, exit 1) from unhealthy (exit ≥ 2).
@@ -917,7 +933,7 @@ vps_release() {
       # shellcheck disable=SC2029
       if ssh $ssh_opts "$vps_user@$vps_host" "
         cd '$deploy_dir'
-        ./strut $stack rollback --env $env_name
+        STRUT_REMOTE_EXEC=1 ./strut $stack rollback --env $env_name
       "; then
         ok "Rolled back to the previous release"
       else

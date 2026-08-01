@@ -42,9 +42,28 @@ strut --no-tui | STRUT_NO_TUI=1                   # disable TUI
 
 Top-level:  init, upgrade, --version, list, scaffold, audit, migrate, monitoring,
             secrets-filter (transparent git clean/smudge for at-rest secrets)
-Per-stack:  deploy, stop, release, update, health, logs, status, shell, exec,
+Per-stack:  deploy, stop, update, health, logs, status, shell, exec,
             backup, restore, db:pull, db:push, db:schema, drift, volumes, keys, domain
+            release — alias for deploy (see below)
 ```
+
+`deploy` resolves its target from the stack's topology, like `status`/`health`/
+`logs` do (`should_dispatch_remote`, `lib/utils.sh`): a stack mapped to a VPS
+runs the full pipeline on that host (`vps_release` — sync → migrate → deploy →
+health → auto-rollback), everything else deploys against the local Docker
+daemon. `--local` (alias `--force-local`) forces local; `--no-sync` /
+`--no-migrate` skip pipeline steps.
+
+`release` is a permanently-supported alias for `deploy` — it existed as a
+separate verb when `deploy` always meant "run here", which made
+wrong-target deploys a repeated mistake (strut#415). It differs only in
+refusing a stack that resolves to no VPS instead of falling back to local.
+
+`STRUT_REMOTE_EXEC=1` is stamped on every `./strut` invocation sent over SSH.
+It is the authoritative "we are the target" signal — `is_running_on_vps`
+otherwise infers this from hostname/IP, which cannot match a Tailscale
+MagicDNS name or CNAME, and without the marker such a host would dispatch
+to itself unbounded. Any new remote `./strut` call site must set it.
 
 ## Config Files (per-stack, user-owned)
 

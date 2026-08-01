@@ -20,7 +20,7 @@ _mcp_tools_list() {
   {"name":"strut_backup_health","description":"Show backup health scores for a stack","inputSchema":{"type":"object","properties":{"stack":{"type":"string","description":"Stack name"}},"required":["stack"]}},
   {"name":"strut_briefing","description":"One-call operational situation report: aggregates health, config drift, image staleness, pending diff, and backup health into an overall posture plus prioritized actions","inputSchema":{"type":"object","properties":{"stack":{"type":"string","description":"Stack name"},"env":{"type":"string","description":"Environment name (default: prod)"}},"required":["stack"]}},
   {"name":"strut_preflight","description":"Deploy go/no-go verdict (GO/CAUTION/NO-GO): fuses pending diff, config drift, current health, and backup freshness into a release-safety decision with reasons","inputSchema":{"type":"object","properties":{"stack":{"type":"string","description":"Stack name"},"env":{"type":"string","description":"Environment name (default: prod)"}},"required":["stack"]}},
-  {"name":"strut_deploy","description":"Deploy/release a stack to VPS (requires approval)","inputSchema":{"type":"object","properties":{"stack":{"type":"string","description":"Stack name"},"env":{"type":"string","description":"Environment name (default: prod)"}},"required":["stack"]}},
+  {"name":"strut_deploy","description":"Deploy a stack to its VPS (requires approval). Runs the full pipeline on the host the stack maps to: sync repo, run migrations, pull images, restart services, health-check, and auto-roll-back if unhealthy. Fails if the stack does not resolve to a remote host — it will never fall back to a local deploy.","inputSchema":{"type":"object","properties":{"stack":{"type":"string","description":"Stack name"},"env":{"type":"string","description":"Environment name (default: prod)"}},"required":["stack"]}},
   {"name":"strut_sync","description":"Bring a host checkout in sync with origin","inputSchema":{"type":"object","properties":{"host":{"type":"string","description":"Host alias from topology"}},"required":["host"]}},
   {"name":"strut_backup","description":"Create a backup for a stack","inputSchema":{"type":"object","properties":{"stack":{"type":"string","description":"Stack name"},"target":{"type":"string","description":"Backup target (postgres, neo4j, mysql, sqlite, all). Default: all"}},"required":["stack"]}},
   {"name":"strut_stop","description":"Stop containers for a stack (requires approval)","inputSchema":{"type":"object","properties":{"stack":{"type":"string","description":"Stack name"}},"required":["stack"]}}
@@ -141,7 +141,9 @@ _mcp_tools_call() {
       local stack env
       stack=$(_mcp_arg "$args" stack) || { _mcp_reject "invalid 'stack' argument"; return 0; }
       env=$(_mcp_arg "$args" env prod) || { _mcp_reject "invalid 'env' argument"; return 0; }
-      output=$("$strut_bin" "$stack" release --env "$env" 2>&1) || rc=$?
+      # --require-remote, not a bare `deploy`: an agent calling this must never
+      # get a silent local deploy because the stack's VPS_HOST didn't resolve.
+      output=$("$strut_bin" "$stack" deploy --require-remote --env "$env" 2>&1) || rc=$?
       ;;
     strut_sync)
       local host

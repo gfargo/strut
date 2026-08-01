@@ -134,15 +134,33 @@ _deploy_volguard() {
 
 _usage_deploy() {
   echo ""
-  echo "Usage: strut <stack> deploy [--env <name>] [--services <profile>] [--pull-only] [--skip-validation] [--blue-green] [--standard] [--dry-run] [--confirm-data-move]"
+  echo "Usage: strut <stack> deploy [--env <name>] [--services <profile>] [--local] [--pull-only] [--skip-validation] [--blue-green] [--standard] [--dry-run] [--confirm-data-move]"
   echo ""
-  echo "Deploy stack containers locally. Pulls images, creates data directories,"
-  echo "stops existing containers, and starts services."
+  echo "Deploy a stack. The target comes from the stack's topology, not from"
+  echo "where you type this: a stack mapped to a VPS deploys to that VPS, and"
+  echo "everything else deploys against the local Docker daemon."
+  echo ""
+  echo "  Remote target — syncs the repo, runs migrations, pulls images,"
+  echo "  restarts services, health-checks, and rolls back if unhealthy."
+  echo "  ('release' is an alias for exactly this.)"
+  echo ""
+  echo "  Local target — pulls images, creates data directories, stops"
+  echo "  existing containers, and starts services."
   echo ""
   echo "Flags:"
   echo "  --env <name>         Environment (reads .<name>.env)"
   echo "  --services <profile> Service profile (messaging|ui|full)"
+  echo "  --local              Deploy to the LOCAL Docker daemon even when the"
+  echo "                       stack maps to a VPS (alias: --force-local)"
+  echo "  --require-remote     Fail if the stack resolves to no VPS, instead of"
+  echo "                       deploying locally (use in CI; 'release' implies it)"
   echo "  --pull-only          Pull images without restarting containers"
+  echo "  --no-sync            Remote only: skip the git sync, deploy the"
+  echo "                       checkout already on the host"
+  echo "  --no-migrate         Remote only: skip the migration steps"
+  echo "  --strict             Remote only: halt the deploy if a migration fails"
+  echo "  --no-rollback        Remote only: don't auto-roll-back on health failure"
+  echo "  --backup-first       Remote only: back up databases before deploying"
   echo "  --skip-validation    Skip pre-deploy config validation and hooks"
   echo "  --skip-health-gate   Skip post-up health polling (for one-shot/migration stacks)"
   echo "  --force-unlock       Break an existing deploy lock before acquiring"
@@ -157,7 +175,8 @@ _usage_deploy() {
   echo "  --dry-run            Show execution plan without making changes"
   echo ""
   echo "Related commands:"
-  echo "  release              Full VPS release (update + migrate + deploy)"
+  echo "  release              Alias for deploy (kept for existing scripts)"
+  echo "  update               Sync the repo on the VPS without restarting anything"
   echo "  stop                 Stop running containers"
   echo "  health               Run health checks after deploy"
   echo "  rollback             Restore previous deploy (blue-green: flips active color)"
@@ -165,9 +184,10 @@ _usage_deploy() {
   echo "Examples:"
   echo "  strut my-stack deploy --env prod"
   echo "  strut my-stack deploy --env prod --services full"
-  echo "  strut my-stack deploy --env prod --pull-only"
-  echo "  strut my-stack deploy --env prod --blue-green"
   echo "  strut my-stack deploy --env prod --dry-run"
+  echo "  strut my-stack deploy --env prod --no-sync      # restart, don't ship new code"
+  echo "  strut my-stack deploy --env prod --local        # local Docker daemon"
+  echo "  strut my-stack deploy --env prod --blue-green"
   echo ""
 }
 
@@ -263,33 +283,23 @@ _usage_rebuild() {
   echo ""
 }
 
-# cmd_release [--strict] [--confirm-data-move] [--no-rollback] [--backup-first] (reads CMD_*)
+# cmd_release [--strict] [--confirm-data-move] [--no-rollback] [--backup-first]
+#
+# Alias for `deploy`. Since deploy resolves its target from the stack's
+# topology, `deploy` on a VPS-mapped stack now runs exactly the pipeline
+# `release` always ran — so the two verbs would be indistinguishable. Rather
+# than keep both in the help and re-create the ambiguity strut#415 was filed
+# about, `release` stays a permanently-supported alias: every existing script,
+# runbook, and CI job keeps working, unchanged and unwarned.
+#
+# The one thing it does NOT inherit is deploy's willingness to fall back to a
+# local deploy. `release` has always meant "ship to the VPS", so a stack that
+# resolves nowhere remote is a config error, not an invitation to deploy to the
+# local Docker daemon. That strictness is now spelled --require-remote, which
+# makes `release` exactly `deploy --require-remote` — the last behavioural
+# difference between the two verbs expressed as a flag rather than a name.
 cmd_release() {
-  local stack="$CMD_STACK"
-  local env_file="$CMD_ENV_FILE"
-  local services="$CMD_SERVICES"
-
-  # Parse release-specific flags
-  local confirm_data_move=false
-  local auto_rollback=true
-  local backup_first=false
-  local args=("${CMD_ARGS[@]+"${CMD_ARGS[@]}"}")
-  for arg in "${args[@]+"${args[@]}"}"; do
-    case "$arg" in
-      --strict) export MIGRATION_FAILURE_MODE="halt" ;;
-      --confirm-data-move) confirm_data_move=true ;;
-      --no-rollback) auto_rollback=false ;;
-      --backup-first) backup_first=true ;;
-    esac
-  done
-
-  validate_env_file "$env_file" VPS_HOST
-
-  # Guard: detect data-destructive env changes before releasing to VPS
-  _deploy_volguard "$stack" "$env_file" "$confirm_data_move" || return 1
-  diff_warn_env_divergence "$stack" "$env_file" "${CMD_STACK_DIR:-$CLI_ROOT/stacks/$stack}"
-
-  vps_release "$stack" "$env_file" "$services" "$auto_rollback" "$backup_first"
+  cmd_deploy --require-remote "$@"
 }
 
 # cmd_deploy [--pull-only] [--skip-validation] [positional...] (reads CMD_*)
@@ -306,7 +316,13 @@ cmd_deploy() {
   local force_unlock=false
   local skip_lock=false
   local force_local=false
+  local require_remote=false
   local confirm_data_move=false
+  # Release-pipeline flags — meaningful only on the remote path below, where
+  # `deploy` runs the full sync → migrate → deploy → health sequence. Parsed
+  # unconditionally so `deploy` accepts everything `release` ever did.
+  local auto_rollback=true
+  local backup_first=false
   # Mode: honor DEPLOY_MODE config default; --blue-green / --standard on the
   # CLI always wins. `mode_flag=""` means "not overridden — use config".
   local mode_flag=""
@@ -317,10 +333,18 @@ cmd_deploy() {
       --skip-health-gate) skip_health_gate=true; shift ;;
       --force-unlock) force_unlock=true; shift ;;
       --no-lock) skip_lock=true; shift ;;
-      --force-local) force_local=true; shift ;;
+      # --force-local is the original spelling, kept working forever; --local
+      # is the one we document, since the flag states intent, not force.
+      --local|--force-local) force_local=true; shift ;;
+      --require-remote) require_remote=true; shift ;;
       --blue-green) mode_flag="blue-green"; shift ;;
       --standard)   mode_flag="standard";   shift ;;
       --confirm-data-move) confirm_data_move=true; shift ;;
+      --strict) export MIGRATION_FAILURE_MODE="halt"; shift ;;
+      --no-rollback) auto_rollback=false; shift ;;
+      --backup-first) backup_first=true; shift ;;
+      --no-sync) export RELEASE_SKIP_SYNC=true; shift ;;
+      --no-migrate) export RELEASE_SKIP_MIGRATE=true; shift ;;
       *) shift ;;
     esac
   done
@@ -329,6 +353,56 @@ cmd_deploy() {
   # Export for deploy_stack to read
   export SKIP_VALIDATION="$skip_validation"
   export DEPLOY_SKIP_HEALTH_GATE="$skip_health_gate"
+
+  # ── Remote requirement ─────────────────────────────────────────────────────
+  # --require-remote asserts "this stack MUST resolve to a VPS", turning a
+  # topology that resolves nowhere into a hard error instead of a local deploy.
+  #
+  # This exists because the local fallback is a footgun in exactly the places
+  # nobody is watching: on a CI runner or under the MCP server, a stack whose
+  # VPS_HOST fails to resolve would deploy to the runner's own Docker daemon
+  # and exit 0 — a silent no-op that reports success. Callers that can never
+  # legitimately mean "here" pass this flag. It's also what makes `release`
+  # expressible as plain deploy (see cmd_release).
+  if [ "$require_remote" = "true" ]; then
+    if [ "$force_local" = "true" ]; then
+      fail "--require-remote and --local are contradictory — pick one"
+      return 1
+    fi
+    validate_env_file "$env_file" VPS_HOST || return 1
+  fi
+
+  # ── Target resolution ──────────────────────────────────────────────────────
+  # `deploy` means "deploy this stack" — the stack's topology decides WHERE,
+  # exactly as status/health/logs/rollback already do via should_dispatch_remote.
+  #
+  # It used to mean "deploy on whatever machine I'm typing on", with `release`
+  # as a separate top-level verb for the VPS. But those two were never peers:
+  # release is the orchestrator and deploy is the primitive it SSHes in to run
+  # (steps 4 and 5 of vps_release are literally `./strut <stack> deploy`).
+  # Presenting a primitive and its own orchestrator as sibling verbs, with no
+  # cue which was which, is what made "deploy didn't reach my VPS" a repeatable
+  # mistake — one the old code met with a warning you could hit `y` past.
+  # `release` still works and lands here. (strut#415)
+  #
+  # --local is the escape hatch. The remote path is skipped when we ARE the
+  # target (STRUT_REMOTE_EXEC / hostname match), which is what stops the
+  # inner deploy invoked by the pipeline below from dispatching again.
+  if [ "$force_local" != "true" ] && should_dispatch_remote; then
+    validate_env_file "$env_file" VPS_HOST
+    if [ "$pull_only" = "true" ]; then
+      # --pull-only is one step, not the whole pipeline — run just that step on
+      # the target rather than promoting it into a full release.
+      local _remote_args="deploy --pull-only"
+      [ -n "$services" ] && _remote_args="$_remote_args --services $services"
+      run_remote_strut "$stack" "$env_name" "$_remote_args"
+      return $?
+    fi
+    _deploy_volguard "$stack" "$env_file" "$confirm_data_move" || return 1
+    diff_warn_env_divergence "$stack" "$env_file" "${CMD_STACK_DIR:-$CLI_ROOT/stacks/$stack}"
+    vps_release "$stack" "$env_file" "$services" "$auto_rollback" "$backup_first"
+    return $?
+  fi
 
   # ── Concurrency lock ─────────────────────────────────────────────────────
   # Prevents two deploys racing against the same stack/env. Honor --no-lock
@@ -363,21 +437,13 @@ cmd_deploy() {
     fi
   fi
 
-  # Check if this is a VPS environment and warn user (skip if we're ON the VPS or --force-local)
-  if [ "$force_local" != "true" ] && [ -f "$env_file" ]; then
-    if [ -n "${VPS_HOST:-}" ] && ! is_running_on_vps; then
-      warn "Detected VPS environment (VPS_HOST=$VPS_HOST)"
-      warn "The 'deploy' command runs locally. For VPS deployment, use:"
-      warn "  strut $stack release --env ${env_name:-prod}"
-      warn ""
-      warn "Or run deploy on the VPS:"
-      local deploy_dir; deploy_dir=$(resolve_deploy_dir)
-      warn "  strut $stack exec 'cd $deploy_dir && strut $stack deploy --env ${env_name:-prod}' --env ${env_name:-prod}"
-      echo ""
-      if ! confirm "Continue with local deployment anyway?"; then
-        fail "Deployment cancelled by user"
-      fi
-    fi
+  # Past the dispatch above, a local deploy of a VPS-mapped stack can only be a
+  # deliberate --local. Say where the containers are actually going — the stack
+  # normally lives elsewhere, so the local daemon is the surprising answer — but
+  # state it and continue: this was asked for explicitly. (The old code warned
+  # and then offered a y/N prompt here, which STRUT_YES=1 auto-confirmed.)
+  if [ "$force_local" = "true" ] && [ -n "${VPS_HOST:-}" ] && ! is_running_on_vps; then
+    warn "Deploying '$stack' to the LOCAL Docker daemon (--local); its usual target is $VPS_HOST"
   fi
 
   # Guard against a silent local fallback (strut#488). VPS_HOST is resolved

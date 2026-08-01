@@ -100,6 +100,20 @@ teardown() {
   [ "$status" -ne 0 ]
 }
 
+# strut#415: guards the SSH-to-self recursion. A host whose own hostname never
+# matches VPS_HOST (Tailscale MagicDNS et al) would otherwise dispatch to
+# itself, and the invocation on the far end would reach the same conclusion.
+@test "should_dispatch_remote: false under STRUT_REMOTE_EXEC even when hostname can't match" {
+  # is_running_on_vps stays stubbed to "not on the VPS" (setup's default) —
+  # that's the point: on a Tailscale/CNAME host its probes genuinely can't
+  # match, so the marker has to stop the dispatch on its own.
+  export VPS_HOST="box.tailnet.ts.net"
+  export STRUT_REMOTE_EXEC=1
+
+  run should_dispatch_remote
+  [ "$status" -ne 0 ]
+}
+
 # ── cmd_status remote ─────────────────────────────────────────────────────────
 
 @test "cmd_status: dispatches via SSH when VPS_HOST is set" {

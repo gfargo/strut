@@ -8,7 +8,7 @@
 #   - uses: gfargo/strut-action@v1
 #     with:
 #       stack: my-app
-#       command: release
+#       command: deploy
 #       env: prod
 #       host: ${{ secrets.STRUT_HOST }}
 #       ssh-key: ${{ secrets.STRUT_SSH_KEY }}
@@ -27,9 +27,9 @@ inputs:
     description: 'Stack name — must match a subdirectory under stacks/ in your project'
     required: true
   command:
-    description: 'strut command to run: release (recommended for CI), ship, health, or deploy (self-hosted only)'
+    description: 'strut command to run: deploy (recommended), ship, or health. Deploy targets the host the stack maps to; the action adds --require-remote so a stack that resolves to no VPS fails instead of deploying to the runner. release is an accepted alias for deploy.'
     required: false
-    default: 'release'
+    default: 'deploy'
   env:
     description: 'Environment name — resolves to .<env>.env in the project root (e.g. prod → .prod.env)'
     required: false
@@ -147,12 +147,13 @@ runs:
       env:
         INPUT_ENV_NAME: ${{ inputs.env }}
       run: |
-        echo "::warning::command: ship — strut runs 'git add -A' on the runner. The env file (.${INPUT_ENV_NAME}.env) written to the repo root will be staged unless your repo gitignores '*.env'. Add '*.env' to .gitignore before using command: ship. Prefer command: release for hosted CI pipelines."
+        echo "::warning::command: ship — strut runs 'git add -A' on the runner. The env file (.${INPUT_ENV_NAME}.env) written to the repo root will be staged unless your repo gitignores '*.env'. Add '*.env' to .gitignore before using command: ship. Prefer command: deploy for hosted CI pipelines."
 
     # ── 6. Execute the strut command ──────────────────────────────────────────
     #  Inputs are passed via env vars (not inline expressions) to prevent
     #  shell injection if an input contains metacharacters.
-    #  --strict is only forwarded for `release`; other handlers don't consume it.
+    #  --strict/--require-remote are only forwarded to deploy (and its alias
+    #  release); other handlers don't consume them.
     - name: Run strut command
       shell: bash
       env:
@@ -168,8 +169,14 @@ runs:
         if [ -n "$INPUT_SERVICES" ]; then
           args+=(--services "$INPUT_SERVICES")
         fi
-        if [ "$INPUT_STRICT" = "true" ] && [ "$INPUT_COMMAND" = "release" ]; then
-          args+=(--strict)
+        if [ "$INPUT_COMMAND" = "deploy" ] || [ "$INPUT_COMMAND" = "release" ]; then
+          # A CI runner can never legitimately mean "deploy to this runner" —
+          # without this, an unresolved VPS_HOST would deploy to the runner's
+          # own Docker daemon and exit 0, reporting a successful no-op.
+          args+=(--require-remote)
+          if [ "$INPUT_STRICT" = "true" ]; then
+            args+=(--strict)
+          fi
         fi
         if [ "$INPUT_DRY_RUN" = "true" ]; then
           args+=(--dry-run)

@@ -524,6 +524,34 @@ EOF
   [[ "$output" == *"GH_PAT"* ]]
 }
 
+# strut#415: failing on the first missing var turns configuring a stack into a
+# serial guessing game — add the var it named, re-run, learn about the next.
+
+@test "validate_env_file: reports every missing var in one failure" {
+  _load_utils
+  cat > "$TEST_TMP/.test.env" <<'EOF'
+SOME_VAR=hello
+EOF
+  run validate_env_file "$TEST_TMP/.test.env" VPS_HOST GH_PAT VPS_USER
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"VPS_HOST"* ]]
+  [[ "$output" == *"GH_PAT"* ]]
+  [[ "$output" == *"VPS_USER"* ]]
+  [[ "$output" == *"3 required variables"* ]]
+}
+
+@test "validate_env_file: reports only the vars that are actually missing" {
+  _load_utils
+  cat > "$TEST_TMP/.test.env" <<'EOF'
+VPS_HOST=10.0.0.1
+VPS_USER=deploy
+EOF
+  run validate_env_file "$TEST_TMP/.test.env" VPS_HOST GH_PAT VPS_USER
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"GH_PAT"* ]]
+  [[ "$output" != *"VPS_USER"* ]]
+}
+
 @test "validate_env_file: succeeds with no required vars (just sources)" {
   _load_utils
   cat > "$TEST_TMP/.test.env" <<'EOF'
