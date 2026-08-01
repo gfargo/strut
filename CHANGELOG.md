@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.45.2](https://github.com/gfargo/strut/compare/v0.45.1...v0.45.2) (2026-08-01)
+
+
+### Bug Fixes
+
+* **ci:** add workflow_dispatch so a failed strut-action sync is recoverable ([0b580fc](https://github.com/gfargo/strut/commit/0b580fce539d03f5335a3d91cb14f87cbb0dd9eb))
+* **ci:** make the strut-action sync re-runnable, and publish a Release ([97745a0](https://github.com/gfargo/strut/commit/97745a04318decd1abcb132d84dfe85890a99694))
+
 ## [0.45.1](https://github.com/gfargo/strut/compare/v0.45.0...v0.45.1) (2026-08-01)
 
 
