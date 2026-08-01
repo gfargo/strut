@@ -21,7 +21,7 @@ No agents, no daemons, no vendor lock-in — just a config-driven engine that tr
 
 [**Website**](https://strut.griffen.codes) · [**Wiki**](https://github.com/gfargo/strut/wiki) · [**CLI Reference**](https://github.com/gfargo/strut/wiki/CLI-Reference) · [**Changelog**](https://github.com/gfargo/strut/releases)
 
-<img src="https://strut.griffen.codes/demos/gif/hero-deploy.gif" alt="strut init, scaffold, and release in three commands" width="720" />
+<img src="https://strut.griffen.codes/demos/gif/hero-deploy.gif" alt="strut init, scaffold, and deploy in three commands" width="720" />
 
 </div>
 
@@ -66,7 +66,7 @@ See [Installation](https://github.com/gfargo/strut/wiki/Installation) for upgrad
 strut init --registry ghcr --org my-org       # Initialize project
 strut scaffold my-app                          # Create a stack
 nano stacks/my-app/.env.template               # Configure (copy to .prod.env)
-strut my-app release --env prod                # Deploy to VPS
+strut my-app deploy --env prod                 # Deploy (to the VPS the stack maps to)
 ```
 
 No arguments launches an interactive TUI (`fzf`-powered) for picking a stack and command:
@@ -126,8 +126,8 @@ strut <stack> <command> [--env <env>] [options]
 
 | Command | Description |
 | ------- | ----------- |
-| `release` | Full VPS release (update + migrate + deploy + verify) |
-| `deploy` | Deploy stack containers |
+| `deploy` | Deploy the stack to wherever it lives — a VPS-mapped stack gets the full pipeline (sync + migrate + deploy + verify) on that host; anything else deploys locally. `--local` forces local, `--require-remote` refuses to fall back to it |
+| `release` | Alias for `deploy --require-remote`, kept for existing scripts |
 | `stop` | Stop running containers |
 | `destroy` | Permanently tear down a stack — fires `pre_destroy`/`post_destroy` hooks and clears the first-run marker |
 | `health` | Run health checks |
@@ -156,7 +156,7 @@ See [CLI Reference](https://github.com/gfargo/strut/wiki/CLI-Reference) for the 
 ### Examples
 
 ```bash
-strut my-app release --env prod                              # Production release
+strut my-app deploy --env prod                               # Production deploy
 strut my-app health --env prod --json                        # Health checks
 strut my-app briefing --env prod                              # One-call situation report (posture + actions)
 strut my-app preflight --env prod                             # Deploy go/no-go verdict before releasing
@@ -177,7 +177,7 @@ strut dashboard --port 8484                                    # Read-only HTTP 
 
 - **Two-tree architecture** — engine at `~/.strut/`, your config at project root ([Architecture](https://github.com/gfargo/strut/wiki/Architecture))
 - **Config-driven** — no hardcoded service names, ports, or orgs in the engine ([Configuration](https://github.com/gfargo/strut/wiki/Configuration))
-- **`release` vs `deploy`** — `release` runs on VPS via SSH, `deploy` runs locally
+- **One deploy verb** — `deploy` targets whatever host the stack maps to, so you never pick a command name to pick a target. `release` is a permanently supported alias ([Deployment](https://github.com/gfargo/strut/wiki/Deployment))
 - **`--env prod`** reads `.prod.env` for secrets and VPS connection info
 - **Per-stack env isolation** — `.prod.env` is shared by every stack deployed with `--env prod` on a host. If it sets `COMPOSE_PROJECT_NAME`, *all* those stacks resolve to the same Compose project, so a deploy's orphan cleanup can delete a sibling stack's containers. To isolate a stack, give it its own env file (`.<stack>-prod.env`) and deploy with `--env <stack>-prod`; run `strut posture` to catch this footgun before it bites
 - **`--dry-run`** previews destructive operations without executing
@@ -195,7 +195,7 @@ strut dashboard --port 8484                                    # Read-only HTTP 
 | [Architecture](https://github.com/gfargo/strut/wiki/Architecture) | How strut works under the hood |
 | [Configuration](https://github.com/gfargo/strut/wiki/Configuration) | `strut.conf`, env files, per-stack config |
 | [CLI Reference](https://github.com/gfargo/strut/wiki/CLI-Reference) | Full command reference |
-| [Deployment](https://github.com/gfargo/strut/wiki/Deployment) | Deploy, release, stop workflows |
+| [Deployment](https://github.com/gfargo/strut/wiki/Deployment) | Deploy, stop, update workflows |
 | [Blue-Green Deploy](https://github.com/gfargo/strut/wiki/Blue-Green-Deploy) | Zero-downtime dual-project deploys |
 | [Database Backups](https://github.com/gfargo/strut/wiki/Database-Backups) | Backup, restore, restore rehearsal, pull, push |
 | [Key Rotation](https://github.com/gfargo/strut/wiki/Key-Rotation) | SSH, API, DB, GitHub credential rotation |
@@ -227,7 +227,7 @@ Deploy a strut-managed stack from GitHub Actions in one step:
 - uses: gfargo/strut-action@v1
   with:
     stack: my-app
-    command: release          # release | ship (see security note in wiki)
+    command: deploy           # deploy | ship (see security note in wiki)
     env: prod
     host: ${{ secrets.STRUT_HOST }}
     ssh-key: ${{ secrets.STRUT_SSH_KEY }}

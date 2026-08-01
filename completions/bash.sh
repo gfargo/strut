@@ -177,7 +177,7 @@ _strut_completions() {
       [ "$cword" -eq 3 ] && mapfile -t COMPREPLY < <(compgen -W "neo4j postgres --status --up --down" -- "$cur") && return 0
       ;;
     deploy)
-      mapfile -t COMPREPLY < <(compgen -W "--env --services --pull-only --skip-validation --force-unlock --no-lock --force-local --blue-green --standard --dry-run" -- "$cur")
+      mapfile -t COMPREPLY < <(compgen -W "--env --services --local --require-remote --no-sync --no-migrate --strict --no-rollback --backup-first --pull-only --skip-validation --skip-health-gate --force-unlock --no-lock --force-local --blue-green --standard --confirm-data-move --dry-run" -- "$cur")
       return 0
       ;;
     rebuild)

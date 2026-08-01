@@ -95,10 +95,11 @@ Per-host env overrides: `stacks/<stack>/.<host_alias>.env`
 ## Essential Commands
 
 ```bash
-# Deploy / Release
-strut <stack> release --env prod              # Full VPS release (recommended)
-strut <stack> deploy --env prod               # Local deploy
-strut <stack> deploy --env prod --force-local  # Deploy locally even with VPS_HOST set
+# Deploy
+strut <stack> deploy --env prod               # Deploy to wherever the stack lives
+strut <stack> deploy --env prod --local       # Force the local Docker daemon
+strut <stack> deploy --env prod --no-sync     # Restart without shipping new code
+strut <stack> deploy --env prod --require-remote  # Never fall back to local (CI)
 strut <stack> deploy --env prod --skip-validation  # Emergency deploy (skip checks)
 strut <stack> rebuild --env prod              # Build images on target + deploy
 strut <stack> rebuild --env prod --no-cache   # Rebuild without Docker cache
@@ -148,7 +149,7 @@ strut <stack> ci:init --provider github       # Bootstrap all CI secrets for the
 strut <stack> ci:init --dry-run               # Preview what secrets would be set
 
 # Dry-run (preview destructive commands)
-strut <stack> release --env prod --dry-run
+strut <stack> deploy --env prod --dry-run
 strut <stack> stop --env prod --dry-run
 strut <stack> backup postgres --env prod --dry-run
 strut <stack> rollback --env prod --dry-run
@@ -178,8 +179,11 @@ Full contract and worked examples: [Secrets Management wiki](https://github.com/
 
 ## Local vs VPS Execution
 
-- `deploy` — runs locally (local Docker), or on VPS if SSH'd in
-- `release` — runs on VPS via SSH (update + migrate + deploy + verify)
+- `deploy` — resolves its target from the stack's topology: a VPS-mapped stack
+  gets the full pipeline (sync + migrate + deploy + verify) on that host, and
+  anything else runs against local Docker. `--local` forces local,
+  `--require-remote` refuses to fall back to it.
+- `release` — alias for `deploy --require-remote`, kept for existing scripts
 - `stop` — stops locally, or on VPS if VPS_HOST is set
 - `update` — pulls latest strut scripts on VPS (no container restart)
 - `shell` / `exec` — SSH to VPS

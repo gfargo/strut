@@ -163,7 +163,7 @@ _strut() {
       [ "$pos" -eq 4 ] && { compadd neo4j postgres --status --up --down; return 0 }
       ;;
     deploy)
-      compadd --env --services --pull-only --skip-validation --force-unlock --no-lock --dry-run
+      compadd --env --services --local --require-remote --no-sync --no-migrate --strict --no-rollback --backup-first --pull-only --skip-validation --skip-health-gate --force-unlock --no-lock --force-local --blue-green --standard --confirm-data-move --dry-run
       return 0
       ;;
     health)

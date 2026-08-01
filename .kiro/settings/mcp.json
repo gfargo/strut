@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "strut": {
+      "command": "/usr/local/bin/strut",
+      "args": ["mcp", "serve"],
+      "disabled": false
+    }
+  }
+}
