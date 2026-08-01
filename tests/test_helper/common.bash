@@ -108,3 +108,69 @@ stub_docker_recording() {
   }
   export -f docker
 }
+
+# ── Cross-platform helpers (macOS/BSD vs GNU) ────────────────────────────────
+# The engine targets Linux VPS hosts, but the controller is routinely macOS,
+# so the suite has to run there too. These wrap the coreutils/util-linux
+# invocations that differ, instead of skipping the tests that need them.
+
+# set_mtime_ago <file> <seconds>
+#
+# Backdates a file's mtime by <seconds>. `touch -d @<epoch>` is GNU-only; BSD
+# touch wants -t CCYYMMDDhhmm.SS, which `date -r` can produce.
+set_mtime_ago() {
+  local file="$1" secs="$2" ts
+  ts=$(( $(date +%s) - secs ))
+  touch -d "@$ts" "$file" 2>/dev/null && return 0   # GNU coreutils
+  touch -t "$(date -r "$ts" +%Y%m%d%H%M.%S)" "$file" # BSD/macOS
+}
+
+# run_in_pty <shell-command-string>
+#
+# Runs the command with stdout attached to a real PTY and echoes what it
+# wrote — for asserting TTY-dependent behaviour such as colour detection.
+#
+# `script` is not portable here: the util-linux form (-qec CMD FILE) and the
+# BSD form (-q FILE CMD) take different arguments, and BSD script additionally
+# requires a TTY on its OWN stdin, which bats never provides — it dies with
+# "tcgetattr/ioctl: Operation not supported on socket". python3's pty.openpty
+# has neither problem, so prefer it and keep script(1) as the fallback.
+#
+# Returns 1 when no PTY mechanism is available; callers should skip.
+run_in_pty() {
+  local cmd="$1"
+  if command -v python3 >/dev/null 2>&1; then
+    python3 - "$cmd" <<'PY'
+import os, pty, select, subprocess, sys
+cmd = sys.argv[1]
+master, slave = pty.openpty()
+proc = subprocess.Popen(['bash', '-c', cmd], stdout=slave, stderr=subprocess.DEVNULL,
+                        stdin=subprocess.DEVNULL, close_fds=True)
+os.close(slave)
+chunks = []
+while True:
+    try:
+        ready, _, _ = select.select([master], [], [], 10)
+    except OSError:
+        break
+    if not ready:
+        break
+    try:
+        data = os.read(master, 4096)
+    except OSError:   # EIO on macOS when the child closes the slave side
+        break
+    if not data:
+        break
+    chunks.append(data)
+proc.wait()
+os.close(master)
+sys.stdout.write(b''.join(chunks).decode('utf-8', 'replace'))
+PY
+    return 0
+  fi
+  if script --version 2>&1 | grep -qi util-linux; then
+    script -qec "$cmd" /dev/null
+    return 0
+  fi
+  return 1
+}

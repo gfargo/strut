@@ -8,6 +8,8 @@
 
 setup() {
   export CLI_ROOT="$(cd "$(dirname "$BATS_TEST_FILENAME")/.." && pwd)"
+  # Only needed for run_in_pty; this file uses nothing else from the helper.
+  source "$(dirname "$BATS_TEST_FILENAME")/test_helper/common.bash"
 }
 
 _load_utils() {
@@ -58,11 +60,8 @@ _load_utils() {
 # regardless of the parent's own stdio, letting us assert the "on" branch.
 
 @test "color vars are set and BRAND differs from BLUE when a real TTY is attached" {
-  if ! command -v script >/dev/null 2>&1; then
-    skip "script(1) not available to simulate a TTY"
-  fi
-
-  result=$(script -qec "bash -c 'source \"$CLI_ROOT/lib/utils.sh\"; printf \"RED=[%s] BRAND=[%s] BLUE=[%s] NC=[%s]\" \"\$RED\" \"\$BRAND\" \"\$BLUE\" \"\$NC\"'" /dev/null)
+  result=$(run_in_pty "source '$CLI_ROOT/lib/utils.sh'; printf 'RED=[%s] BRAND=[%s] BLUE=[%s] NC=[%s]' \"\$RED\" \"\$BRAND\" \"\$BLUE\" \"\$NC\"") \
+    || skip "no PTY mechanism available (need python3 or util-linux script)"
 
   [[ "$result" != *"RED=[]"* ]]
   [[ "$result" != *"NC=[]"* ]]
@@ -74,11 +73,8 @@ _load_utils() {
 }
 
 @test "NO_COLOR wins even with a real TTY attached" {
-  if ! command -v script >/dev/null 2>&1; then
-    skip "script(1) not available to simulate a TTY"
-  fi
-
-  result=$(NO_COLOR=1 script -qec "bash -c 'source \"$CLI_ROOT/lib/utils.sh\"; printf \"RED=[%s] BRAND=[%s]\" \"\$RED\" \"\$BRAND\"'" /dev/null)
+  result=$(NO_COLOR=1 run_in_pty "source '$CLI_ROOT/lib/utils.sh'; printf 'RED=[%s] BRAND=[%s]' \"\$RED\" \"\$BRAND\"") \
+    || skip "no PTY mechanism available (need python3 or util-linux script)"
 
   [[ "$result" == *"RED=[]"* ]]
   [[ "$result" == *"BRAND=[]"* ]]
@@ -89,12 +85,13 @@ _load_utils() {
   # stderr attached to the tty while stdout goes to a real file. The gate must
   # key off stdout (-t 1) alone, or log()/ok()/warn() leak escape sequences
   # into the redirected file.
-  if ! command -v script >/dev/null 2>&1; then
-    skip "script(1) not available to simulate a TTY"
-  fi
-
   out_file="$BATS_TEST_TMPDIR/deploy.log"
-  script -qec "bash -c 'source \"$CLI_ROOT/lib/utils.sh\"; printf \"RED=[%s] BRAND=[%s]\" \"\$RED\" \"\$BRAND\"' > \"$out_file\"" /dev/null
+  # `exec >` first: the colour gate is evaluated while utils.sh is *sourced*,
+  # so the redirect has to be in effect before that, not merely attached to
+  # the printf. Redirecting only the printf leaves stdout on the PTY at source
+  # time and the gate turns colour on — which is the very bug under test.
+  run_in_pty "exec > '$out_file'; source '$CLI_ROOT/lib/utils.sh'; printf 'RED=[%s] BRAND=[%s]' \"\$RED\" \"\$BRAND\"" \
+    || skip "no PTY mechanism available (need python3 or util-linux script)"
 
   result="$(cat "$out_file")"
   [[ "$result" == *"RED=[]"* ]]

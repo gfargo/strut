@@ -219,7 +219,7 @@ _stacks_fixture='{"timestamp":"2026-07-12T00:00:00Z","stacks":[{"name":"my-app",
 @test "_dashboard_cache_age: reports seconds since the cache file was written" {
   export _DASH_CACHE_DIR="$BATS_TEST_TMPDIR"
   echo '{}' > "$BATS_TEST_TMPDIR/agekey.json"
-  touch -d "@$(($(date +%s) - 15))" "$BATS_TEST_TMPDIR/agekey.json"
+  set_mtime_ago "$BATS_TEST_TMPDIR/agekey.json" 15
 
   run _dashboard_cache_age agekey
   [[ "$output" =~ ^[0-9]+$ ]]
