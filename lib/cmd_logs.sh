@@ -51,6 +51,11 @@ cmd_logs() {
     esac
   done
 
+  if [ -n "$tail_arg" ] && [[ ! "$tail_arg" =~ ^[0-9]+$ ]]; then
+    fail "Invalid --tail value: '$tail_arg' (must be a non-negative integer)"
+    return 1
+  fi
+
   validate_env_file "$env_file"
 
   # Prefer remote execution so logs reflect the remote host's containers.

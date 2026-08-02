@@ -86,6 +86,18 @@ teardown() {
   [[ "$output" == *" 50"* ]]
 }
 
+@test "cmd_logs: rejects non-numeric --tail value" {
+  run cmd_logs --tail abc
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"Invalid --tail value"* ]]
+}
+
+@test "cmd_logs: rejects negative --tail value" {
+  run cmd_logs --tail=-5
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"Invalid --tail value"* ]]
+}
+
 @test "cmd_logs: warns when env file missing" {
   export CMD_ENV_FILE="$TEST_TMP/nonexistent.env"
   run cmd_logs
