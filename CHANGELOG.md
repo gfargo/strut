@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.45.3](https://github.com/gfargo/strut/compare/v0.45.2...v0.45.3) (2026-08-02)
+
+
+### Bug Fixes
+
+* **health:** fall back to working-dir label match when compose ps returns nothing ([#504](https://github.com/gfargo/strut/issues/504)) ([9bec748](https://github.com/gfargo/strut/commit/9bec7489d6b0d866df8fcc8f7f6075d18c2bcebf))
+* **logs:** --tail no longer clobbers the service arg in cmd_logs ([#503](https://github.com/gfargo/strut/issues/503)) ([f60051e](https://github.com/gfargo/strut/commit/f60051e00be3e164059d549346e95bc9be578e0d))
+* **status:** dispatch to remote host like health does ([#505](https://github.com/gfargo/strut/issues/505)) ([ae3c7b8](https://github.com/gfargo/strut/commit/ae3c7b884d42bb605a7784d5cb39124d7aff7a53))
+
 ## [0.45.2](https://github.com/gfargo/strut/compare/v0.45.1...v0.45.2) (2026-08-01)
 
 
