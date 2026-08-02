@@ -106,10 +106,50 @@ health_check_containers() {
     (if (length == 1 and (.[0] | type) == "array") then .[0] else . end)
     | .[] | "\(.Name)|\(.State)|\(.Health // "")"' 2>/dev/null || true)
 
+  # `compose ps` is scoped strictly to the resolved --project-name. That name
+  # can drift from what containers were actually deployed under (stale env
+  # file, a manual `docker compose -p <other>` deploy, COMPOSE_PROJECT_NAME
+  # unset when it was set at deploy time, etc.) — in which case `compose ps`
+  # returns nothing even though the stack's containers are live (strut#502).
+  # Fall back to matching by working directory, which every container
+  # Compose starts is labeled with regardless of project name — the same
+  # signal _deploy_guard_project_collision (lib/deploy.sh) already trusts to
+  # detect project-name identity independent of the resolved name.
+  local project_mismatch=false
+  if [ -z "$rows" ]; then
+    local docker_bin="docker"
+    [[ "$compose_cmd" == sudo\ * ]] && docker_bin="sudo docker"
+    local working_dir
+    working_dir="$(cd "$(dirname "$compose_file")" && pwd)"
+
+    local fallback_raw
+    fallback_raw=$($docker_bin ps \
+      --filter "label=com.docker.compose.project.working_dir=$working_dir" \
+      --format '{{.Names}}|{{.State}}|{{.Status}}' 2>/dev/null || true)
+
+    if [ -n "$fallback_raw" ]; then
+      project_mismatch=true
+      rows=$(printf '%s\n' "$fallback_raw" | while IFS='|' read -r name state status; do
+        [ -z "$name" ] && continue
+        local health=""
+        case "$status" in
+          *'(unhealthy)'*)        health="unhealthy" ;;
+          *'(health: starting)'*) health="starting" ;;
+          *'(healthy)'*)          health="healthy" ;;
+        esac
+        echo "$name|$state|$health"
+      done) || true
+    fi
+  fi
+
   if [ -z "$rows" ]; then
     _health_record fail "Containers" "No containers running"
     return 1
   fi
+
+  # Informational only — does not touch HEALTH_PASSED/FAILED/WARNED, so it
+  # can't affect health_check_project()'s polling gate.
+  $project_mismatch && _health_record skip "Containers" "Resolved Compose project name had no containers — matched by working directory instead"
 
   # Feed via a here-string, NOT a pipe: a `... | while` runs the loop in a
   # subshell and its _health_record counter updates (HEALTH_FAILED etc.) are
