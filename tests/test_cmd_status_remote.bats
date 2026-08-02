@@ -191,8 +191,33 @@ EOF
   [[ "$output" == *"full"* ]]
 }
 
-@test "cmd_status: fails gracefully when env file missing" {
+@test "cmd_status: --json flag forwarded to remote" {
+  export VPS_HOST="vps.example.com"
+  export CMD_JSON="--json"
+
+  run cmd_status
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"--json"* ]]
+}
+
+# strut#501: a topology-only stack (VPS_HOST supplied entirely via
+# strut.conf [stacks]/[hosts], no base per-env file on disk) is a valid,
+# read-only-command-friendly config — matches cmd_health's tolerance below.
+# Previously cmd_status hard-failed here instead of dispatching remote.
+@test "cmd_status: dispatches via SSH when env file is missing but VPS_HOST is set" {
   export CMD_ENV_FILE="$TEST_TMP/nonexistent.env"
+  export VPS_HOST="vps.example.com"
+
+  run cmd_status
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"ssh"* ]]
+  [[ "$output" == *"status"* ]]
+}
+
+@test "cmd_status: fails gracefully when env file is missing and VPS_HOST is empty" {
+  export CMD_ENV_FILE="$TEST_TMP/nonexistent.env"
+  export VPS_HOST=""
+
   run cmd_status
   [[ "$output" == *"not found"* ]] || [ "$status" -ne 0 ]
 }
