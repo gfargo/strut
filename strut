@@ -13,7 +13,7 @@
 # Commands:
 #   deploy  [--env <name>] [--services <profile>] [--pull-only]
 #   health  [--env <name>] [--services <profile>] [--json]
-#   logs    [--env <name>] <service> [--since <duration>] [--follow]
+#   logs    [--env <name>] <service> [--since <duration>] [--follow] [--tail <n>]
 #   migrate [--env <name>] [neo4j|postgres] [--status|--up|--down N]
 #   backup  [--env <name>] [neo4j|postgres|mysql|sqlite|all|verify|list|health|schedule|retention]
 #   drift   [--env <name>] [detect|report|fix|monitor|history|auto-fix]
@@ -301,7 +301,7 @@ usage() {
   echo "  diff     [--env <name>] [--json]                              Preview pending changes vs VPS"
   echo "  lock     <status|release> [--env <name>] [--force]            Inspect/manage deploy locks"
   echo "  health   [--env <name>] [--services <profile>] [--json]       Health checks"
-  echo "  logs     [--env <name>] [service] [--since <dur>] [--follow]  View logs"
+  echo "  logs     [--env <name>] [service] [--since <dur>] [--follow] [--tail <n>]  View logs"
   echo "  migrate  [--env <name>] [neo4j|postgres] [--status|--up|--down N]  Run schema migrations"
   echo "  backup   [--env <name>] [neo4j|postgres|mysql|sqlite|all|verify|list|health|schedule|retention]"
   echo "                                                                 Backup management (create, verify, schedule, health)"

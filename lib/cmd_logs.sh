@@ -7,7 +7,7 @@ set -euo pipefail
 
 _usage_logs() {
   echo ""
-  echo "Usage: strut <stack> logs [--env <name>] [service] [--follow|-f] [--since <duration>]"
+  echo "Usage: strut <stack> logs [--env <name>] [service] [--follow|-f] [--since <duration>] [--tail <n>]"
   echo ""
   echo "View service logs from a running stack."
   echo ""
@@ -15,6 +15,7 @@ _usage_logs() {
   echo "  --env <name>         Environment (reads .<name>.env)"
   echo "  --follow, -f         Follow log output (tail -f)"
   echo "  --since <duration>   Show logs since duration (e.g. 1h, 30m)"
+  echo "  --tail <n>           Number of lines to show (default: 200)"
   echo ""
   echo "Related commands:"
   echo "  logs:download        Download logs to file"
@@ -37,15 +38,23 @@ cmd_logs() {
   local service_arg=""
   local follow_flag=""
   local since_arg=""
+  local tail_arg=""
   while [[ $# -gt 0 ]]; do
     case $1 in
       --follow|-f) follow_flag="--follow"; shift ;;
       --since=*)   since_arg="${1#*=}"; shift ;;
       --since)     since_arg="${2:-}"; shift 2 ;;
+      --tail=*)    tail_arg="${1#*=}"; shift ;;
+      --tail)      tail_arg="${2:-}"; shift 2 ;;
       -*) shift ;;
       *)  service_arg="$1"; shift ;;
     esac
   done
+
+  if [ -n "$tail_arg" ] && [[ ! "$tail_arg" =~ ^[0-9]+$ ]]; then
+    fail "Invalid --tail value: '$tail_arg' (must be a non-negative integer)"
+    return 1
+  fi
 
   validate_env_file "$env_file"
 
@@ -55,6 +64,7 @@ cmd_logs() {
     [ -n "$service_arg" ]  && remote_args="$remote_args $service_arg"
     [ -n "$follow_flag" ]  && remote_args="$remote_args --follow"
     [ -n "$since_arg" ]    && remote_args="$remote_args --since $since_arg"
+    [ -n "$tail_arg" ]     && remote_args="$remote_args --tail $tail_arg"
     if [ -n "$services" ]; then
       remote_args="$remote_args --services $services"
     fi
@@ -69,7 +79,7 @@ cmd_logs() {
 
   local compose_cmd
   compose_cmd=$(resolve_compose_cmd "$stack" "$env_file" "$services")
-  logs_tail "$compose_cmd" "$service_arg" "$follow_flag" "$since_arg"
+  logs_tail "$compose_cmd" "$service_arg" "$follow_flag" "$since_arg" "$tail_arg"
 }
 
 # cmd_logs_download [service] [--since <dur>] (reads CMD_*)

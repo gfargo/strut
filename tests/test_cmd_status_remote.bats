@@ -304,6 +304,21 @@ EOF
   [[ "$output" == *"1h"* ]]
 }
 
+@test "cmd_logs: --tail flag forwarded to remote" {
+  export VPS_HOST="vps.example.com"
+  run cmd_logs --tail 30
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"--tail 30"* ]]
+}
+
+@test "cmd_logs: service and --tail together don't clobber each other (strut#500)" {
+  export VPS_HOST="vps.example.com"
+  run cmd_logs grafana --tail 30
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"logs grafana"* ]]
+  [[ "$output" == *"--tail 30"* ]]
+}
+
 @test "cmd_logs: runs locally when VPS_HOST is empty" {
   cat > "$TEST_TMP/.local.env" <<'EOF'
 VPS_HOST=
