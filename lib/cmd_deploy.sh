@@ -563,12 +563,22 @@ cmd_status() {
   local env_file="$CMD_ENV_FILE"
   local env_name="$CMD_ENV_NAME"
   local services="$CMD_SERVICES"
-  validate_env_file "$env_file"
+  local json_flag="$CMD_JSON"
+  # Match cmd_health: a topology-only stack (VPS_HOST/host layer supplied
+  # entirely via strut.conf [stacks]/[hosts], no base per-env file) is a
+  # valid config for a read-only command — don't hard-fail just because
+  # there's nothing to validate.
+  if [ -f "$env_file" ]; then
+    validate_env_file "$env_file"
+  fi
 
   # Prefer remote execution for stacks that map to a VPS host, so status
   # reflects the real remote containers instead of the (empty) local daemon.
   if should_dispatch_remote; then
     local remote_args="status"
+    if [ -n "$json_flag" ]; then
+      remote_args="$remote_args --json"
+    fi
     if [ -n "$services" ]; then
       remote_args="$remote_args --services $services"
     fi
