@@ -564,16 +564,14 @@ cmd_status() {
   local env_name="$CMD_ENV_NAME"
   local services="$CMD_SERVICES"
   local json_flag="$CMD_JSON"
-  # Match cmd_health: a topology-only stack (VPS_HOST/host layer supplied
-  # entirely via strut.conf [stacks]/[hosts], no base per-env file) is a
-  # valid config for a read-only command — don't hard-fail just because
-  # there's nothing to validate.
-  if [ -f "$env_file" ]; then
-    validate_env_file "$env_file"
-  fi
 
   # Prefer remote execution for stacks that map to a VPS host, so status
   # reflects the real remote containers instead of the (empty) local daemon.
+  # Check this before validating the env file: a topology-only stack
+  # (VPS_HOST/host layer supplied entirely via strut.conf [stacks]/[hosts],
+  # no base per-env file on disk) is a valid config for this read-only
+  # command and shouldn't hard-fail before we even know we're dispatching
+  # remote.
   if should_dispatch_remote; then
     local remote_args="status"
     if [ -n "$json_flag" ]; then
@@ -585,6 +583,10 @@ cmd_status() {
     run_remote_strut "$stack" "$env_name" "$remote_args"
     return $?
   fi
+
+  # Local path: we're not dispatching remote, so an explicitly-requested but
+  # missing env file (e.g. a typo'd --env) must still fail loudly here.
+  validate_env_file "$env_file"
 
   # Local path: query the local Docker daemon and show where we're looking.
   # Blue-green stacks run under a <stack>-<env>-<color> project — target

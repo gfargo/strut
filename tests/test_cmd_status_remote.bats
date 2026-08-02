@@ -214,14 +214,12 @@ EOF
   [[ "$output" == *"status"* ]]
 }
 
-@test "cmd_status: runs locally when env file is missing and VPS_HOST is empty" {
+@test "cmd_status: fails gracefully when env file is missing and VPS_HOST is empty" {
   export CMD_ENV_FILE="$TEST_TMP/nonexistent.env"
   export VPS_HOST=""
 
   run cmd_status
-  [ "$status" -eq 0 ]
-  [[ "$output" == *"COMPOSE"* ]]
-  [[ "$output" != *"ssh"* ]]
+  [[ "$output" == *"not found"* ]] || [ "$status" -ne 0 ]
 }
 
 # ── cmd_health remote ─────────────────────────────────────────────────────────
