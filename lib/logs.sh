@@ -6,21 +6,25 @@
 
 set -euo pipefail
 
-# logs_tail <compose_cmd> [service] [--follow]
+# logs_tail <compose_cmd> [service] [--follow] [since] [tail]
 #
-# Tails the last 200 log lines for a specific service, or all services if
-# no service name is given. Pass --follow / -f to stream new output.
+# Tails the last N log lines (default: 200) for a specific service, or all
+# services if no service name is given. Pass --follow / -f to stream new
+# output.
 #
 # Args:
 #   compose_cmd — Full docker compose command prefix
 #   service     — Service name to tail (omit for all services)
 #   --follow    — Stream logs continuously (-f also accepted)
+#   since       — Docker duration string, e.g. "1h", "30m"
+#   tail        — Number of lines to show (default: 200)
 logs_tail() {
   local compose_cmd="$1"
   local service="${2:-}"
   local follow="${3:-}"
   local since="${4:-}"
-  local tail_args="--tail=200"
+  local tail="${5:-200}"
+  local tail_args="--tail=$tail"
   [ "$follow" = "--follow" ] || [ "$follow" = "-f" ] && tail_args="$tail_args -f"
   [ -n "$since" ] && tail_args="$tail_args --since=$since"
 

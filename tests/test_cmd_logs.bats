@@ -66,6 +66,26 @@ teardown() {
   [[ "$output" == *"my-service"* ]]
 }
 
+@test "cmd_logs: --tail flag does not clobber the service arg" {
+  run cmd_logs my-service --tail 100
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"my-service"* ]]
+  [[ "$output" == *" 100"* ]]
+}
+
+@test "cmd_logs: --tail=value form works and preserves service" {
+  run cmd_logs my-service --tail=30
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"my-service"* ]]
+  [[ "$output" == *" 30"* ]]
+}
+
+@test "cmd_logs: --tail with no service still parses tail correctly" {
+  run cmd_logs --tail 50
+  [ "$status" -eq 0 ]
+  [[ "$output" == *" 50"* ]]
+}
+
 @test "cmd_logs: warns when env file missing" {
   export CMD_ENV_FILE="$TEST_TMP/nonexistent.env"
   run cmd_logs
