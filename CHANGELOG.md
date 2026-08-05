@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.45.4](https://github.com/gfargo/strut/compare/v0.45.3...v0.45.4) (2026-08-05)
+
+
+### Bug Fixes
+
+* **backup:** don't crash backup health when no backup history exists ([#512](https://github.com/gfargo/strut/issues/512)) ([c083949](https://github.com/gfargo/strut/commit/c083949f274e62e1d1e3d083dd7656b1f599b502))
+* **diff:** redact secret values by default and fix stack-scope mismatch ([#513](https://github.com/gfargo/strut/issues/513)) ([3d7dabf](https://github.com/gfargo/strut/commit/3d7dabf8ed1bb6df8d9476f817f57541ade7cadc))
+* **host-override:** --host propagates to every internal deploy/health dispatch ([#514](https://github.com/gfargo/strut/issues/514)) ([7d97b78](https://github.com/gfargo/strut/commit/7d97b78549e95739e8900240aa2c91d5b13cfa87))
+* **mcp:** return informational tool results via success channel ([#511](https://github.com/gfargo/strut/issues/511)) ([40ed31e](https://github.com/gfargo/strut/commit/40ed31edb9b6e4b60d7694c0f75edff1c39047b2))
+
 ## [0.45.3](https://github.com/gfargo/strut/compare/v0.45.2...v0.45.3) (2026-08-02)
 
 
