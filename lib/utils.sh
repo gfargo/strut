@@ -1174,6 +1174,19 @@ should_dispatch_remote() {
   return 0
 }
 
+# _topo_host_flag
+#
+# Echoes " --host <alias>" for the active --host/topology override, or ""
+# if none is set. Lets hand-rolled remote ./strut invocations that don't go
+# through run_remote_strut (_stop_remote, _destroy_remote) propagate the
+# override the same way run_remote_strut and vps_release do, instead of
+# silently falling back to the static [stacks] topology default (strut#510).
+_topo_host_flag() {
+  local _alias="${_TOPO_ACTIVE_HOST_ALIAS:-}"
+  [[ "$_alias" =~ ^[A-Za-z0-9_-]+$ ]] && printf ' --host %s' "$_alias"
+  return 0
+}
+
 # run_remote_strut <stack> <env_name> <remote_cmd_args>
 #
 # Executes  ./strut <stack> <remote_cmd_args> --env <env_name>  on the VPS
@@ -1201,6 +1214,8 @@ run_remote_strut() {
   local vps_port="${VPS_PORT:-22}"
   local deploy_dir; deploy_dir=$(resolve_deploy_dir)
 
+  local host_flag; host_flag=$(_topo_host_flag)
+
   local ssh_opts
   ssh_opts=$(build_ssh_opts -p "$vps_port" -k "$vps_ssh_key" --batch "${extra_ssh_flags[@]+"${extra_ssh_flags[@]}"}")
 
@@ -1208,7 +1223,7 @@ run_remote_strut() {
     echo ""
     echo -e "${YELLOW}[DRY-RUN] Execution plan for remote ${remote_cmd_args%% *}:${NC}"
     run_cmd "Run on VPS" ssh "$vps_user@$vps_host" \
-      "cd $deploy_dir && STRUT_REMOTE_EXEC=1 ./strut $stack $remote_cmd_args --env ${env_name:-prod}"
+      "cd $deploy_dir && STRUT_REMOTE_EXEC=1 ./strut $stack $remote_cmd_args --env ${env_name:-prod}$host_flag"
     echo ""
     echo -e "${YELLOW}[DRY-RUN] No changes made.${NC}"
     return 0
@@ -1223,7 +1238,7 @@ run_remote_strut() {
   ssh $ssh_opts "$vps_user@$vps_host" "
     set -e
     cd '$deploy_dir'
-    STRUT_REMOTE_EXEC=1 ./strut $stack $remote_cmd_args --env ${env_name:-prod}
+    STRUT_REMOTE_EXEC=1 ./strut $stack $remote_cmd_args --env ${env_name:-prod}$host_flag
   " || fail "Remote command failed — check VPS_HOST and SSH access"
 }
 
