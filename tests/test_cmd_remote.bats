@@ -61,6 +61,13 @@ EOF
   [[ "$output" == *"-la"* ]]
 }
 
+@test "cmd_exec: prepends ~/.local/bin to PATH so a bare 'strut' resolves remotely (strut#510)" {
+  run cmd_exec "strut" "buoy" "deploy"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *".local/bin"* ]]
+  [[ "$output" == *"strut buoy deploy"* ]]
+}
+
 @test "cmd_shell: reads VPS_HOST and issues ssh" {
   run cmd_shell
   [ "$status" -eq 0 ]

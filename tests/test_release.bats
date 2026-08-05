@@ -483,3 +483,45 @@ EOF
   run vps_release "test-stack" "$TEST_TMP/.test.env" ""
   [ "$status" -eq 0 ]
 }
+
+# ── --host / topology override propagation (strut#510) ───────────────────────
+# _TOPO_ACTIVE_HOST_ALIAS must reach every inner remote step, not just the
+# initial SSH connection — otherwise each step re-resolves the stack against
+# the static [stacks] topology default and applies the wrong host's env layer.
+
+@test "vps_release: propagates --host to every inner remote step when _TOPO_ACTIVE_HOST_ALIAS is set" {
+  _TOPO_ACTIVE_HOST_ALIAS="harbor"
+  export _TOPO_ACTIVE_HOST_ALIAS
+
+  run vps_release "test-stack" "$TEST_TMP/.test.env" ""
+  [ "$status" -eq 0 ]
+
+  run cat "$SSH_CALL_LOG"
+  [[ "$output" == *"migrate postgres --env test --host harbor"* ]]
+  [[ "$output" == *"migrate neo4j --env test --host harbor"* ]]
+  [[ "$output" == *"deploy --env test  --pull-only --host harbor"* ]]
+  [[ "$output" == *"deploy --env test  --host harbor"* ]]
+  [[ "$output" == *"health --env test  --host harbor"* ]]
+}
+
+@test "vps_release: no --host suffix on inner remote steps when _TOPO_ACTIVE_HOST_ALIAS is unset" {
+  unset _TOPO_ACTIVE_HOST_ALIAS
+
+  run vps_release "test-stack" "$TEST_TMP/.test.env" ""
+  [ "$status" -eq 0 ]
+
+  run cat "$SSH_CALL_LOG"
+  [[ "$output" != *"--host"* ]]
+}
+
+@test "vps_release: rollback step also carries --host on health-triggered rollback" {
+  _TOPO_ACTIVE_HOST_ALIAS="harbor"
+  export _TOPO_ACTIVE_HOST_ALIAS
+  _stub_ssh_health_rc 2
+
+  run vps_release "test-stack" "$TEST_TMP/.test.env" ""
+  [ "$status" -ne 0 ]
+
+  run cat "$SSH_CALL_LOG"
+  [[ "$output" == *"rollback --env test --host harbor"* ]]
+}

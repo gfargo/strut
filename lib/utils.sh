@@ -1201,6 +1201,13 @@ run_remote_strut() {
   local vps_port="${VPS_PORT:-22}"
   local deploy_dir; deploy_dir=$(resolve_deploy_dir)
 
+  # Propagate an active --host/topology override into the remote invocation
+  # so it re-resolves against the same host alias's env layer instead of the
+  # static [stacks] topology default (strut#510).
+  local host_flag=""
+  local _alias="${_TOPO_ACTIVE_HOST_ALIAS:-}"
+  [[ "$_alias" =~ ^[A-Za-z0-9_-]+$ ]] && host_flag=" --host $_alias"
+
   local ssh_opts
   ssh_opts=$(build_ssh_opts -p "$vps_port" -k "$vps_ssh_key" --batch "${extra_ssh_flags[@]+"${extra_ssh_flags[@]}"}")
 
@@ -1208,7 +1215,7 @@ run_remote_strut() {
     echo ""
     echo -e "${YELLOW}[DRY-RUN] Execution plan for remote ${remote_cmd_args%% *}:${NC}"
     run_cmd "Run on VPS" ssh "$vps_user@$vps_host" \
-      "cd $deploy_dir && STRUT_REMOTE_EXEC=1 ./strut $stack $remote_cmd_args --env ${env_name:-prod}"
+      "cd $deploy_dir && STRUT_REMOTE_EXEC=1 ./strut $stack $remote_cmd_args --env ${env_name:-prod}$host_flag"
     echo ""
     echo -e "${YELLOW}[DRY-RUN] No changes made.${NC}"
     return 0
@@ -1223,7 +1230,7 @@ run_remote_strut() {
   ssh $ssh_opts "$vps_user@$vps_host" "
     set -e
     cd '$deploy_dir'
-    STRUT_REMOTE_EXEC=1 ./strut $stack $remote_cmd_args --env ${env_name:-prod}
+    STRUT_REMOTE_EXEC=1 ./strut $stack $remote_cmd_args --env ${env_name:-prod}$host_flag
   " || fail "Remote command failed — check VPS_HOST and SSH access"
 }
 
