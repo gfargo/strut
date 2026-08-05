@@ -356,6 +356,10 @@ generate_health_dashboard_data() {
   backup_dir=$(_backup_dir "$stack") || return 1
   local dashboard_data="$backup_dir/health-dashboard.json"
 
+  # A stack with no backup history yet has no backups/ dir at all — create it
+  # so the writes below don't crash with "No such file or directory" (strut#507).
+  mkdir -p "$backup_dir"
+
   # Start JSON array
   echo "[" >"$dashboard_data"
 

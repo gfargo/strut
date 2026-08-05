@@ -84,3 +84,30 @@ teardown() {
 
   rm -rf "$custom_dir"
 }
+
+# ── generate_health_dashboard_data ────────────────────────────────────────────
+# Regression test for strut#507: a stack that has never had a backup run has
+# no backups/ dir at all yet, so the dashboard-data writes used to crash with
+# "No such file or directory" instead of degrading to an empty result.
+
+@test "generate_health_dashboard_data: no backups/ dir yet -> creates it, writes empty array" {
+  STACK="test-health-nodir-$$"
+  local backup_dir="$CLI_ROOT/stacks/$STACK/backups"
+  [ ! -d "$backup_dir" ]
+
+  run generate_health_dashboard_data "$STACK"
+  [ "$status" -eq 0 ]
+  [ -f "$backup_dir/health-dashboard.json" ]
+  run cat "$backup_dir/health-dashboard.json"
+  [[ "$output" == *"[]"* ]] || [[ "$output" == $'[\n]' ]]
+}
+
+@test "backup_health_cmd: no backup history -> exits 0 with empty JSON array, not a crash" {
+  STACK="test-health-nodir-cmd-$$"
+  local backup_dir="$CLI_ROOT/stacks/$STACK/backups"
+  [ ! -d "$backup_dir" ]
+
+  run backup_health_cmd "$STACK" all --json
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"No such file or directory"* ]]
+}
