@@ -88,9 +88,9 @@ teardown() {
 # ── generate_health_dashboard_data ────────────────────────────────────────────
 # Regression test for strut#507: a stack that has never had a backup run has
 # no backups/ dir at all yet, so the dashboard-data writes used to crash with
-# "No such file or directory" instead of degrading to an empty result.
+# "No such file or directory" instead of degrading to a structured result.
 
-@test "generate_health_dashboard_data: no backups/ dir yet -> creates it, writes empty array" {
+@test "generate_health_dashboard_data: no backups/ dir yet -> creates it, writes structured 'no history' JSON" {
   STACK="test-health-nodir-$$"
   local backup_dir="$CLI_ROOT/stacks/$STACK/backups"
   [ ! -d "$backup_dir" ]
@@ -99,10 +99,13 @@ teardown() {
   [ "$status" -eq 0 ]
   [ -f "$backup_dir/health-dashboard.json" ]
   run cat "$backup_dir/health-dashboard.json"
-  [[ "$output" == *"[]"* ]] || [[ "$output" == $'[\n]' ]]
+  [[ "$output" == *'"stack": "'"$STACK"'"'* ]]
+  [[ "$output" == *'"status": "unknown"'* ]]
+  [[ "$output" == *'"message": "No backup history found"'* ]]
+  echo "$output" | jq -e 'type == "object"'
 }
 
-@test "backup_health_cmd: no backup history -> exits 0 with empty JSON array, not a crash" {
+@test "backup_health_cmd: no backup history -> exits 0 with structured 'no history' JSON, not a crash" {
   STACK="test-health-nodir-cmd-$$"
   local backup_dir="$CLI_ROOT/stacks/$STACK/backups"
   [ ! -d "$backup_dir" ]
@@ -110,4 +113,50 @@ teardown() {
   run backup_health_cmd "$STACK" all --json
   [ "$status" -eq 0 ]
   [[ "$output" != *"No such file or directory"* ]]
+  [[ "$output" == *'"status": "unknown"'* ]]
+  [[ "$output" == *'"message": "No backup history found"'* ]]
+}
+
+@test "get_all_backup_health: no backups/ dir yet -> exits 0 with graceful message, not a crash" {
+  STACK="test-health-nodir-nonjson-$$"
+  local backup_dir="$CLI_ROOT/stacks/$STACK/backups"
+  [ ! -d "$backup_dir" ]
+
+  run get_all_backup_health "$STACK"
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"No such file or directory"* ]]
+  [[ "$output" != *"Backup directory not found"* ]]
+  [[ "$output" == *"No backup history found"* ]]
+}
+
+@test "backup_health_cmd: no backup history, non-JSON -> exits 0, not a crash" {
+  STACK="test-health-nodir-cmd-nonjson-$$"
+  local backup_dir="$CLI_ROOT/stacks/$STACK/backups"
+  [ ! -d "$backup_dir" ]
+
+  run backup_health_cmd "$STACK" all
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"No such file or directory"* ]]
+}
+
+@test "get_backup_health_status: no metadata dir at all -> exits 0 instead of an arithmetic crash" {
+  STACK="test-health-status-nodir-$$"
+  local backup_dir="$CLI_ROOT/stacks/$STACK/backups"
+  [ ! -d "$backup_dir" ]
+
+  run get_backup_health_status "$STACK" "postgres"
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"syntax error"* ]]
+}
+
+@test "get_backup_health_json: no metadata dir at all -> exits 0 with valid JSON, not a crash" {
+  STACK="test-health-json-nodir-$$"
+  local backup_dir="$CLI_ROOT/stacks/$STACK/backups"
+  [ ! -d "$backup_dir" ]
+
+  # Capture stdout only — the soft-fail "No metadata directory found"
+  # warnings go to stderr and would otherwise interleave with the JSON.
+  local json
+  json=$(get_backup_health_json "$STACK" "postgres" 2>/dev/null)
+  echo "$json" | jq -e '.health_score == 0'
 }
