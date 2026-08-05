@@ -298,7 +298,7 @@ usage() {
   echo "  stop     [--env <name>] [--services <profile>] [--volumes]   Stop running containers"
   echo "  first-run [--status|--force] [--env <name>]                   Inspect/repair the first_run hook marker"
   echo "  destroy  [--env <name>] [--services <profile>] [--timeout N]  Permanently tear down stack (fires pre/post_destroy, clears first-run marker)"
-  echo "  diff     [--env <name>] [--json]                              Preview pending changes vs VPS"
+  echo "  diff     [--env <name>] [--json] [--show-secrets]             Preview pending changes vs VPS (env values redacted by default)"
   echo "  lock     <status|release> [--env <name>] [--force]            Inspect/manage deploy locks"
   echo "  health   [--env <name>] [--services <profile>] [--json]       Health checks"
   echo "  logs     [--env <name>] [service] [--since <dur>] [--follow] [--tail <n>]  View logs"

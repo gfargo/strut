@@ -171,7 +171,7 @@ _strut() {
       return 0
       ;;
     diff)
-      compadd --env --json
+      compadd --env --json --show-secrets
       return 0
       ;;
   esac

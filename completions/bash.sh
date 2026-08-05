@@ -189,7 +189,7 @@ _strut_completions() {
       return 0
       ;;
     diff)
-      mapfile -t COMPREPLY < <(compgen -W "--env --json" -- "$cur")
+      mapfile -t COMPREPLY < <(compgen -W "--env --json --show-secrets" -- "$cur")
       return 0
       ;;
   esac

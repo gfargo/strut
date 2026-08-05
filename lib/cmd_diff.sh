@@ -10,14 +10,19 @@ set -euo pipefail
 _usage_diff() {
   cat <<'EOF'
 
-Usage: strut <stack> diff [--env <name>] [--json]
+Usage: strut <stack> diff [--env <name>] [--json] [--show-secrets]
 
 Preview what a deploy would change on the VPS. Compares local env and
 docker-compose.yml against the versions currently deployed.
 
+Env var values are redacted (***) by default — pass --show-secrets to
+print them in full. MCP callers never see --show-secrets, so strut_diff
+always returns redacted values.
+
 Flags:
   --env <name>     Environment (reads .<name>.env)
   --json           Output structured JSON
+  --show-secrets   Show full env var values instead of redacting them
   --help, -h       Show this help
 
 Exit codes:
@@ -28,6 +33,7 @@ Exit codes:
 Examples:
   strut my-stack diff --env prod
   strut my-stack diff --env prod --json
+  strut my-stack diff --env prod --show-secrets
 
 See also:
   drift      Compares VPS state back to local (detects unexpected drift)
@@ -52,14 +58,19 @@ cmd_diff() {
   # matching how cmd_drift.sh already reads it (strut#380).
   local json_mode=false
   [ -n "${CMD_JSON:-}" ] && json_mode=true
+  local show_secrets=false
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --json) json_mode=true; shift ;;
+      --show-secrets) show_secrets=true; shift ;;
       --help|-h) _usage_diff; return 0 ;;
       *) fail "Unknown flag: $1"; return 1 ;;
     esac
   done
+
+  local mask_secrets=true
+  [ "$show_secrets" = "true" ] && mask_secrets=false
 
   # Resolve env file using the same stack-first-then-project logic as secrets.
   # This prevents comparing the project-root env against the remote when the
@@ -85,11 +96,19 @@ cmd_diff() {
   local local_compose="$stack_dir/docker-compose.yml"
   [ -f "$local_compose" ] || { fail "Local compose file not found: $local_compose"; return 2; }
 
-  # Resolve remote paths — use _secrets_resolve_remote_path for consistency
-  # with secrets push (which is the canonical uploader of .env to the VPS).
+  # Warn when the resolved env file fell back to the project root because
+  # the stack has no env file of its own — the diff below is project-scoped,
+  # not stack-scoped (strut#508).
+  if [ "$(dirname "$env_file")" != "$stack_dir" ]; then
+    warn "No stack-specific env file found for '$stack' (checked $stack_dir/.${env_name:-prod}.env) — comparing against the project-level env file ($env_file). This diff reflects project scope, not just this stack."
+  fi
+
+  # Resolve remote paths — mirror the scope of the resolved local env file
+  # (stack-local vs project-root) so the remote comparison target matches
+  # what was actually loaded above (strut#508).
   local deploy_dir; deploy_dir=$(resolve_deploy_dir)
   local remote_env
-  remote_env=$(_secrets_resolve_remote_path "$deploy_dir" "${env_name:-prod}")
+  remote_env=$(_diff_resolve_remote_env "$deploy_dir" "$stack" "$stack_dir" "$env_file" "${env_name:-prod}")
   local remote_compose="$deploy_dir/stacks/$stack/docker-compose.yml"
 
   # Fetch remote content (may be empty if missing)
@@ -128,10 +147,11 @@ cmd_diff() {
       out_json_field "timestamp" "$(date -u +%FT%TZ)"
       out_json_field_raw "has_changes" "$([ "$has_changes" -eq 1 ] && echo true || echo false)"
       out_json_field_raw "has_destructive_changes" "$(if [ -n "$destructive_diff" ] || [ -n "$volume_renames" ]; then echo true; else echo false; fi)"
-      _diff_render_section_json "env_vars" "$env_diff"
-      _diff_render_section_json "images" "$image_diff"
-      _diff_render_section_json "destructive" "$destructive_diff"
-      _diff_render_section_json "volume_renames" "$volume_renames"
+      out_json_field_raw "secrets_redacted" "$([ "$mask_secrets" = "true" ] && echo true || echo false)"
+      _diff_render_section_json "env_vars" "$env_diff" "$mask_secrets"
+      _diff_render_section_json "images" "$image_diff" "false"
+      _diff_render_section_json "destructive" "$destructive_diff" "$mask_secrets"
+      _diff_render_section_json "volume_renames" "$volume_renames" "false"
     out_json_close_object
     out_json_newline
   else
@@ -140,13 +160,14 @@ cmd_diff() {
     else
       echo ""
       echo "Pending changes for $stack ($env_name → $VPS_HOST):"
-      _diff_render_section_text "Env vars" "$env_diff"
-      _diff_render_section_text "Images" "$image_diff"
+      [ "$mask_secrets" = "true" ] && echo "(env var values redacted — pass --show-secrets to reveal)"
+      _diff_render_section_text "Env vars" "$env_diff" "$mask_secrets"
+      _diff_render_section_text "Images" "$image_diff" "false"
       if [ -n "$volume_renames" ]; then
-        _diff_render_destructive_text "$volume_renames"
+        _diff_render_destructive_text "$volume_renames" "false"
       fi
       if [ -n "$destructive_diff" ]; then
-        _diff_render_destructive_text "$destructive_diff"
+        _diff_render_destructive_text "$destructive_diff" "$mask_secrets"
       fi
       echo ""
       if [ -n "$destructive_diff" ] || [ -n "$volume_renames" ]; then
