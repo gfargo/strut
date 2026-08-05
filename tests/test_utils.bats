@@ -769,3 +769,56 @@ _fake_nvm_npx() {
   "
   [[ "$output" == *"status=1 resolved=[]"* ]]
 }
+
+# ── run_remote_strut: --host propagation (strut#510) ───────────────────────────
+# A --host/topology override must reach every remote-dispatched subcommand
+# (health, status, logs, rollback, deploy --pull-only), not just the first
+# SSH hop — otherwise the remote side re-resolves the stack against the
+# static [stacks] topology default and applies the wrong host's env layer.
+
+@test "run_remote_strut: appends --host <alias> when _TOPO_ACTIVE_HOST_ALIAS is set" {
+  _load_utils
+  export VPS_HOST=example.com
+  ssh() { echo "ssh $*"; return 0; }
+  export -f ssh
+  _TOPO_ACTIVE_HOST_ALIAS="harbor"
+
+  run run_remote_strut "buoy" "prod" "health"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"--host harbor"* ]]
+}
+
+@test "run_remote_strut: no --host suffix when _TOPO_ACTIVE_HOST_ALIAS is empty" {
+  _load_utils
+  export VPS_HOST=example.com
+  ssh() { echo "ssh $*"; return 0; }
+  export -f ssh
+  _TOPO_ACTIVE_HOST_ALIAS=""
+
+  run run_remote_strut "buoy" "prod" "health"
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"--host"* ]]
+}
+
+@test "run_remote_strut: dry-run plan also carries --host <alias>" {
+  _load_utils
+  export VPS_HOST=example.com
+  export DRY_RUN=true
+  _TOPO_ACTIVE_HOST_ALIAS="harbor"
+
+  run run_remote_strut "buoy" "prod" "health"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"--host harbor"* ]]
+}
+
+@test "run_remote_strut: rejects a non-identifier alias instead of interpolating it" {
+  _load_utils
+  export VPS_HOST=example.com
+  ssh() { echo "ssh $*"; return 0; }
+  export -f ssh
+  _TOPO_ACTIVE_HOST_ALIAS="harbor; rm -rf /"
+
+  run run_remote_strut "buoy" "prod" "health"
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"--host"* ]]
+}

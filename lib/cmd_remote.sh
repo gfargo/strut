@@ -35,6 +35,9 @@ cmd_exec() {
   [ -n "$command" ] || fail "Usage: strut $stack exec <command> --env $env_name"
   local ssh_opts
   ssh_opts=$(build_ssh_opts -p "$vps_port" -k "$vps_ssh_key" --batch)
+  # Non-interactive SSH sessions run with a minimal PATH that typically omits
+  # ~/.local/bin, where strut's install symlink lives — prepend it so a
+  # bare `strut` in the passed command resolves (strut#510).
   # shellcheck disable=SC2029
-  ssh $ssh_opts "$vps_user@$VPS_HOST" "$command"
+  ssh $ssh_opts "$vps_user@$VPS_HOST" "export PATH=\"\$HOME/.local/bin:\$HOME/bin:\$PATH\"; $command"
 }
