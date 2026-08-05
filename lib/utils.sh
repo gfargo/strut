@@ -1174,6 +1174,19 @@ should_dispatch_remote() {
   return 0
 }
 
+# _topo_host_flag
+#
+# Echoes " --host <alias>" for the active --host/topology override, or ""
+# if none is set. Lets hand-rolled remote ./strut invocations that don't go
+# through run_remote_strut (_stop_remote, _destroy_remote) propagate the
+# override the same way run_remote_strut and vps_release do, instead of
+# silently falling back to the static [stacks] topology default (strut#510).
+_topo_host_flag() {
+  local _alias="${_TOPO_ACTIVE_HOST_ALIAS:-}"
+  [[ "$_alias" =~ ^[A-Za-z0-9_-]+$ ]] && printf ' --host %s' "$_alias"
+  return 0
+}
+
 # run_remote_strut <stack> <env_name> <remote_cmd_args>
 #
 # Executes  ./strut <stack> <remote_cmd_args> --env <env_name>  on the VPS
@@ -1201,12 +1214,7 @@ run_remote_strut() {
   local vps_port="${VPS_PORT:-22}"
   local deploy_dir; deploy_dir=$(resolve_deploy_dir)
 
-  # Propagate an active --host/topology override into the remote invocation
-  # so it re-resolves against the same host alias's env layer instead of the
-  # static [stacks] topology default (strut#510).
-  local host_flag=""
-  local _alias="${_TOPO_ACTIVE_HOST_ALIAS:-}"
-  [[ "$_alias" =~ ^[A-Za-z0-9_-]+$ ]] && host_flag=" --host $_alias"
+  local host_flag; host_flag=$(_topo_host_flag)
 
   local ssh_opts
   ssh_opts=$(build_ssh_opts -p "$vps_port" -k "$vps_ssh_key" --batch "${extra_ssh_flags[@]+"${extra_ssh_flags[@]}"}")

@@ -748,12 +748,7 @@ vps_release() {
   local env_name
   env_name=$(extract_env_name "$env_file")
 
-  # Propagate an active --host/topology override into every inner remote
-  # step, so each re-resolves against the same host alias's env layer
-  # instead of the static [stacks] topology default (strut#510).
-  local host_flag=""
-  local _alias="${_TOPO_ACTIVE_HOST_ALIAS:-}"
-  [[ "$_alias" =~ ^[A-Za-z0-9_-]+$ ]] && host_flag=" --host $_alias"
+  local host_flag; host_flag=$(_topo_host_flag)
 
   local ssh_opts
   ssh_opts=$(build_ssh_opts -p "$vps_port" -k "$vps_ssh_key" --batch)

@@ -121,11 +121,12 @@ _stop_remote() {
   [ "$remove_volumes" = "true" ] && volumes_flag="--volumes"
   local timeout_flag=""
   [ -n "$timeout" ] && timeout_flag="--timeout $timeout"
+  local host_flag; host_flag=$(_topo_host_flag)
 
   if [ "${DRY_RUN:-}" = "true" ]; then
     echo ""
     echo -e "${YELLOW}[DRY-RUN] Execution plan for remote stop:${NC}"
-    run_cmd "Stop containers on VPS" ssh "$vps_user@$vps_host" "cd $deploy_dir && strut $stack stop --env $env_name $services_flag $volumes_flag $timeout_flag"
+    run_cmd "Stop containers on VPS" ssh "$vps_user@$vps_host" "cd $deploy_dir && STRUT_REMOTE_EXEC=1 ./strut $stack stop --env $env_name $services_flag $volumes_flag $timeout_flag$host_flag"
     echo ""
     echo -e "${YELLOW}[DRY-RUN] No changes made.${NC}"
     return 0
@@ -137,7 +138,7 @@ _stop_remote() {
   ssh $ssh_opts "$vps_user@$vps_host" "
     set -e
     cd '$deploy_dir'
-    STRUT_REMOTE_EXEC=1 ./strut $stack stop --env ${env_name:-prod} $services_flag $volumes_flag $timeout_flag
+    STRUT_REMOTE_EXEC=1 ./strut $stack stop --env ${env_name:-prod} $services_flag $volumes_flag $timeout_flag$host_flag
   " && ok "Stack $stack stopped on VPS" \
     || fail "Failed to stop stack on VPS — check VPS_HOST and SSH access"
 }

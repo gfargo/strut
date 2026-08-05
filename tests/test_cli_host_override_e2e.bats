@@ -90,3 +90,31 @@ _run_in() {
   [[ "$output" != *"5.6.7.8"* ]]
   [[ "$output" != *"--host compass"* ]]
 }
+
+@test "strut <stack> stop --host <alias> dispatches only to the override host, not the [stacks] default" {
+  local proj="$TEST_TMP/stop-override"
+  _make_project "$proj"
+  touch "$proj/.prod.env"
+
+  _run_in "$proj" buoy stop --env prod --host harbor --dry-run
+
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"ubuntu@1.2.3.4"* ]]
+  [[ "$output" == *"--host harbor"* ]]
+  [[ "$output" != *"5.6.7.8"* ]]
+  [[ "$output" != *"--host compass"* ]]
+}
+
+@test "strut <stack> destroy --host <alias> dispatches only to the override host, not the [stacks] default" {
+  local proj="$TEST_TMP/destroy-override"
+  _make_project "$proj"
+  touch "$proj/.prod.env"
+
+  _run_in "$proj" buoy destroy --env prod --host harbor --dry-run
+
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"ubuntu@1.2.3.4"* ]]
+  [[ "$output" == *"--host harbor"* ]]
+  [[ "$output" != *"5.6.7.8"* ]]
+  [[ "$output" != *"--host compass"* ]]
+}
