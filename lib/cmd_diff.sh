@@ -98,8 +98,9 @@ cmd_diff() {
 
   # Warn when the resolved env file fell back to the project root because
   # the stack has no env file of its own — the diff below is project-scoped,
-  # not stack-scoped (strut#508).
-  if [ "$(dirname "$env_file")" != "$stack_dir" ]; then
+  # not stack-scoped (strut#508). Skipped in --json mode: stdout must stay
+  # pure JSON for MCP/CI consumers (strut#508 CI regression).
+  if [ "$json_mode" != "true" ] && [ "$(dirname "$env_file")" != "$stack_dir" ]; then
     warn "No stack-specific env file found for '$stack' (checked $stack_dir/.${env_name:-prod}.env) — comparing against the project-level env file ($env_file). This diff reflects project scope, not just this stack."
   fi
 
