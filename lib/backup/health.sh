@@ -20,7 +20,7 @@ calculate_backup_success_rate() {
   local metadata_dir="$backup_dir/metadata"
 
   [ -d "$metadata_dir" ] || {
-    warn "No metadata directory found"
+    warn "No metadata directory found" >&2
     echo "0"
     return 1
   }
@@ -80,7 +80,7 @@ calculate_verification_rate() {
   metadata_dir="$(_backup_dir "$stack")/metadata" || return 1
 
   [ -d "$metadata_dir" ] || {
-    warn "No metadata directory found"
+    warn "No metadata directory found" >&2
     echo "0"
     return 1
   }
@@ -164,14 +164,18 @@ get_backup_health_status() {
   local health_score
   health_score=$(calculate_backup_health_score "$stack" "$service")
 
+  # calculate_backup_success_rate/calculate_verification_rate intentionally
+  # echo "0" + return 1 as a soft-fail signal (no metadata dir yet) — see the
+  # comment on calculate_backup_health_score. `|| true` here too, else `set
+  # -e` kills this function before the "0" fallback can be used below.
   local success_7d
-  success_7d=$(calculate_backup_success_rate "$stack" "$service" 7)
+  success_7d=$(calculate_backup_success_rate "$stack" "$service" 7 || true)
 
   local success_30d
-  success_30d=$(calculate_backup_success_rate "$stack" "$service" 30)
+  success_30d=$(calculate_backup_success_rate "$stack" "$service" 30 || true)
 
   local verification_7d
-  verification_7d=$(calculate_verification_rate "$stack" "$service" 7)
+  verification_7d=$(calculate_verification_rate "$stack" "$service" 7 || true)
 
   # Determine health status
   local status="UNKNOWN"
@@ -212,14 +216,16 @@ get_backup_health_json() {
   local health_score
   health_score=$(calculate_backup_health_score "$stack" "$service")
 
+  # See the matching comment in get_backup_health_status: `|| true` lets the
+  # "0" soft-fail fallback reach us instead of `set -e` killing this function.
   local success_7d
-  success_7d=$(calculate_backup_success_rate "$stack" "$service" 7)
+  success_7d=$(calculate_backup_success_rate "$stack" "$service" 7 || true)
 
   local success_30d
-  success_30d=$(calculate_backup_success_rate "$stack" "$service" 30)
+  success_30d=$(calculate_backup_success_rate "$stack" "$service" 30 || true)
 
   local verification_7d
-  verification_7d=$(calculate_verification_rate "$stack" "$service" 7)
+  verification_7d=$(calculate_verification_rate "$stack" "$service" 7 || true)
 
   # Determine status
   local status="unknown"
@@ -258,22 +264,28 @@ get_all_backup_health() {
   local backup_dir
   backup_dir=$(_backup_dir "$stack") || return 1
 
-  [ -d "$backup_dir" ] || {
-    error "Backup directory not found: $backup_dir"
-    return 1
-  }
-
   log "Backup health status for stack: $stack"
   echo ""
 
-  local engine glob
+  # No backups/ dir at all -> no backup has ever run for this stack. Degrade
+  # to a graceful "no history" message instead of hard-failing (strut#507).
+  if [ ! -d "$backup_dir" ]; then
+    warn "No backup history found"
+    return 0
+  fi
+
+  local engine glob found=false
   for engine in "${BACKUP_ENGINES[@]}"; do
     glob=$(backup_engine_glob "$engine")
     if ls "$backup_dir"/$glob >/dev/null 2>&1; then
       echo "=== $(backup_engine_label "$engine") ==="
       get_backup_health_status "$stack" "$engine"
+      found=true
     fi
   done
+
+  [ "$found" = false ] && warn "No backup history found"
+  return 0
 }
 
 # check_backup_health_alerts <stack> <service>
@@ -356,20 +368,42 @@ generate_health_dashboard_data() {
   backup_dir=$(_backup_dir "$stack") || return 1
   local dashboard_data="$backup_dir/health-dashboard.json"
 
+  # A stack with no backup history yet has no backups/ dir at all — create it
+  # so the writes below don't crash with "No such file or directory" (strut#507).
+  mkdir -p "$backup_dir"
+
+  # Find engines with backup history before writing anything, so a stack
+  # that's never been backed up can degrade to a structured "no history"
+  # object instead of an unadorned empty array (strut#507).
+  local engine glob
+  local -a matched_engines=()
+  for engine in "${BACKUP_ENGINES[@]}"; do
+    glob=$(backup_engine_glob "$engine")
+    if ls "$backup_dir"/$glob >/dev/null 2>&1; then
+      matched_engines+=("$engine")
+    fi
+  done
+
+  if [ ${#matched_engines[@]} -eq 0 ]; then
+    cat <<EOF >"$dashboard_data"
+{
+  "stack": "$stack",
+  "status": "unknown",
+  "message": "No backup history found"
+}
+EOF
+    ok "Dashboard data generated: $dashboard_data"
+    return 0
+  fi
+
   # Start JSON array
   echo "[" >"$dashboard_data"
 
   local first=true
-
-  # Add per-engine data
-  local engine glob
-  for engine in "${BACKUP_ENGINES[@]}"; do
-    glob=$(backup_engine_glob "$engine")
-    if ls "$backup_dir"/$glob >/dev/null 2>&1; then
-      [ "$first" = false ] && echo "," >>"$dashboard_data"
-      get_backup_health_json "$stack" "$engine" >>"$dashboard_data"
-      first=false
-    fi
+  for engine in "${matched_engines[@]}"; do
+    [ "$first" = false ] && echo "," >>"$dashboard_data"
+    get_backup_health_json "$stack" "$engine" >>"$dashboard_data"
+    first=false
   done
 
   # Close JSON array
