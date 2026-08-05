@@ -38,6 +38,23 @@ _mcp_reject() {
   printf '{"content":[{"type":"text","text":%s}],"isError":true}' "$escaped"
 }
 
+# _mcp_tool_is_informational <tool>
+#
+# True for read-only tools that use non-zero exit codes to signal
+# "attention needed" (unhealthy, has-changes, NO-GO) rather than failure,
+# and emit structured JSON. For these, a well-formed JSON body on a
+# non-zero exit is a successful result — the status/verdict field inside
+# already communicates severity — so it must not be double-signalled as an
+# MCP error. Genuine failures surface as non-JSON text and stay isError.
+_mcp_tool_is_informational() {
+  case "$1" in
+    strut_health|strut_diff|strut_preflight|strut_briefing|\
+    strut_drift_images|strut_backup_health|strut_status|\
+    strut_list|strut_fleet_status) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 # _mcp_arg <args_json> <field> [default]
 #
 # Extracts a string field from the MCP tool-call args JSON and validates it
@@ -168,9 +185,18 @@ _mcp_tools_call() {
   esac
 
   # Format MCP tool result
+  local is_error="false"
+  if [ "$rc" -ne 0 ]; then
+    if _mcp_tool_is_informational "$tool" && printf '%s' "$output" | jq -e . > /dev/null 2>&1; then
+      is_error="false"   # non-zero exit is informational; JSON body IS the result
+    else
+      is_error="true"
+    fi
+  fi
+
   local escaped_output
   escaped_output=$(jq -n --arg text "$output" '$text')
-  if [ "$rc" -eq 0 ]; then
+  if [ "$is_error" = "false" ]; then
     printf '{"content":[{"type":"text","text":%s}]}' "$escaped_output"
   else
     printf '{"content":[{"type":"text","text":%s}],"isError":true}' "$escaped_output"

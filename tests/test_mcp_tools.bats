@@ -200,3 +200,94 @@ teardown() {
   [ "$status" -eq 0 ]
   [[ "$output" == *"CALLED: demo preflight --env staging --json"* ]]
 }
+
+# ── informational non-zero exit codes: JSON body → success channel ────────────
+
+@test "_mcp_tools_call strut_health: unhealthy status (non-zero exit, JSON) is not isError" {
+  cat > "$STRUT_HOME/strut" << 'EOF'
+#!/usr/bin/env bash
+printf '%s' '{"stack":"x","overall_status":"unhealthy"}'
+exit 2
+EOF
+  chmod +x "$STRUT_HOME/strut"
+
+  run _mcp_tools_call strut_health '{"stack":"demo"}'
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"overall_status"* ]]
+  [[ "$output" != *"isError"* ]]
+}
+
+@test "_mcp_tools_call strut_diff: has_changes true (non-zero exit, JSON) is not isError" {
+  cat > "$STRUT_HOME/strut" << 'EOF'
+#!/usr/bin/env bash
+printf '%s' '{"has_changes":true}'
+exit 1
+EOF
+  chmod +x "$STRUT_HOME/strut"
+
+  run _mcp_tools_call strut_diff '{"stack":"demo"}'
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"has_changes"* ]]
+  [[ "$output" != *"isError"* ]]
+}
+
+@test "_mcp_tools_call strut_preflight: NO-GO verdict (non-zero exit, JSON) is not isError" {
+  cat > "$STRUT_HOME/strut" << 'EOF'
+#!/usr/bin/env bash
+printf '%s' '{"verdict":"NO-GO"}'
+exit 2
+EOF
+  chmod +x "$STRUT_HOME/strut"
+
+  run _mcp_tools_call strut_preflight '{"stack":"demo"}'
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"NO-GO"* ]]
+  [[ "$output" != *"isError"* ]]
+}
+
+@test "_mcp_tools_call strut_briefing: critical posture (non-zero exit, JSON) is not isError" {
+  cat > "$STRUT_HOME/strut" << 'EOF'
+#!/usr/bin/env bash
+printf '%s' '{"posture":"critical"}'
+exit 1
+EOF
+  chmod +x "$STRUT_HOME/strut"
+
+  run _mcp_tools_call strut_briefing '{"stack":"demo"}'
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"posture"* ]]
+  [[ "$output" != *"isError"* ]]
+}
+
+@test "_mcp_tools_call strut_diff: genuine failure (non-zero exit, non-JSON) stays isError" {
+  cat > "$STRUT_HOME/strut" << 'EOF'
+#!/usr/bin/env bash
+printf '%s\n' '✗ VPS_HOST not set'
+exit 2
+EOF
+  chmod +x "$STRUT_HOME/strut"
+
+  run _mcp_tools_call strut_diff '{"stack":"demo"}'
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"isError"* ]]
+}
+
+@test "_mcp_tools_call strut_deploy: failure (non-zero exit, plain text) stays isError" {
+  cat > "$STRUT_HOME/strut" << 'EOF'
+#!/usr/bin/env bash
+printf '%s\n' 'deploy failed: health check timeout'
+exit 1
+EOF
+  chmod +x "$STRUT_HOME/strut"
+
+  run _mcp_tools_call strut_deploy '{"stack":"demo"}'
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"isError"* ]]
+}
+
+@test "_mcp_tools_call strut_status: rc=0 still succeeds (regression)" {
+  run _mcp_tools_call strut_status '{"stack":"demo"}'
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"CALLED: demo status --env prod --json"* ]]
+  [[ "$output" != *"isError"* ]]
+}
