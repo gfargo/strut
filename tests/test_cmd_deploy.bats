@@ -517,6 +517,32 @@ EOF
     [[ "$output" == *"data-destructive"* ]] || [[ "$output" == *"DATA-DESTRUCTIVE"* ]]
 }
 
+@test "_deploy_volguard: masks env values in destructive-change output (strut#508 nit)" {
+  export CLI_ROOT="$TEST_TMP"
+  cat > "$TEST_TMP/stacks/test-stack/docker-compose.yml" <<'EOF'
+services:
+  db:
+    image: postgres:15
+    volumes:
+      - ${INSTALL_DIR:-./plane}/data/db:/var/lib/postgresql/data
+EOF
+
+  # Local env has INSTALL_DIR set; remote has it absent (unset→value transition)
+  cat > "$TEST_TMP/.test.env" <<'EOF'
+VPS_HOST=example.com
+INSTALL_DIR=/opt/super-secret-path
+EOF
+
+  diff_fetch_remote() { echo "VPS_HOST=example.com"; }
+  export -f diff_fetch_remote
+
+  run _deploy_volguard "test-stack" "$TEST_TMP/.test.env" "false" < /dev/null
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"INSTALL_DIR"* ]]
+  [[ "$output" == *"***"* ]]
+  [[ "$output" != *"/opt/super-secret-path"* ]]
+}
+
 @test "_deploy_volguard: proceeds when --confirm-data-move is true" {
   export CLI_ROOT="$TEST_TMP"
   cat > "$TEST_TMP/stacks/test-stack/docker-compose.yml" <<'EOF'

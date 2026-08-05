@@ -100,7 +100,7 @@ _deploy_volguard() {
   printf '%s\n' "${RED}⚠  strut: Data-destructive changes detected${NC}" >&2
   echo "" >&2
   if [ -n "$destructive_diff" ]; then
-    _diff_render_destructive_text "$destructive_diff" >&2
+    _diff_render_destructive_text "$destructive_diff" "true" >&2
   fi
   if [ -n "$volume_renames" ]; then
     _diff_render_destructive_text "$volume_renames" >&2
