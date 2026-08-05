@@ -76,6 +76,7 @@ complete -c strut -l services -x -a 'messaging ui full' -d 'service profile'
 complete -c strut -l registry -x -a 'ghcr dockerhub ecr none' -d 'registry type'
 complete -c strut -l json -d 'JSON output'
 complete -c strut -l dry-run -d 'preview without executing'
+complete -c strut -l show-secrets -d 'diff: show full env var values instead of redacting them'
 complete -c strut -l help -s h -d 'show help'
 
 # completions <shell>

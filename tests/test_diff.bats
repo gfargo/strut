@@ -8,6 +8,9 @@ setup() {
   load_utils
   source "$CLI_ROOT/lib/output.sh"
   source "$CLI_ROOT/lib/diff.sh"
+  # _diff_resolve_remote_env delegates to _secrets_resolve_remote_path for
+  # the project-root case.
+  source "$CLI_ROOT/lib/cmd_secrets.sh"
 }
 
 teardown() {
@@ -272,6 +275,90 @@ volumes:
   result=$(_diff_render_section_json "env_vars" "$tsv")
   [[ "$result" == *'"old":"old"'* ]]
   [[ "$result" == *'"new":"new"'* ]]
+}
+
+# ── _diff_mask_value (strut#508) ──────────────────────────────────────────────
+
+@test "_diff_mask_value: empty stays empty" {
+  result=$(_diff_mask_value "")
+  [ -z "$result" ]
+}
+
+@test "_diff_mask_value: non-empty value redacted" {
+  result=$(_diff_mask_value "re_jFUXsupersecret")
+  [ "$result" = "***" ]
+}
+
+# ── masked rendering (strut#508) ──────────────────────────────────────────────
+
+@test "_diff_render_section_text: mask=true redacts ADD value" {
+  local tsv=$'ADD\x1fGH_PAT\x1f\x1fghp_secretvalue'
+  result=$(_diff_render_section_text "Env" "$tsv" true)
+  [[ "$result" == *"+ GH_PAT=***"* ]]
+  [[ "$result" != *"ghp_secretvalue"* ]]
+}
+
+@test "_diff_render_section_text: mask=true redacts CHANGE old and new" {
+  local tsv=$'CHANGE\x1fFOO\x1foldsecret\x1fnewsecret'
+  result=$(_diff_render_section_text "Env" "$tsv" true)
+  [[ "$result" == *"~ FOO: *** → ***"* ]]
+  [[ "$result" != *"oldsecret"* ]]
+  [[ "$result" != *"newsecret"* ]]
+}
+
+@test "_diff_render_section_text: mask=false (default) preserves plaintext" {
+  local tsv=$'ADD\x1fFOO\x1f\x1fbar'
+  result=$(_diff_render_section_text "Env" "$tsv" false)
+  [[ "$result" == *"+ FOO=bar"* ]]
+}
+
+@test "_diff_render_section_json: mask=true redacts old/new values" {
+  OUTPUT_MODE=json
+  local tsv=$'CHANGE\x1fFOO\x1foldsecret\x1fnewsecret'
+  result=$(_diff_render_section_json "env_vars" "$tsv" true)
+  [[ "$result" == *'"op":"CHANGE"'* ]]
+  [[ "$result" == *'"key":"FOO"'* ]]
+  [[ "$result" == *'"old":"***"'* ]]
+  [[ "$result" == *'"new":"***"'* ]]
+  [[ "$result" != *"oldsecret"* ]]
+  [[ "$result" != *"newsecret"* ]]
+}
+
+@test "_diff_render_section_json: mask=false (default) preserves plaintext values" {
+  OUTPUT_MODE=json
+  local tsv=$'ADD\x1fFOO\x1f\x1fbar'
+  result=$(_diff_render_section_json "env_vars" "$tsv")
+  [[ "$result" == *'"new":"bar"'* ]]
+}
+
+@test "_diff_render_destructive_text: mask=true redacts values" {
+  local tsv=$'ADD\x1fINSTALL_DIR\x1f\x1f/secret/path'
+  result=$(_diff_render_destructive_text "$tsv" true)
+  [[ "$result" == *"+ INSTALL_DIR=***"* ]]
+  [[ "$result" != *"/secret/path"* ]]
+}
+
+@test "_diff_render_destructive_text: mask=false (default) preserves plaintext" {
+  local tsv=$'ADD\x1fINSTALL_DIR\x1f\x1f/data/path'
+  result=$(_diff_render_destructive_text "$tsv")
+  [[ "$result" == *"+ INSTALL_DIR=/data/path"* ]]
+}
+
+# ── _diff_resolve_remote_env (strut#508) ──────────────────────────────────────
+
+@test "_diff_resolve_remote_env: stack-local env file mirrors under stacks/<stack>/" {
+  result=$(_diff_resolve_remote_env "/opt/deploy" "octoprint-ender3" "/proj/stacks/octoprint-ender3" "/proj/stacks/octoprint-ender3/.prod.env" "prod")
+  [ "$result" = "/opt/deploy/stacks/octoprint-ender3/.prod.env" ]
+}
+
+@test "_diff_resolve_remote_env: project-root env file resolves at deploy root" {
+  result=$(_diff_resolve_remote_env "/opt/deploy" "octoprint-ender3" "/proj/stacks/octoprint-ender3" "/proj/.prod.env" "prod")
+  [ "$result" = "/opt/deploy/.prod.env" ]
+}
+
+@test "_diff_resolve_remote_env: mirrors .enc.env basename for stack-local file" {
+  result=$(_diff_resolve_remote_env "/opt/deploy" "octoprint-ender3" "/proj/stacks/octoprint-ender3" "/proj/stacks/octoprint-ender3/.prod.enc.env" "prod")
+  [ "$result" = "/opt/deploy/stacks/octoprint-ender3/.prod.enc.env" ]
 }
 
 # ── diff_fetch_remote (OSS-435: SSH failure vs. missing file) ────────────────

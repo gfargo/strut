@@ -235,13 +235,54 @@ diff_fetch_remote() {
   printf '%s' "$output"
 }
 
+# _diff_resolve_remote_env <deploy_dir> <stack> <stack_dir> <env_file> <env_name>
+#
+# Mirrors the scope of the resolved *local* env file onto the remote host,
+# instead of always assuming a project-root ".<env>.env" (strut#508 — a
+# stack with its own ".<env>.env" was being diffed against the project's
+# root file on the VPS, producing the same 21 "ADD" rows for every stack).
+#
+#   stack-local env_file (stacks/<stack>/.<basename>)
+#     -> <deploy_dir>/stacks/<stack>/.<basename>
+#   project-root env_file
+#     -> <deploy_dir>/.<basename>  (via _secrets_resolve_remote_path)
+_diff_resolve_remote_env() {
+  local deploy_dir="$1"
+  local stack="$2"
+  local stack_dir="$3"
+  local env_file="$4"
+  local env_name="$5"
+
+  local base
+  base=$(basename "$env_file")
+
+  if [ "$(dirname "$env_file")" = "$stack_dir" ]; then
+    echo "$deploy_dir/stacks/$stack/$base"
+  else
+    _secrets_resolve_remote_path "$deploy_dir" "$env_name" "$base"
+  fi
+}
+
 # ── Renderers ─────────────────────────────────────────────────────────────────
 #
-# _diff_render_section_text <title> <tsv_lines>
-# Renders one section of the diff in operator-friendly text form.
+# _diff_mask_value <value>
+#
+# Masks a non-empty value to a fixed redaction marker; empty values stay
+# empty (an empty old/new is meaningful — "was unset" / "becomes unset" —
+# not a secret). Used to keep secret values out of MCP/AI context and logs
+# (strut#508).
+_diff_mask_value() {
+  local value="$1"
+  [ -n "$value" ] && printf '***' || printf ''
+}
+
+# _diff_render_section_text <title> <tsv_lines> [mask]
+# Renders one section of the diff in operator-friendly text form. When
+# mask=true, values are redacted (keys/ops stay visible) — strut#508.
 _diff_render_section_text() {
   local title="$1"
   local tsv="$2"
+  local mask="${3:-false}"
   [ -z "$tsv" ] && return 0
 
   local count
@@ -252,6 +293,10 @@ _diff_render_section_text() {
   local kind key old new
   while IFS=$'\x1f' read -r kind key old new; do
     [ -z "$kind" ] && continue
+    if [ "$mask" = "true" ]; then
+      old=$(_diff_mask_value "$old")
+      new=$(_diff_mask_value "$new")
+    fi
     case "$kind" in
       ADD)    printf '  + %s=%s\n' "$key" "$new" ;;
       REMOVE) printf '  - %s\n' "$key" ;;
@@ -260,11 +305,14 @@ _diff_render_section_text() {
   done <<< "$tsv"
 }
 
-# _diff_render_section_json <json_key> <tsv_lines>
+# _diff_render_section_json <json_key> <tsv_lines> [mask]
 # Emits one JSON array via out_json_* helpers (caller is inside an object).
+# When mask=true, old/new values are redacted (keys/ops stay visible) —
+# strut#508.
 _diff_render_section_json() {
   local json_key="$1"
   local tsv="$2"
+  local mask="${3:-false}"
 
   out_json_array "$json_key"
   [ -z "$tsv" ] && { out_json_close_array; return 0; }
@@ -272,6 +320,10 @@ _diff_render_section_json() {
   local kind key old new
   while IFS=$'\x1f' read -r kind key old new; do
     [ -z "$kind" ] && continue
+    if [ "$mask" = "true" ]; then
+      old=$(_diff_mask_value "$old")
+      new=$(_diff_mask_value "$new")
+    fi
     out_json_object
       out_json_field "op" "$kind"
       out_json_field "key" "$key"
@@ -456,12 +508,14 @@ diff_detect_volume_renames() {
   done <<< "$sorted"
 }
 
-# _diff_render_destructive_text <tsv_lines>
+# _diff_render_destructive_text <tsv_lines> [mask]
 #
 # Renders the data-destructive changes section with a prominent warning header.
 # Uses RED/YELLOW color codes (already sourced from utils.sh by the entrypoint).
+# When mask=true, values are redacted (keys/ops stay visible) — strut#508.
 _diff_render_destructive_text() {
   local tsv="$1"
+  local mask="${2:-false}"
   [ -z "$tsv" ] && return 0
 
   local count
@@ -479,6 +533,10 @@ _diff_render_destructive_text() {
   local kind key old new
   while IFS=$'\x1f' read -r kind key old new; do
     [ -z "$kind" ] && continue
+    if [ "$mask" = "true" ]; then
+      old=$(_diff_mask_value "$old")
+      new=$(_diff_mask_value "$new")
+    fi
     case "$kind" in
       ADD)    printf '%s  + %s=%s%s\n'         "$YELLOW" "$key" "$new" "$NC" ;;
       REMOVE) printf '%s  - %s%s\n'            "$YELLOW" "$key" "$NC" ;;

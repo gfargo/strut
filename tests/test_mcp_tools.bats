@@ -201,6 +201,35 @@ teardown() {
   [[ "$output" == *"CALLED: demo preflight --env staging --json"* ]]
 }
 
+# ── strut_diff: no --show-secrets, so masking stays the CLI default (strut#508)
+
+@test "_mcp_tools_call strut_diff: calls diff --json --env prod without --show-secrets" {
+  run _mcp_tools_call strut_diff '{"stack":"demo"}'
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"CALLED: demo diff --json --env prod"* ]]
+  [[ "$output" != *"--show-secrets"* ]]
+}
+
+@test "_mcp_tools_call strut_diff: rejects an injection payload in stack" {
+  run _mcp_tools_call strut_diff '{"stack":"demo; touch /tmp/pwned"}'
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"isError"* ]]
+  [[ "$output" != *"CALLED:"* ]]
+}
+
+@test "_mcp_tools_call strut_diff: a fake secret value from strut_bin never appears unredacted in the MCP result" {
+  cat > "$TEST_TMP/strut" << 'EOF'
+#!/usr/bin/env bash
+echo '{"env_vars":[{"op":"ADD","key":"RESEND_API_KEY","old":"","new":"***"}]}'
+EOF
+  chmod +x "$TEST_TMP/strut"
+
+  run _mcp_tools_call strut_diff '{"stack":"demo"}'
+  [ "$status" -eq 0 ]
+  [[ "$output" == *'***'* ]]
+  [[ "$output" != *"re_jFUX"* ]]
+}
+
 # ── informational non-zero exit codes: JSON body → success channel ────────────
 
 @test "_mcp_tools_call strut_health: unhealthy status (non-zero exit, JSON) is not isError" {
