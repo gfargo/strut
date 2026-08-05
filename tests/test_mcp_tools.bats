@@ -291,3 +291,114 @@ EOF
   [[ "$output" == *"CALLED: demo status --env prod --json"* ]]
   [[ "$output" != *"isError"* ]]
 }
+
+@test "_mcp_tools_call strut_drift_images: stale digests (non-zero exit, JSON) is not isError" {
+  cat > "$STRUT_HOME/strut" << 'EOF'
+#!/usr/bin/env bash
+printf '%s' '{"stale":["web"]}'
+exit 1
+EOF
+  chmod +x "$STRUT_HOME/strut"
+
+  run _mcp_tools_call strut_drift_images '{"stack":"demo"}'
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"stale"* ]]
+  [[ "$output" != *"isError"* ]]
+}
+
+@test "_mcp_tools_call strut_backup_health: degraded score (non-zero exit, JSON) is not isError" {
+  cat > "$STRUT_HOME/strut" << 'EOF'
+#!/usr/bin/env bash
+printf '%s' '{"score":"degraded"}'
+exit 1
+EOF
+  chmod +x "$STRUT_HOME/strut"
+
+  run _mcp_tools_call strut_backup_health '{"stack":"demo"}'
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"degraded"* ]]
+  [[ "$output" != *"isError"* ]]
+}
+
+@test "_mcp_tools_call strut_list: non-zero exit with JSON body is not isError" {
+  cat > "$STRUT_HOME/strut" << 'EOF'
+#!/usr/bin/env bash
+printf '%s' '{"stacks":[]}'
+exit 1
+EOF
+  chmod +x "$STRUT_HOME/strut"
+
+  run _mcp_tools_call strut_list '{}'
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"stacks"* ]]
+  [[ "$output" != *"isError"* ]]
+}
+
+@test "_mcp_tools_call strut_fleet_status: non-zero exit with JSON body is not isError" {
+  cat > "$STRUT_HOME/strut" << 'EOF'
+#!/usr/bin/env bash
+printf '%s' '{"hosts":[{"alias":"vps1","behind":3}]}'
+exit 1
+EOF
+  chmod +x "$STRUT_HOME/strut"
+
+  run _mcp_tools_call strut_fleet_status '{}'
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"hosts"* ]]
+  [[ "$output" != *"isError"* ]]
+}
+
+# ── stdout contamination ahead of the JSON body ────────────────────────────
+#
+# env_apply_gen_layer (lib/utils.sh) calls warn() — which writes to stdout,
+# per this repo's convention — on every env load for a stack with
+# env/*.gen.enc.env when no age identity is present, including read-only
+# commands. Since `output` is captured with `2>&1`, that warning line lands
+# ahead of a --json command's JSON body. A naive `jq -e .` over the whole
+# capture fails even though the call produced a valid, informational result.
+
+@test "_mcp_tools_call strut_health: warn() noise ahead of JSON body is not isError" {
+  cat > "$STRUT_HOME/strut" << 'EOF'
+#!/usr/bin/env bash
+echo "⚠  Could not decrypt generated env layer: env/stack.gen.enc.env (skipping)"
+printf '%s' '{"stack":"x","overall_status":"unhealthy"}'
+exit 2
+EOF
+  chmod +x "$STRUT_HOME/strut"
+
+  run _mcp_tools_call strut_health '{"stack":"demo"}'
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"overall_status"* ]]
+  [[ "$output" != *"isError"* ]]
+}
+
+@test "_mcp_tools_call strut_diff: warn() noise ahead of pretty-printed JSON is not isError" {
+  cat > "$STRUT_HOME/strut" << 'EOF'
+#!/usr/bin/env bash
+echo "⚠  Could not decrypt generated env layer: env/stack.gen.enc.env (skipping)"
+printf '%s\n' '{'
+printf '%s\n' '  "has_changes": true'
+printf '%s\n' '}'
+exit 1
+EOF
+  chmod +x "$STRUT_HOME/strut"
+
+  run _mcp_tools_call strut_diff '{"stack":"demo"}'
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"has_changes"* ]]
+  [[ "$output" != *"isError"* ]]
+}
+
+@test "_mcp_tools_call strut_deploy: warn() noise ahead of a genuine plain-text failure stays isError" {
+  cat > "$STRUT_HOME/strut" << 'EOF'
+#!/usr/bin/env bash
+echo "⚠  Could not decrypt generated env layer: env/stack.gen.enc.env (skipping)"
+printf '%s\n' 'deploy failed: health check timeout'
+exit 1
+EOF
+  chmod +x "$STRUT_HOME/strut"
+
+  run _mcp_tools_call strut_deploy '{"stack":"demo"}'
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"isError"* ]]
+}

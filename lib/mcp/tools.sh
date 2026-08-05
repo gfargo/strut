@@ -85,6 +85,30 @@ _mcp_arg_lines() {
   printf '%s' "$val"
 }
 
+# _mcp_json_tail <text>
+#
+# `output` is captured with `2>&1`, so any stdout `warn()` lines (this
+# repo's convention — see lib/utils.sh:60 — e.g. env_apply_gen_layer's
+# "Could not decrypt generated env layer" on a stack using
+# env/*.gen.enc.env without an age identity present) land ahead of a
+# command's --json body rather than being separated onto stderr. A plain
+# `jq -e .` over the whole capture then fails even though the call
+# succeeded and produced valid JSON. This scans line-by-line for the first
+# `{`/`[`-prefixed line whose suffix (to the end of the text) parses as
+# complete JSON, and echoes that suffix. Echoes nothing and returns 1 if no
+# such suffix exists.
+_mcp_json_tail() {
+  local text="$1" line_no candidate
+  while IFS= read -r line_no; do
+    candidate=$(printf '%s\n' "$text" | tail -n "+$line_no")
+    if printf '%s' "$candidate" | jq -e . > /dev/null 2>&1; then
+      printf '%s' "$candidate"
+      return 0
+    fi
+  done < <(printf '%s\n' "$text" | grep -n '^[{[]' | cut -d: -f1)
+  return 1
+}
+
 # _mcp_tools_call <tool_name> <args_json>
 _mcp_tools_call() {
   local tool="$1"
@@ -187,8 +211,16 @@ _mcp_tools_call() {
   # Format MCP tool result
   local is_error="false"
   if [ "$rc" -ne 0 ]; then
+    local json_tail
     if _mcp_tool_is_informational "$tool" && printf '%s' "$output" | jq -e . > /dev/null 2>&1; then
       is_error="false"   # non-zero exit is informational; JSON body IS the result
+    elif _mcp_tool_is_informational "$tool" && json_tail=$(_mcp_json_tail "$output"); then
+      # Whole capture wasn't valid JSON, but a trailing suffix is — stdout
+      # warn() noise (e.g. env_apply_gen_layer's decrypt-skip warning) ran
+      # ahead of the JSON body. Reduce to that suffix so the JSON body IS
+      # the result instead of misclassifying on the noise.
+      output="$json_tail"
+      is_error="false"
     else
       is_error="true"
     fi
