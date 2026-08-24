@@ -94,6 +94,11 @@ drift_images_remote() {
     cd '$deploy_dir' || exit 90
 
     containers=\$(docker compose -f 'stacks/$stack/docker-compose.yml' --project-name '$project_name' ps -q 2>/dev/null)
+    # Fallback: if project-name query finds nothing, retry without it to
+    # catch containers deployed under a different project name (strut#517)
+    if [ -z \"\$containers\" ]; then
+      containers=\$(docker compose -f 'stacks/$stack/docker-compose.yml' ps -q 2>/dev/null)
+    fi
     [ -n \"\$containers\" ] || exit 0
 
     while IFS= read -r cid; do
@@ -180,6 +185,10 @@ _drift_images_detect() {
 
   local containers
   containers=$(docker compose -f "$compose_file" --project-name "$project_name" ps -q 2>/dev/null) || true
+  # Fallback: if project-name query finds nothing, retry without it (strut#517)
+  if [ -z "$containers" ]; then
+    containers=$(docker compose -f "$compose_file" ps -q 2>/dev/null) || true
+  fi
   [ -n "$containers" ] || { log "No running containers for $stack"; return 0; }
 
   local output=""

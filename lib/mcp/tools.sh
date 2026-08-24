@@ -20,10 +20,10 @@ _mcp_tools_list() {
   {"name":"strut_backup_health","description":"Show backup health scores for a stack","inputSchema":{"type":"object","properties":{"stack":{"type":"string","description":"Stack name"}},"required":["stack"]}},
   {"name":"strut_briefing","description":"One-call operational situation report: aggregates health, config drift, image staleness, pending diff, and backup health into an overall posture plus prioritized actions","inputSchema":{"type":"object","properties":{"stack":{"type":"string","description":"Stack name"},"env":{"type":"string","description":"Environment name (default: prod)"}},"required":["stack"]}},
   {"name":"strut_preflight","description":"Deploy go/no-go verdict (GO/CAUTION/NO-GO): fuses pending diff, config drift, current health, and backup freshness into a release-safety decision with reasons","inputSchema":{"type":"object","properties":{"stack":{"type":"string","description":"Stack name"},"env":{"type":"string","description":"Environment name (default: prod)"}},"required":["stack"]}},
-  {"name":"strut_deploy","description":"Deploy a stack to its VPS (requires approval). Runs the full pipeline on the host the stack maps to: sync repo, run migrations, pull images, restart services, health-check, and auto-roll-back if unhealthy. Fails if the stack does not resolve to a remote host — it will never fall back to a local deploy.","inputSchema":{"type":"object","properties":{"stack":{"type":"string","description":"Stack name"},"env":{"type":"string","description":"Environment name (default: prod)"}},"required":["stack"]}},
+  {"name":"strut_deploy","description":"Deploy a stack to its VPS. Without confirm:true, runs in dry-run mode showing the execution plan. Pass confirm:true to execute the full pipeline: sync repo, run migrations, pull images, restart services, health-check, and auto-roll-back if unhealthy. Fails if the stack does not resolve to a remote host.","inputSchema":{"type":"object","properties":{"stack":{"type":"string","description":"Stack name"},"env":{"type":"string","description":"Environment name (default: prod)"},"confirm":{"type":"boolean","description":"Set to true to actually execute the deploy. Omit or false for a dry-run preview."}},"required":["stack"]}},
   {"name":"strut_sync","description":"Bring a host checkout in sync with origin","inputSchema":{"type":"object","properties":{"host":{"type":"string","description":"Host alias from topology"}},"required":["host"]}},
   {"name":"strut_backup","description":"Create a backup for a stack","inputSchema":{"type":"object","properties":{"stack":{"type":"string","description":"Stack name"},"target":{"type":"string","description":"Backup target (postgres, neo4j, mysql, sqlite, all). Default: all"}},"required":["stack"]}},
-  {"name":"strut_stop","description":"Stop containers for a stack (requires approval)","inputSchema":{"type":"object","properties":{"stack":{"type":"string","description":"Stack name"}},"required":["stack"]}}
+  {"name":"strut_stop","description":"Stop containers for a stack. Without confirm:true, runs in dry-run mode showing what would be stopped. Pass confirm:true to actually stop and remove containers.","inputSchema":{"type":"object","properties":{"stack":{"type":"string","description":"Stack name"},"confirm":{"type":"boolean","description":"Set to true to actually stop the stack. Omit or false for a dry-run preview."}},"required":["stack"]}}
 ]}
 EOF
 }
@@ -179,12 +179,16 @@ _mcp_tools_call() {
       output=$("$strut_bin" "$stack" preflight --env "$env" --json 2>&1) || rc=$?
       ;;
     strut_deploy)
-      local stack env
+      local stack env confirm
       stack=$(_mcp_arg "$args" stack) || { _mcp_reject "invalid 'stack' argument"; return 0; }
       env=$(_mcp_arg "$args" env prod) || { _mcp_reject "invalid 'env' argument"; return 0; }
-      # --require-remote, not a bare `deploy`: an agent calling this must never
-      # get a silent local deploy because the stack's VPS_HOST didn't resolve.
-      output=$("$strut_bin" "$stack" deploy --require-remote --env "$env" 2>&1) || rc=$?
+      confirm=$(printf '%s' "$args" | jq -r '.confirm // false')
+      # Default to dry-run unless explicitly confirmed (strut#516)
+      if [ "$confirm" = "true" ]; then
+        output=$("$strut_bin" "$stack" deploy --require-remote --env "$env" 2>&1) || rc=$?
+      else
+        output=$("$strut_bin" "$stack" deploy --require-remote --env "$env" --dry-run 2>&1) || rc=$?
+      fi
       ;;
     strut_sync)
       local host
@@ -198,9 +202,15 @@ _mcp_tools_call() {
       output=$("$strut_bin" "$stack" backup "$target" --env prod 2>&1) || rc=$?
       ;;
     strut_stop)
-      local stack
+      local stack confirm
       stack=$(_mcp_arg "$args" stack) || { _mcp_reject "invalid 'stack' argument"; return 0; }
-      output=$("$strut_bin" "$stack" stop --env prod 2>&1) || rc=$?
+      confirm=$(printf '%s' "$args" | jq -r '.confirm // false')
+      # Default to dry-run unless explicitly confirmed (strut#516)
+      if [ "$confirm" = "true" ]; then
+        output=$("$strut_bin" "$stack" stop --env prod 2>&1) || rc=$?
+      else
+        output=$("$strut_bin" "$stack" stop --env prod --dry-run 2>&1) || rc=$?
+      fi
       ;;
     *)
       printf '{"content":[{"type":"text","text":"Unknown tool: %s"}],"isError":true}' "$tool"

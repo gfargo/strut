@@ -143,6 +143,19 @@ health_check_containers() {
   fi
 
   if [ -z "$rows" ]; then
+    # Fallback: the project-name query may not match if containers were
+    # deployed under a different project name (e.g., just the stack name
+    # or the directory name). Try querying by compose file only, which
+    # matches any container associated with that file. (strut#502)
+    local fallback_cmd
+    fallback_cmd="$(_docker_sudo)docker compose -f $compose_file ps --format json"
+    raw=$($fallback_cmd 2>/dev/null || true)
+    rows=$(printf '%s' "$raw" | jq -rs '
+      (if (length == 1 and (.[0] | type) == "array") then .[0] else . end)
+      | .[] | "\(.Name)|\(.State)|\(.Health // "")"' 2>/dev/null || true)
+  fi
+
+  if [ -z "$rows" ]; then
     _health_record fail "Containers" "No containers running"
     return 1
   fi

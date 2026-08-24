@@ -133,6 +133,15 @@ cmd_migrate_schema() {
 
   case "$migrate_target" in
     neo4j)
+      # Guard: skip if required Neo4j vars are not configured (strut#518)
+      if [ -z "${NEO4J_URI:-}" ] || [ -z "${NEO4J_PASSWORD:-}" ]; then
+        log "Skipping Neo4j migration — NEO4J_URI/NEO4J_PASSWORD not configured"
+        return 0
+      fi
+      if [ -z "${MIGRATION_IMAGE:-}" ]; then
+        log "Skipping Neo4j migration — MIGRATION_IMAGE not set"
+        return 0
+      fi
       log "Running Neo4j schema migration ($migrate_action)..."
       local migrate_cmd
       if [ "$migrate_action" = "--down" ]; then
@@ -155,6 +164,15 @@ cmd_migrate_schema() {
         $migrate_cmd
       ;;
     postgres)
+      # Guard: skip if required Postgres vars are not configured (strut#518)
+      if [ -z "${POSTGRES_USER:-}" ] || [ -z "${POSTGRES_PASSWORD:-}" ] || [ -z "${POSTGRES_DB:-}" ]; then
+        log "Skipping Postgres migration — POSTGRES_USER/POSTGRES_PASSWORD/POSTGRES_DB not configured"
+        return 0
+      fi
+      if [ -z "${MIGRATION_IMAGE:-}" ]; then
+        log "Skipping Postgres migration — MIGRATION_IMAGE not set"
+        return 0
+      fi
       local pg_action="${migrate_action:---up}"
       log "Running Postgres schema migration ($pg_action)..."
       local postgres_migrate_cmd
