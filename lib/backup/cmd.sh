@@ -51,7 +51,7 @@ backup_command() {
   # so they need backup.conf loaded too, just without the hook firing.
   local needs_backup_conf="$is_backup_target"
   case "$target" in
-    verify|verify-all|list|health) needs_backup_conf=true ;;
+    verify|verify-all|list|health|compare|compare-labels) needs_backup_conf=true ;;
   esac
 
   # Load backup.conf up front so every per-engine backup/restore function sees
@@ -147,9 +147,31 @@ backup_command() {
       [ -z "$arg2" ] || [ -z "$arg3" ] && \
         fail "Usage: strut $stack backup compare <env1> <env2> [--service neo4j|postgres|all]"
       local compare_service="all"
-      compare_neo4j_databases "$stack" "$arg2" "$arg3"
-      echo ""
-      compare_postgres_databases "$stack" "$arg2" "$arg3"
+      local compare_arg
+      local compare_index=0
+      while [ "$compare_index" -lt "${#remaining_flags[@]}" ]; do
+        compare_arg="${remaining_flags[$compare_index]}"
+        case "$compare_arg" in
+          --service=*) compare_service="${compare_arg#*=}" ;;
+          --service)
+            compare_index=$((compare_index + 1))
+            [ "$compare_index" -lt "${#remaining_flags[@]}" ] || { fail "Missing value for --service"; return 1; }
+            compare_service="${remaining_flags[$compare_index]}"
+            ;;
+          *) fail "Unknown compare flag: $compare_arg"; return 1 ;;
+        esac
+        compare_index=$((compare_index + 1))
+      done
+      validate_subcommand "$compare_service" neo4j postgres all || return 1
+      if [ "$compare_service" = "neo4j" ] || [ "$compare_service" = "all" ]; then
+        compare_neo4j_databases "$stack" "$arg2" "$arg3"
+      fi
+      if [ "$compare_service" = "all" ]; then
+        echo ""
+      fi
+      if [ "$compare_service" = "postgres" ] || [ "$compare_service" = "all" ]; then
+        compare_postgres_databases "$stack" "$arg2" "$arg3"
+      fi
       ;;
     compare-labels)
       [ -z "$arg2" ] || [ -z "$arg3" ] && \

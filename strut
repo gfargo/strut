@@ -288,7 +288,7 @@ usage() {
   echo "       strut upgrade"
   echo "       strut doctor [--check-vps] [--deep] [--json] [--fix]"
   echo "       strut --version"
-  echo "       strut audit <vps-host> [vps-user] [ssh-key]"
+  echo "       strut audit <vps-host> [vps-user] [ssh-key] [ssh-port] [--sudo]"
   echo ""
   echo "Commands:"
   echo "  update   [--env <name>]                                        Pull latest strut on VPS"
@@ -302,10 +302,12 @@ usage() {
   echo "  lock     <status|release> [--env <name>] [--force]            Inspect/manage deploy locks"
   echo "  health   [--env <name>] [--services <profile>] [--json]       Health checks"
   echo "  logs     [--env <name>] [service] [--since <dur>] [--follow] [--tail <n>]  View logs"
+  echo "  logs:download [--env <name>] [service] [--since <dur>]        Download logs"
+  echo "  logs:rotate [--env <name>]                                    Rotate archived logs"
   echo "  migrate  [--env <name>] [neo4j|postgres] [--status|--up|--down N]  Run schema migrations"
   echo "  backup   [--env <name>] [neo4j|postgres|mysql|sqlite|all|verify|list|health|schedule|retention]"
   echo "                                                                 Backup management (create, verify, schedule, health)"
-  echo "  drift    [--env <name>] [detect|report|fix|monitor|history|auto-fix]"
+  echo "  drift    [--env <name>] [detect|report|fix|monitor|history|auto-fix|images]"
   echo "                                                                 Configuration drift detection and auto-fix"
   echo "  db:schema [--env <name>] [apply|verify|all]                  Apply/verify stack Postgres schema SQL"
   echo "  restore  [--env <name>] <file>                                Restore backup"
@@ -318,6 +320,8 @@ usage() {
   echo "  remote:init [--env <name>] [--host <h>] [--user <u>]          Bootstrap strut on VPS"
   echo "  adopt    --host <h> [--env <name>] [--remote-dir <path>]       Adopt a hand-deployed stack"
   echo "  status   [--env <name>]                                        Stack status"
+  echo "  validate [--env <name>]                                        Validate stack configuration"
+  echo "  history  [--env <name>] [--limit <n>]                          Show deployment history"
   echo "  briefing [--env <name>] [--json]                               One-call situation report (posture + actions)"
   echo "  preflight [--env <name>] [--json]                              Deploy go/no-go verdict (GO/CAUTION/NO-GO)"
   echo "  volumes  [--env <name>] [status|init|config]                   Volume management"
@@ -353,8 +357,8 @@ usage() {
   echo "  releases   [--env <name>] [--json] | show <id>                Deploy history / audit trail"
   echo "  prune      [--env <name>]                                      Remove unused containers/images/volumes on VPS"
   echo "  gateway    deploy|status|reload|validate --host <alias>        Caddy gateway management"
-  echo "  cert:renew [--host <alias>]                                    Renew SSL/TLS certificates"
-  echo "  cert:status [--host <alias>]                                   Show certificate status/expiry"
+  echo "  <host-alias> cert:renew [--dry-run]                            Renew SSL/TLS certificates"
+  echo "  <host-alias> cert:status [--dry-run]                           Show certificate status/expiry"
   echo "  provision  <host-alias> [--force] [--script <path>]            Run hosts/<host>/provision.d/ (or legacy script) on VPS"
   echo "  ssh:keygen [--env <name>]                                      Generate/rotate SSH deploy keys"
   echo "  ci:init    [--env <name>]                                      Bootstrap CI/CD integration"
@@ -402,7 +406,7 @@ usage() {
   echo "  Use STRUT_PROJECT (see above) or a space-free symlink as a workaround."
   echo ""
   echo "Audit Commands:"
-  echo "  audit <vps-host> [vps-user] [ssh-key] [ssh-port]                 Audit VPS and generate report"
+  echo "  audit <vps-host> [vps-user] [ssh-key] [ssh-port] [--sudo]        Audit VPS and generate report"
   echo "  audit:list                                                     List all audits"
   echo "  audit:generate <stack-name> --from <audit-dir>                 Generate stack from audit"
   echo ""
@@ -415,8 +419,11 @@ usage() {
   echo "  monitoring status [--json]                                     Show monitoring status"
   echo ""
   echo "Migration Commands:"
-  echo "  migrate <vps-host> [vps-user] [ssh-port] [ssh-key] [--yes]    Run migration wizard"
+  echo "  migrate <vps-host> [vps-user] [ssh-port] [ssh-key] [options]  Run migration wizard"
   echo "          --yes, -y                                              Auto-answer yes to all prompts"
+  echo "          --sudo                                                 Run remote Docker commands with sudo"
+  echo "          --start-phase <1-8> | --start-phase=<1-8>             Start at a specific phase"
+  echo "          --stack <name> | --stack=<name>                       Limit migration to one stack"
   echo "  migrate:status                                                 Show migration status"
   echo ""
   echo "Notification Commands:"
@@ -748,14 +755,20 @@ case "${1:-}" in
 
   audit)
     # audit <vps-host> [vps-user] [ssh-key] [ssh-port] [--sudo]
-    VPS_HOST="${2:-}"
-    VPS_USER="${3:-ubuntu}"
-    AUDIT_SSH_KEY="${4:-}"
-    AUDIT_SSH_PORT="${5:-}"
-    # Check for --sudo flag in any position
+    # Filter --sudo before assigning positionals so it is accepted anywhere.
+    shift
+    AUDIT_POSITIONALS=()
     for arg in "$@"; do
-      [ "$arg" = "--sudo" ] && export VPS_SUDO=true
+      if [ "$arg" = "--sudo" ]; then
+        export VPS_SUDO=true
+      else
+        AUDIT_POSITIONALS+=("$arg")
+      fi
     done
+    VPS_HOST="${AUDIT_POSITIONALS[0]:-}"
+    VPS_USER="${AUDIT_POSITIONALS[1]:-ubuntu}"
+    AUDIT_SSH_KEY="${AUDIT_POSITIONALS[2]:-}"
+    AUDIT_SSH_PORT="${AUDIT_POSITIONALS[3]:-}"
     [ -n "$VPS_HOST" ] || { usage; fail "Usage: strut audit <vps-host> [vps-user] [ssh-key] [ssh-port] [--sudo]"; }
     audit_vps "$VPS_HOST" "$VPS_USER" "$AUDIT_SSH_KEY" "$AUDIT_SSH_PORT"
     exit 0

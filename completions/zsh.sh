@@ -30,12 +30,11 @@ _strut_stacks() {
 _strut_envs() {
   local root f name
   root=$(_strut_find_project_root) || return 0
-  for f in "$root"/.*.env(N) "$root"/.env(N); do
+  for f in "$root"/.*.env(N); do
     name=${f:t}
-    case "$name" in
-      .env)   print -- prod ;;
-      .*.env) name=${name#.}; name=${name%.env}; print -- "$name" ;;
-    esac
+    name=${name#.}
+    name=${name%.env}
+    print -- "$name"
   done
 }
 
@@ -49,7 +48,7 @@ _strut_groups() {
 
 _strut() {
   local -a top_cmds per_stack_cmds profiles
-  top_cmds=(init list scaffold upgrade doctor status-all dashboard posture group monitoring audit audit:list audit:diff audit:generate migrate migrate:status notify sync fleet webhook secrets-filter mcp skills help completions remote:init --version --help)
+  top_cmds=(init list scaffold upgrade doctor status-all dashboard posture group monitoring gateway audit audit:list audit:diff audit:generate migrate migrate:status notify sync fleet webhook secrets-filter mcp skills help completions remote:init --version --help)
   per_stack_cmds=(update release deploy rebuild ship stop first-run destroy diff lock health logs logs:download logs:rotate backup drift migrate restore db:pull db:push db:schema shell exec remote:init adopt provision ssh:keygen ci:init cert:renew cert:status init-secrets secrets gen status briefing preflight volumes timers prune local prod staging dev debug keys validate rollback history releases domain --help)
   profiles=(messaging ui full)
 
@@ -92,6 +91,9 @@ _strut() {
   local root_word="${words_arr[2]:-}"
 
   case "$root_word" in
+    gateway)
+      [ "$pos" -eq 3 ] && { compadd deploy status reload validate; return 0 }
+      ;;
     list)
       [ "$pos" -eq 3 ] && { compadd plugins --json; return 0 }
       ;;
@@ -133,7 +135,7 @@ _strut() {
       [ "$pos" -eq 4 ] && { compadd postgres neo4j mysql sqlite all verify list health schedule retention; return 0 }
       ;;
     drift)
-      [ "$pos" -eq 4 ] && { compadd detect report fix monitor history auto-fix; return 0 }
+      [ "$pos" -eq 4 ] && { compadd detect report fix monitor history auto-fix images; return 0 }
       ;;
     db:pull|db:push)
       [ "$pos" -eq 4 ] && { compadd postgres neo4j mysql sqlite all --download-only --upload-only --file; return 0 }
@@ -157,7 +159,7 @@ _strut() {
       [ "$pos" -eq 4 ] && { compadd exec shell port-forward copy snapshot inspect-env stats; return 0 }
       ;;
     keys)
-      [ "$pos" -eq 4 ] && { compadd rotate status check env ssh github; return 0 }
+      [ "$pos" -eq 4 ] && { compadd discover inventory audit export status recent test test:ssh test:vps test:env test:api test:db test:github ssh:add ssh:rotate ssh:revoke ssh:list ssh:audit ssh:sync-github api:generate api:rotate api:revoke api:list api:test env:rotate env:set env:sync env:validate env:backup env:diff db:rotate db:create-readonly pull rotate-registry registry-status github:list github:set github:rotate-vps-key github:rotate-pat github:sync github:audit; return 0 }
       ;;
     migrate)
       [ "$pos" -eq 4 ] && { compadd neo4j postgres --status --up --down; return 0 }

@@ -78,64 +78,74 @@ prompt_with_default() {
 # migrate_wizard <vps_host> [vps_user] [ssh_port] [ssh_key] [--yes] [--sudo] [--start-phase N] [--stack <name>]
 # Interactive wizard for complete VPS migration
 migrate_wizard() {
-  local vps_host="$1"
-  local vps_user="${2:-ubuntu}"
-  local ssh_port="${3:-}"
-  local ssh_key="${4:-}"
-  local arg5="${5:-}"
-  local arg6="${6:-}"
-
-  # Stack filter (empty = all stacks)
+  # Parse options and positionals in one pass so flag values can never occupy
+  # the host/user/port/key slots. Options are accepted in any position.
+  MIGRATE_AUTO_YES=false
+  MIGRATE_START_PHASE=1
   local MIGRATE_STACK_FILTER=""
+  local -a positionals=()
 
-  # Parse flags from any position
-  local args=("$@")
-  local i=0
-  for arg in "${args[@]}"; do
-    if [ "$arg" = "--yes" ] || [ "$arg" = "-y" ]; then
-      MIGRATE_AUTO_YES=true
-      export STRUT_YES=1  # so the (guarded) utils confirm auto-approves too
-    elif [ "$arg" = "--sudo" ]; then
-      export VPS_SUDO=true
-    elif [[ "$arg" =~ ^--start-phase=([0-9]+)$ ]]; then
-      MIGRATE_START_PHASE="${BASH_REMATCH[1]}"
-    elif [ "$arg" = "--start-phase" ]; then
-      # Next arg should be the phase number
-      local next_is_phase=false
-      for a in "${args[@]}"; do
-        if $next_is_phase; then
-          MIGRATE_START_PHASE="$a"
-          break
-        fi
-        [ "$a" = "--start-phase" ] && next_is_phase=true
-      done
-    elif [[ "$arg" =~ ^--stack=(.+)$ ]]; then
-      MIGRATE_STACK_FILTER="${BASH_REMATCH[1]}"
-    elif [ "$arg" = "--stack" ]; then
-      # Next arg should be the stack name
-      local next_is_stack=false
-      for a in "${args[@]}"; do
-        if $next_is_stack; then
-          MIGRATE_STACK_FILTER="$a"
-          break
-        fi
-        [ "$a" = "--stack" ] && next_is_stack=true
-      done
-    fi
-    i=$((i + 1))
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --yes|-y)
+        MIGRATE_AUTO_YES=true
+        export STRUT_YES=1
+        shift
+        ;;
+      --sudo)
+        export VPS_SUDO=true
+        shift
+        ;;
+      --start-phase=*)
+        MIGRATE_START_PHASE="${1#*=}"
+        [ -n "$MIGRATE_START_PHASE" ] || { fail "Missing value for --start-phase"; return 1; }
+        shift
+        ;;
+      --start-phase)
+        [ $# -ge 2 ] && [ -n "${2:-}" ] && [[ "$2" != -* ]] || { fail "Missing value for --start-phase"; return 1; }
+        MIGRATE_START_PHASE="$2"
+        shift 2
+        ;;
+      --stack=*)
+        MIGRATE_STACK_FILTER="${1#*=}"
+        [ -n "$MIGRATE_STACK_FILTER" ] || { fail "Missing value for --stack"; return 1; }
+        shift
+        ;;
+      --stack)
+        [ $# -ge 2 ] && [ -n "${2:-}" ] && [[ "$2" != -* ]] || { fail "Missing value for --stack"; return 1; }
+        MIGRATE_STACK_FILTER="$2"
+        shift 2
+        ;;
+      --*)
+        fail "Unknown migration option: $1"
+        return 1
+        ;;
+      *)
+        positionals+=("$1")
+        shift
+        ;;
+    esac
   done
 
-  # Clean up positional args (remove flags)
-  [ "$ssh_port" = "--yes" ] || [ "$ssh_port" = "-y" ] || [[ "$ssh_port" =~ ^--start-phase ]] || [[ "$ssh_port" =~ ^--stack ]] && ssh_port=""
-  [ "$ssh_key" = "--yes" ] || [ "$ssh_key" = "-y" ] || [[ "$ssh_key" =~ ^--start-phase ]] || [[ "$ssh_key" =~ ^--stack ]] && ssh_key=""
-  [ "$ssh_port" = "--sudo" ] && ssh_port=""
-  [ "$ssh_key" = "--sudo" ] && ssh_key=""
+  if [ "${#positionals[@]}" -gt 4 ]; then
+    fail "Too many positional arguments for migrate_wizard"
+    return 1
+  fi
 
-  [ -n "$vps_host" ] || fail "Usage: migrate_wizard <vps_host> [vps_user] [ssh_port] [ssh_key] [--yes] [--sudo] [--start-phase N] [--stack <name>]"
+  local vps_host="${positionals[0]:-}"
+  local vps_user="${positionals[1]:-ubuntu}"
+  local ssh_port="${positionals[2]:-}"
+  local ssh_key="${positionals[3]:-}"
 
-  # Validate start phase
+  [ -n "$vps_host" ] || { fail "Usage: migrate_wizard <vps_host> [vps_user] [ssh_port] [ssh_key] [--yes] [--sudo] [--start-phase N] [--stack <name>]"; return 1; }
+
+  # Validate start phase before using numeric comparisons under strict mode.
+  case "$MIGRATE_START_PHASE" in
+    ''|*[!0-9]*) fail "Invalid start phase: $MIGRATE_START_PHASE (must be 1-8)"; return 1 ;;
+  esac
   if [ "$MIGRATE_START_PHASE" -lt 1 ] || [ "$MIGRATE_START_PHASE" -gt 8 ]; then
     fail "Invalid start phase: $MIGRATE_START_PHASE (must be 1-8)"
+    return 1
   fi
 
   echo ""

@@ -10,7 +10,7 @@
 # Source utils if not already sourced
 set -euo pipefail
 
-if [ -z "$RED" ]; then
+if [ -z "${RED:-}" ]; then
   SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
   source "$SCRIPT_DIR/utils.sh"
 fi
@@ -63,7 +63,7 @@ drift_get_git_hash() {
     # the tracked-file branch's normalization.
     local untracked_content
     untracked_content=$(cat "$file_path" 2>/dev/null)
-    printf '%s' "$untracked_content" | sha256sum | awk '{print $1}'
+    compare_artifact_hash "$file_path" "$untracked_content"
     return 0
   fi
 
@@ -78,7 +78,7 @@ drift_get_git_hash() {
   # comparison, not just for the local case the July 2026 fix covered.
   local git_content
   git_content=$(git -C "$cli_root" show "HEAD:$relative_path" 2>/dev/null)
-  printf '%s' "$git_content" | sha256sum | awk '{print $1}'
+  compare_artifact_hash "$file_path" "$git_content"
 }
 
 # drift_get_vps_hash <stack> <tracked_file> <stack_dir>
@@ -120,7 +120,7 @@ drift_get_vps_hash() {
         echo "missing"
         return 1
       fi
-      printf '%s' "$remote_content" | sha256sum | awk '{print $1}'
+      compare_artifact_hash "$tracked_file" "$remote_content"
       return 0
     fi
   fi
@@ -134,7 +134,7 @@ drift_get_vps_hash() {
   fi
   local local_content
   local_content=$(cat "$local_file" 2>/dev/null)
-  printf '%s' "$local_content" | sha256sum | awk '{print $1}'
+  compare_artifact_hash "$tracked_file" "$local_content"
 }
 
 # drift_get_git_content <file_path>

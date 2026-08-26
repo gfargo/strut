@@ -74,7 +74,10 @@ if [ -d "$STRUT_HOME/.git" ]; then
 
   log "Existing installation found at $STRUT_HOME — upgrading..."
   git -C "$STRUT_HOME" fetch origin "$STRUT_BRANCH" --quiet
-  git -C "$STRUT_HOME" reset --hard "origin/$STRUT_BRANCH" --quiet
+  # FETCH_HEAD works for both branch names and immutable release tags. A tag
+  # fetch does not create origin/<tag>, so resetting to that remote-tracking
+  # path breaks pinned installs on their second run (strut#402).
+  git -C "$STRUT_HOME" reset --hard FETCH_HEAD --quiet
 else
   log "Installing strut to $STRUT_HOME..."
   git clone --branch "$STRUT_BRANCH" --single-branch --quiet "$STRUT_REPO" "$STRUT_HOME"

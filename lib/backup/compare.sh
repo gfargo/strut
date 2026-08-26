@@ -12,9 +12,10 @@ compare_neo4j_databases() {
 
   log "Comparing Neo4j databases: $env1 vs $env2"
 
-  # Get container names
-  local container1="${stack}-${env1}-neo4j-1"
-  local container2="${stack}-${env2}-neo4j-1"
+  # Resolve configured compose service name instead of assuming "neo4j".
+  local neo4j_service="${BACKUP_NEO4J_SERVICE:-neo4j}"
+  local container1="${stack}-${env1}-${neo4j_service}-1"
+  local container2="${stack}-${env2}-${neo4j_service}-1"
 
   # Check containers exist
   if ! docker ps --filter "name=$container1" --format "{{.Names}}" | grep -q "$container1"; then
@@ -209,8 +210,9 @@ compare_postgres_databases() {
 
   log "Comparing Postgres databases: $env1 vs $env2"
 
-  local container1="${stack}-${env1}-postgres-1"
-  local container2="${stack}-${env2}-postgres-1"
+  local pg_service="${BACKUP_POSTGRES_SERVICE:-postgres}"
+  local container1="${stack}-${env1}-${pg_service}-1"
+  local container2="${stack}-${env2}-${pg_service}-1"
 
   # Check containers exist
   if ! docker ps --filter "name=$container1" --format "{{.Names}}" | grep -q "$container1"; then
@@ -238,20 +240,18 @@ compare_postgres_databases() {
   # Query table counts
   log "Querying $env1 database..."
   local tables1
-  tables1=$(docker exec "$container1" psql -U "$pg_user1" -d "$pg_db1" -t -c \
-    "SELECT schemaname || '.' || tablename as table_name,
-            (SELECT count(*) FROM pg_catalog.pg_class c WHERE c.relname = tablename) as row_count
-     FROM pg_tables
-     WHERE schemaname NOT IN ('pg_catalog', 'information_schema')
+  tables1=$(docker exec "$container1" psql -U "$pg_user1" -d "$pg_db1" -At -F '|' -c \
+    "SELECT schemaname || '.' || relname AS table_name,
+            n_live_tup::bigint AS row_count
+     FROM pg_stat_user_tables
      ORDER BY table_name" 2>&1)
 
   log "Querying $env2 database..."
   local tables2
-  tables2=$(docker exec "$container2" psql -U "$pg_user2" -d "$pg_db2" -t -c \
-    "SELECT schemaname || '.' || tablename as table_name,
-            (SELECT count(*) FROM pg_catalog.pg_class c WHERE c.relname = tablename) as row_count
-     FROM pg_tables
-     WHERE schemaname NOT IN ('pg_catalog', 'information_schema')
+  tables2=$(docker exec "$container2" psql -U "$pg_user2" -d "$pg_db2" -At -F '|' -c \
+    "SELECT schemaname || '.' || relname AS table_name,
+            n_live_tup::bigint AS row_count
+     FROM pg_stat_user_tables
      ORDER BY table_name" 2>&1)
 
   echo ""
@@ -262,13 +262,13 @@ compare_postgres_databases() {
   echo "──────────────────────────────────────────────────────────────"
 
   # Parse and display results
-  echo "$tables1" | grep -v "^$" | while read -r table_name count1; do
+  echo "$tables1" | grep -v "^$" | while IFS='|' read -r table_name count1; do
     table_name=$(echo "$table_name" | xargs)
     count1=$(echo "$count1" | xargs)
 
-    # Find matching table in env2
+    # Find the exact matching schema-qualified table in env2.
     local count2
-    count2=$(echo "$tables2" | grep "^[[:space:]]*$table_name" | awk '{print $2}' | xargs)
+    count2=$(echo "$tables2" | awk -F'|' -v table="$table_name" '$1 == table { print $2; exit }' | xargs)
     count2=${count2:-0}
 
     local match="✓"

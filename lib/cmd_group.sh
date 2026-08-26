@@ -19,10 +19,11 @@ Usage:
   strut group remove <name> <stack>             Remove a stack from a group
   strut group <name> <command> [--env <name>] [--stop-on-error] [options]
                                                 Run command for all stacks in group
-  strut group <name> logs [--follow] [--since <dur>] [--grep <pat>] [--service <svc>]
+  strut group <name> logs [--env <name>] [--follow] [--since <dur>] [--grep <pat>] [--service <svc>]
                                                 Multiplex logs with [stack] prefixes
 
 Flags (for group execution):
+  --env <name>      Environment forwarded to each stack command
   --stop-on-error   Halt on the first failing stack (default: continue)
   --json            Summary as JSON (text summary otherwise)
   --help, -h        Show this help
@@ -219,6 +220,7 @@ _group_logs() {
   local since=""
   local grep_pattern=""
   local service=""
+  local env_name=""
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --follow|-f)  follow="--follow"; shift ;;
@@ -228,6 +230,16 @@ _group_logs() {
       --grep=*)     grep_pattern="${1#*=}"; shift ;;
       --service)    service="${2:-}"; shift 2 ;;
       --service=*)  service="${1#*=}"; shift ;;
+      --env)
+        [ $# -ge 2 ] && [ -n "${2:-}" ] || { fail "Missing value for --env"; return 1; }
+        env_name="$2"
+        shift 2
+        ;;
+      --env=*)
+        env_name="${1#*=}"
+        [ -n "$env_name" ] || { fail "Missing value for --env"; return 1; }
+        shift
+        ;;
       --help|-h)    _usage_group; return 0 ;;
       *)            warn "Unknown flag: $1"; shift ;;
     esac
@@ -283,6 +295,7 @@ _group_logs() {
     fi
 
     local -a child_args=("$stack" "logs")
+    [ -n "$env_name" ] && child_args+=("--env" "$env_name")
     [ -n "$follow" ] && child_args+=("$follow")
     [ -n "$since" ]  && child_args+=("--since" "$since")
     [ -n "$service" ] && child_args+=("$service")

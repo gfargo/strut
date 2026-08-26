@@ -43,7 +43,7 @@ _usage_remote_init() {
 
 # cmd_remote_init [options] (reads CMD_* when available)
 cmd_remote_init() {
-  local host="" user="" ssh_key="" port="" repo_url="" branch="main" deploy_dir=""
+  local host="" user="" ssh_key="" port="" repo_url="" branch="" deploy_dir=""
   local dry_run="${DRY_RUN:-false}"
 
   # Read from CMD_* context if available (stack-scoped invocation)
