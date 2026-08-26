@@ -10,6 +10,8 @@
 
 set -euo pipefail
 
+declare -F compare_path_within >/dev/null || source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/compare.sh"
+
 # ── State ─────────────────────────────────────────────────────────────────────
 _DOC_PASSED=0
 _DOC_WARNED=0
@@ -303,10 +305,11 @@ _doc_check_vps() {
           fi
 
           if [ -n "${f_working_dir:-}" ]; then
-            local _expected_prefix="$deploy_dir/stacks/"
-            if [[ "$f_working_dir" != "$_expected_prefix"* ]]; then
+            local _expected_root
+            _expected_root=$(compare_normalize_path "$deploy_dir/stacks")
+            if ! compare_path_within "$f_working_dir" "$_expected_root"; then
               _doc_warn "VPS deploy-dir ($env_name)" \
-                "containers run from $f_working_dir, expected under ${_expected_prefix%/}" ""
+                "containers run from $f_working_dir, expected under $_expected_root" ""
             fi
           fi
         fi
@@ -453,20 +456,20 @@ REMOTE
   if [[ "$workingdir_lines" == *"EMPTY"* ]] || [ -z "$workingdir_lines" ]; then
     _doc_pass "$label / workingdir" "no running containers (skip)"
   else
-    local expected_prefix
-    expected_prefix="$deploy_dir/stacks"
+    local expected_root
+    expected_root=$(compare_normalize_path "$deploy_dir/stacks")
     local mismatch_found=false
     while IFS= read -r wdir; do
       [ -z "$wdir" ] && continue
-      if [[ "$wdir" != "$expected_prefix"* ]]; then
+      if ! compare_path_within "$wdir" "$expected_root"; then
         _doc_warn "$label / workingdir" \
-          "container working_dir '$wdir' outside expected prefix '$expected_prefix'" \
+          "container working_dir '$wdir' outside expected prefix '$expected_root'" \
           "Check VPS_DEPLOY_DIR or re-deploy from the correct checkout"
         mismatch_found=true
       fi
     done <<< "$workingdir_lines"
     if ! $mismatch_found; then
-      _doc_pass "$label / workingdir" "all containers under $expected_prefix"
+      _doc_pass "$label / workingdir" "all containers under $expected_root"
     fi
   fi
 }
