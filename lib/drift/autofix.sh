@@ -9,7 +9,7 @@
 # Source utils if not already sourced
 set -euo pipefail
 
-if [ -z "$RED" ]; then
+if [ -z "${RED:-}" ]; then
   SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
   source "$SCRIPT_DIR/utils.sh"
 fi
@@ -75,10 +75,10 @@ EOF
     local drift_cmd="cd $cli_root && $(resolve_strut_binary) $stack drift monitor --env $env --auto-fix"
     local log_file="$cli_root/stacks/$stack/drift-history/monitor.log"
     local cron_cmd
-    cron_cmd=$(build_cron_job "drift-$stack" "$schedule" "$drift_cmd" "$log_file")
+    cron_cmd="$(build_cron_job "drift-$stack" "$schedule" "$drift_cmd" "$log_file") $(_drift_cron_marker "$stack")"
 
     (
-      crontab -l 2>/dev/null | grep -v "drift monitor.*$stack"
+      crontab -l 2>/dev/null | _drift_cron_without_stack "$stack"
       echo "$cron_cmd"
     ) | crontab -
 
@@ -136,10 +136,10 @@ EOF
     local drift_cmd="cd $cli_root && $(resolve_strut_binary) $stack drift monitor --env $env"
     local log_file="$cli_root/stacks/$stack/drift-history/monitor.log"
     local cron_cmd
-    cron_cmd=$(build_cron_job "drift-$stack" "$schedule" "$drift_cmd" "$log_file")
+    cron_cmd="$(build_cron_job "drift-$stack" "$schedule" "$drift_cmd" "$log_file") $(_drift_cron_marker "$stack")"
 
     (
-      crontab -l 2>/dev/null | grep -v "drift monitor.*$stack"
+      crontab -l 2>/dev/null | _drift_cron_without_stack "$stack"
       echo "$cron_cmd"
     ) | crontab -
 
@@ -193,10 +193,12 @@ drift_autofix_status() {
   echo "Rollback on failure: $rollback_on_failure"
   echo ""
 
-  # Check cron job
-  if crontab -l 2>/dev/null | grep -q "drift monitor.*$stack.*--auto-fix"; then
+  # Check this exact stack's managed cron job.
+  local cron_job
+  cron_job=$(_drift_cron_for_stack "$stack")
+  if printf '%s' "$cron_job" | grep -q -- "--auto-fix"; then
     ok "Cron job configured with auto-fix"
-  elif crontab -l 2>/dev/null | grep -q "drift monitor.*$stack"; then
+  elif [ -n "$cron_job" ]; then
     log "Cron job configured without auto-fix"
   else
     warn "No cron job configured"

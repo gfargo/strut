@@ -69,8 +69,9 @@ cmd_logs() {
       remote_args="$remote_args --services $services"
     fi
     # --follow requires a TTY + keepalive so the SSH stream doesn't hang.
+    # Interrupting the stream is expected, not a connectivity failure.
     if [ -n "$follow_flag" ]; then
-      run_remote_strut "$stack" "$env_name" "$remote_args" --tty --keepalive
+      run_remote_strut "$stack" "$env_name" "$remote_args" --tty --keepalive --allow-interrupt
     else
       run_remote_strut "$stack" "$env_name" "$remote_args"
     fi

@@ -1205,8 +1205,17 @@ run_remote_strut() {
   local env_name="$2"
   local remote_cmd_args="$3"
   shift 3
-  # Remaining args are extra build_ssh_opts flags (e.g. --tty --keepalive)
-  local extra_ssh_flags=("$@")
+  # Remaining args are build_ssh_opts flags plus the internal
+  # --allow-interrupt control used by streaming commands.
+  local allow_interrupt=false
+  local extra_ssh_flags=()
+  local extra_flag
+  for extra_flag in "$@"; do
+    case "$extra_flag" in
+      --allow-interrupt) allow_interrupt=true ;;
+      *) extra_ssh_flags+=("$extra_flag") ;;
+    esac
+  done
 
   local vps_host="${VPS_HOST:-}"
   local vps_user="${VPS_USER:-ubuntu}"
@@ -1235,11 +1244,24 @@ run_remote_strut() {
   fi
 
   # shellcheck disable=SC2029,SC2086
+  local remote_rc=0
   ssh $ssh_opts "$vps_user@$vps_host" "
     set -e
     cd '$deploy_dir'
     STRUT_REMOTE_EXEC=1 ./strut $stack $remote_cmd_args --env ${env_name:-prod}$host_flag
-  " || fail "Remote command failed — check VPS_HOST and SSH access"
+  " || remote_rc=$?
+
+  # Ctrl-C/SIGTERM are normal ways to end an explicitly streaming command.
+  # Keep generic remote calls strict; only callers that opted in receive this
+  # behavior (strut#402).
+  if [ "$allow_interrupt" = "true" ] && { [ "$remote_rc" -eq 130 ] || [ "$remote_rc" -eq 143 ]; }; then
+    return 0
+  fi
+  if [ "$remote_rc" -ne 0 ]; then
+    fail "Remote command failed — check VPS_HOST and SSH access"
+    # shellcheck disable=SC2317 # reachable in tests, where fail() is mocked to `return` instead of `exit`
+    return 1
+  fi
 }
 
 # ── Subcommand validation ─────────────────────────────────────────────────────

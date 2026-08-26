@@ -12,38 +12,11 @@
 
 set -euo pipefail
 
-# ── Internal: normalize env content ───────────────────────────────────────────
-#
-# _diff_normalize_env <content>
-#   Emits `KEY=VALUE` lines:
-#   - Comments and blank lines dropped
-#   - Surrounding whitespace trimmed
-#   - Surrounding "..." or '...' stripped from the value
-#   - Keys sorted (deterministic diff order)
-_diff_normalize_env() {
-  local content="$1"
-  echo "$content" | awk '
-    /^[[:space:]]*#/ { next }
-    /^[[:space:]]*$/ { next }
-    {
-      # Split on first =
-      idx = index($0, "=")
-      if (idx == 0) next
-      key = substr($0, 1, idx - 1)
-      val = substr($0, idx + 1)
-      # Trim key whitespace
-      sub(/^[[:space:]]+/, "", key); sub(/[[:space:]]+$/, "", key)
-      # Strip export prefix if present
-      sub(/^export[[:space:]]+/, "", key)
-      # Strip surrounding quotes from value
-      if (val ~ /^".*"$/) { val = substr(val, 2, length(val) - 2) }
-      else if (val ~ /^'\''.*'\''$/) { val = substr(val, 2, length(val) - 2) }
-      # Strip trailing whitespace from value
-      sub(/[[:space:]]+$/, "", val)
-      print key "=" val
-    }
-  ' | sort
-}
+# Shared normalization/comparison primitives. Keeping the compatibility alias
+# preserves the public helper used by existing tests and downstream scripts.
+_COMPARE_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+declare -F compare_normalize_env >/dev/null || source "$_COMPARE_LIB_DIR/compare.sh"
+_diff_normalize_env() { compare_normalize_env "$1"; }
 
 # diff_env_content <local_content> <remote_content>
 #

@@ -9,7 +9,7 @@
 # Source utils if not already sourced
 set -euo pipefail
 
-if [ -z "$RED" ]; then
+if [ -z "${RED:-}" ]; then
   SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
   source "$SCRIPT_DIR/utils.sh"
 fi
