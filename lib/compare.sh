@@ -62,3 +62,34 @@ compare_artifacts_equal() {
   local right="$3"
   [ "$(compare_artifact_hash "$artifact" "$left")" = "$(compare_artifact_hash "$artifact" "$right")" ]
 }
+
+# compare_normalize_path <path>
+# Normalizes separators without resolving filesystem components. Remote runtime
+# paths may not exist locally, so `realpath` is intentionally inappropriate.
+compare_normalize_path() {
+  local path="$1"
+  [ -n "$path" ] || return 1
+
+  while [[ "$path" == *//* ]]; do
+    path="${path//\/\//\/}"
+  done
+  while [ "$path" != "/" ] && [[ "$path" == */ ]]; do
+    path="${path%/}"
+  done
+
+  printf '%s' "$path"
+}
+
+# compare_path_within <candidate-path> <intent-root>
+# Returns success only when candidate is a lexical descendant of intent-root.
+compare_path_within() {
+  local candidate intent_root
+  candidate=$(compare_normalize_path "$1") || return 1
+  intent_root=$(compare_normalize_path "$2") || return 1
+
+  if [ "$intent_root" = "/" ]; then
+    [[ "$candidate" == /* && "$candidate" != "/" ]]
+  else
+    [[ "$candidate" == "$intent_root/"* ]]
+  fi
+}
