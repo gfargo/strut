@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.45.5](https://github.com/gfargo/strut/compare/v0.45.4...v0.45.5) (2026-08-27)
+
+
+### Bug Fixes
+
+* **cli:** resolve P2 correctness roundups ([#521](https://github.com/gfargo/strut/issues/521)) ([ee71ffc](https://github.com/gfargo/strut/commit/ee71ffc704f0fa43298f1fc0e26d1d1277e845e4))
+* **mcp:** confirmation gate, migration guards, drift fallback ([#516](https://github.com/gfargo/strut/issues/516), [#517](https://github.com/gfargo/strut/issues/517), [#518](https://github.com/gfargo/strut/issues/518)) ([#519](https://github.com/gfargo/strut/issues/519)) ([e290575](https://github.com/gfargo/strut/commit/e290575fdb3e793b2071e611d9b55d9a2c7efa57))
+* **validate:** honor effective env cascade ([#524](https://github.com/gfargo/strut/issues/524)) ([95826a9](https://github.com/gfargo/strut/commit/95826a92eb7939c4f47758e4f291c6b50321a2cb))
+
 ## [0.45.4](https://github.com/gfargo/strut/compare/v0.45.3...v0.45.4) (2026-08-05)
 
 
