@@ -338,8 +338,9 @@ _validate_required_vars() {
     return
   fi
 
-  # Parse env file to get values (safe_load_env: no shell execution of values)
-  safe_load_env "$env_file" 2>/dev/null || true
+  # Load the same effective env cascade used by deployment: common values,
+  # selected base env, active topology host layer, then generated secrets.
+  validate_env_file "$env_file" || true
 
   while IFS= read -r var || [ -n "$var" ]; do
     var=$(echo "$var" | xargs)
