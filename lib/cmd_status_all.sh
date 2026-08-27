@@ -71,33 +71,81 @@ _status_backup_age() {
   _status_newest_mtime "$dir" "*"
 }
 
-# _status_health <stack> <env_name> — emits one of: healthy | degraded | down | unknown
-#
-# Fast check — runs `docker compose ps` and aggregates container State.
-# Dispatches to the VPS over SSH for stacks whose env file sets VPS_HOST
-# (see _status_health_remote). Returns "unknown" if compose isn't available
-# or the stack has no docker-compose.yml.
-_status_health() {
+# _status_resolve_env_file <stack> <env_name>
+# Uses the entrypoint's stack-aware resolver when available. The fallback keeps
+# this module standalone for tests and direct library consumers.
+_status_resolve_env_file() {
+  local stack="$1"
+  local env_name="${2:-}"
+  local stack_dir="$CLI_ROOT/stacks/$stack"
+
+  if declare -F resolve_env_file >/dev/null 2>&1; then
+    resolve_env_file "$stack" "$env_name"
+    return
+  fi
+
+  if [ -n "$env_name" ]; then
+    if [ -f "$stack_dir/.$env_name.enc.env" ]; then
+      echo "$stack_dir/.$env_name.enc.env"
+    elif [ -f "$stack_dir/.$env_name.env" ]; then
+      echo "$stack_dir/.$env_name.env"
+    elif [ -f "$CLI_ROOT/.$env_name.enc.env" ]; then
+      echo "$CLI_ROOT/.$env_name.enc.env"
+    else
+      echo "$CLI_ROOT/.$env_name.env"
+    fi
+  elif [ -f "$stack_dir/.env" ]; then
+    echo "$stack_dir/.env"
+  else
+    echo "$CLI_ROOT/.env"
+  fi
+}
+
+# _status_prepare_stack_context <stack> <env_name>
+# Resolves health intent exactly like normal stack dispatch: stack-aware base
+# env first, then topology defaults and the tracked host layer. Callers should
+# run this in a subshell per stack so arbitrary env-layer values cannot leak to
+# the next row.
+_status_prepare_stack_context() {
+  local stack="$1"
+  local env_name="${2:-}"
+  local stack_dir="$CLI_ROOT/stacks/$stack"
+
+  unset VPS_HOST VPS_USER VPS_PORT VPS_SSH_KEY VPS_DEPLOY_DIR _TOPO_ACTIVE_HOST_ALIAS 2>/dev/null || true
+
+  _STATUS_ENV_FILE=$(_status_resolve_env_file "$stack" "$env_name")
+  [ -f "$_STATUS_ENV_FILE" ] && safe_load_env "$_STATUS_ENV_FILE" 2>/dev/null || true
+
+  if declare -F topology_apply_to_env >/dev/null 2>&1; then
+    topology_apply_to_env "$stack" "$stack_dir"
+  fi
+
+  _STATUS_TARGET_SCOPE="local"
+  if should_dispatch_remote; then
+    _STATUS_TARGET_SCOPE="remote"
+  fi
+  _STATUS_TARGET_ALIAS="${_TOPO_ACTIVE_HOST_ALIAS:-}"
+  _STATUS_TARGET_HOST="${VPS_HOST:-}"
+  if [ -n "$env_name" ]; then
+    _STATUS_HEALTH_ENV="$env_name"
+  elif [ "$_STATUS_TARGET_SCOPE" = "remote" ]; then
+    # run_remote_strut preserves the historical no-flag remote default.
+    _STATUS_HEALTH_ENV="prod"
+  else
+    _STATUS_HEALTH_ENV="default"
+  fi
+}
+
+# _status_health_resolved <stack> <env_name>
+# Probes health after _status_prepare_stack_context has resolved the target.
+_status_health_resolved() {
   local stack="$1"
   local env_name="${2:-}"
   local stack_dir="$CLI_ROOT/stacks/$stack"
 
   [ -f "$stack_dir/docker-compose.yml" ] || { echo "unknown"; return; }
 
-  local env_file
-  if [ -n "$env_name" ]; then
-    env_file="$CLI_ROOT/.$env_name.env"
-  else
-    env_file="$CLI_ROOT/.env"
-  fi
-
-  # Each stack's env file is optional and independent — clear connection vars
-  # from the previous loop iteration so a stack with no VPS_HOST doesn't
-  # inherit the prior stack's remote target.
-  unset VPS_HOST VPS_USER VPS_PORT VPS_SSH_KEY VPS_DEPLOY_DIR 2>/dev/null || true
-  [ -f "$env_file" ] && safe_load_env "$env_file" 2>/dev/null || true
-
-  if should_dispatch_remote; then
+  if [ "$_STATUS_TARGET_SCOPE" = "remote" ]; then
     _status_health_remote "$stack" "$env_name"
     return
   fi
@@ -105,7 +153,7 @@ _status_health() {
   command -v docker >/dev/null 2>&1 || { echo "unknown"; return; }
 
   local compose_cmd
-  if ! compose_cmd=$(resolve_compose_cmd "$stack" "$env_file" "" 2>/dev/null); then
+  if ! compose_cmd=$(resolve_compose_cmd "$stack" "$_STATUS_ENV_FILE" "" 2>/dev/null); then
     echo "unknown"
     return
   fi
@@ -137,6 +185,31 @@ _status_health() {
   else
     echo "degraded"
   fi
+}
+
+# _status_health <stack> <env_name> — compatibility wrapper used by tests and
+# direct callers. Main aggregation uses _status_health_context so target
+# provenance is returned with the result.
+_status_health() {
+  local stack="$1"
+  local env_name="${2:-}"
+  _status_prepare_stack_context "$stack" "$env_name"
+  _status_health_resolved "$stack" "$env_name"
+}
+
+# _status_health_context <stack> <env_name>
+# Emits unit-separator fields: health, scope, alias, host, effective env.
+_status_health_context() {
+  local stack="$1"
+  local env_name="${2:-}"
+  local health
+  _status_prepare_stack_context "$stack" "$env_name"
+  # Call the public wrapper so existing integrations that override
+  # _status_health keep working; command substitution isolates its context.
+  health=$(_status_health "$stack" "$env_name")
+  printf '%s\x1f%s\x1f%s\x1f%s\x1f%s\n' \
+    "$health" "$_STATUS_TARGET_SCOPE" "$_STATUS_TARGET_ALIAS" \
+    "$_STATUS_TARGET_HOST" "$_STATUS_HEALTH_ENV"
 }
 
 # _status_health_remote <stack> <env_name> — health for a VPS-deployed stack
@@ -185,6 +258,32 @@ _status_health_glyph() {
   esac
 }
 
+_status_target_label() {
+  local scope="$1"
+  local alias="${2:-}"
+  local host="${3:-}"
+
+  if [ "$scope" != "remote" ]; then
+    echo "local"
+  elif [ -n "$alias" ] && [ -n "$host" ]; then
+    echo "$alias ($host)"
+  elif [ -n "$alias" ]; then
+    echo "$alias"
+  else
+    echo "${host:-remote}"
+  fi
+}
+
+_status_evidence_age() {
+  local age="$1"
+  local source="$2"
+  if [ "$age" = "-" ]; then
+    echo "-"
+  else
+    echo "$age [$source]"
+  fi
+}
+
 # ── Dashboard command ────────────────────────────────────────────────────────
 
 # cmd_status_all [--env <name>] [--json]
@@ -229,7 +328,7 @@ EOF
 
   [ "${#stacks[@]}" -eq 0 ] && {
     if [ "$json_mode" = "true" ]; then
-      echo '{"timestamp":"'"$(date -u +%FT%TZ)"'","stacks":[],"summary":{"total":0,"healthy":0,"degraded":0,"down":0}}'
+      echo '{"timestamp":"'"$(date -u +%FT%TZ)"'","stacks":[],"summary":{"total":0,"healthy":0,"degraded":0,"down":0,"unknown":0}}'
       return 0
     fi
     warn "No stacks found — run 'strut scaffold <name>' to create one"
@@ -242,11 +341,14 @@ EOF
 
   local total=0 healthy=0 degraded=0 down=0 unknown=0
   local -a rows_stack rows_health rows_deploy rows_backup
+  local -a rows_target_scope rows_target_alias rows_target_host rows_health_env
 
   for name in "${stacks[@]}"; do
     total=$((total + 1))
-    local health deploy_ts backup_ts
-    health=$(_status_health "$name" "$env_name")
+    local health_context health target_scope target_alias target_host health_env
+    local deploy_ts backup_ts
+    health_context=$(_status_health_context "$name" "$env_name")
+    IFS=$'\x1f' read -r health target_scope target_alias target_host health_env <<< "$health_context"
     deploy_ts=$(_status_last_deploy "$name")
     backup_ts=$(_status_backup_age "$name")
 
@@ -265,6 +367,10 @@ EOF
     rows_health+=("$health")
     rows_deploy+=("$deploy_age")
     rows_backup+=("$backup_age")
+    rows_target_scope+=("$target_scope")
+    rows_target_alias+=("$target_alias")
+    rows_target_host+=("$target_host")
+    rows_health_env+=("$health_env")
   done
 
   if [ "$json_mode" = "true" ]; then
@@ -280,6 +386,13 @@ EOF
             out_json_field "health" "${rows_health[$i]}"
             out_json_field "last_deploy" "${rows_deploy[$i]}"
             out_json_field "backup_age" "${rows_backup[$i]}"
+            out_json_field "target_scope" "${rows_target_scope[$i]}"
+            out_json_field "target_host_alias" "${rows_target_alias[$i]}"
+            out_json_field "target_host" "${rows_target_host[$i]}"
+            out_json_field "health_source" "${rows_target_scope[$i]}"
+            out_json_field "health_env" "${rows_health_env[$i]}"
+            out_json_field "last_deploy_source" "local_rollback"
+            out_json_field "backup_source" "local_backup"
           out_json_close_object
         done
       out_json_close_array
@@ -292,14 +405,15 @@ EOF
     [ -n "$env_name" ] && title="$title ($env_name)"
     echo -e "${BLUE}${title}${NC}"
     echo ""
-    out_table_header "Stack" "Health" "Last Deploy" "Backup Age"
+    out_table_header "Stack" "Target" "Health" "Last Deploy" "Backup Age"
     local i
     for i in "${!rows_stack[@]}"; do
       out_table_row \
         "${rows_stack[$i]}" \
+        "$(_status_target_label "${rows_target_scope[$i]}" "${rows_target_alias[$i]}" "${rows_target_host[$i]}")" \
         "$(_status_health_glyph "${rows_health[$i]}")" \
-        "${rows_deploy[$i]}" \
-        "${rows_backup[$i]}"
+        "$(_status_evidence_age "${rows_deploy[$i]}" "local rollback")" \
+        "$(_status_evidence_age "${rows_backup[$i]}" "local backup")"
     done
     out_table_render
     echo ""
