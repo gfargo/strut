@@ -309,17 +309,34 @@ _dashboard_render_html() {
 
   echo "<h3>Stacks</h3>"
   if command -v jq >/dev/null 2>&1 && printf '%s' "$stacks_json" | jq -e . >/dev/null 2>&1; then
-    echo "<table><tr><th>Stack</th><th>Health</th><th>Last Deploy</th><th>Backup Age</th></tr>"
-    printf '%s' "$stacks_json" | jq -r '.stacks[]? | [.name, (.health//"-"), (.last_deploy//"-"), (.backup_age//"-")] | @tsv' |
-      while IFS=$'\t' read -r name health last_deploy backup_age; do
+    echo "<table><tr><th>Stack</th><th>Target</th><th>Health</th><th>Last Deploy</th><th>Backup Age</th></tr>"
+    printf '%s' "$stacks_json" | jq -r '
+      def target:
+        if (.target_scope // "") == "remote" then
+          if (.target_host_alias // "") != "" and (.target_host // "") != "" then
+            .target_host_alias + " (" + .target_host + ")"
+          elif (.target_host_alias // "") != "" then .target_host_alias
+          elif (.target_host // "") != "" then .target_host
+          else "remote" end
+        elif (.target_scope // "") == "local" then "local"
+        else "-" end;
+      def evidence($value; $source):
+        if $value == "-" or $source == "" then $value
+        else $value + " [" + ($source | gsub("_"; " ")) + "]" end;
+      .stacks[]? |
+        [.name, target, (.health // "-"),
+         evidence((.last_deploy // "-"); (.last_deploy_source // "")),
+         evidence((.backup_age // "-"); (.backup_source // ""))] | @tsv' |
+      while IFS=$'\t' read -r name target health last_deploy backup_age; do
         local glyph=""
         case "$health" in
           healthy)  glyph="ok" ;;
           degraded) glyph="warn" ;;
           down)     glyph="err" ;;
         esac
-        printf '<tr><td>%s</td><td class="%s">%s</td><td>%s</td><td>%s</td></tr>\n' \
-          "$(_dashboard_html_escape "$name")" "$glyph" "$(_dashboard_html_escape "$health")" \
+        printf '<tr><td>%s</td><td>%s</td><td class="%s">%s</td><td>%s</td><td>%s</td></tr>\n' \
+          "$(_dashboard_html_escape "$name")" "$(_dashboard_html_escape "$target")" \
+          "$glyph" "$(_dashboard_html_escape "$health")" \
           "$(_dashboard_html_escape "$last_deploy")" "$(_dashboard_html_escape "$backup_age")"
       done
     echo "</table>"
