@@ -91,14 +91,26 @@ _mcp_arg_lines() {
 # repo's convention — see lib/utils.sh:60 — e.g. env_apply_gen_layer's
 # "Could not decrypt generated env layer" on a stack using
 # env/*.gen.enc.env without an age identity present) land ahead of a
-# command's --json body rather than being separated onto stderr. A plain
-# `jq -e .` over the whole capture then fails even though the call
-# succeeded and produced valid JSON. This scans line-by-line for the first
-# `{`/`[`-prefixed line whose suffix (to the end of the text) parses as
-# complete JSON, and echoes that suffix. Echoes nothing and returns 1 if no
-# such suffix exists.
+# command's --json body rather than being separated onto stderr. Remote
+# health adds one more known shape: run_remote_strut appends its generic
+# failure diagnostic after valid degraded/unhealthy JSON because those
+# domain states deliberately exit non-zero. Remove only that exact final
+# wrapper line, then scan line-by-line for the first `{`/`[`-prefixed line
+# whose remaining suffix parses as complete JSON. Echoes nothing and
+# returns 1 if no such suffix exists.
 _mcp_json_tail() {
-  local text="$1" line_no candidate
+  local text="$1" line_no candidate last_line
+  local remote_failure="Remote command failed — check VPS_HOST and SSH access"
+
+  if [[ "$text" == *$'\n'* ]]; then
+    last_line="${text##*$'\n'}"
+    case "$last_line" in
+      "✗  $remote_failure"|"✗  ["*"] $remote_failure")
+        text="${text%$'\n'*}"
+        ;;
+    esac
+  fi
+
   while IFS= read -r line_no; do
     candidate=$(printf '%s\n' "$text" | tail -n "+$line_no")
     if printf '%s' "$candidate" | jq -e . > /dev/null 2>&1; then

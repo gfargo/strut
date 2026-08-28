@@ -546,11 +546,23 @@ cmd_health() {
   compose_cmd=$(resolve_compose_cmd "$stack" "$env_file" "$services" "$bg_project")
 
   local health_rc=0
-  health_run_all "$stack" "$compose_cmd" "$compose_file" "$json_flag" || health_rc=$?
+  local health_output=""
+  if [ -n "$json_flag" ]; then
+    # Defer JSON until after on_health_fail runs so hook chatter cannot trail
+    # the machine-readable result. Remote dispatch may append its known
+    # non-zero wrapper afterward; MCP handles that exact trailer separately.
+    health_output=$(health_run_all "$stack" "$compose_cmd" "$compose_file" "$json_flag") || health_rc=$?
+  else
+    health_run_all "$stack" "$compose_cmd" "$compose_file" "$json_flag" || health_rc=$?
+  fi
 
   if [ "$health_rc" -ne 0 ]; then
     # Fire on_health_fail hook (warn-only — never mask the original exit code)
     HEALTH_STATUS="$health_rc" fire_hook_or_warn on_health_fail "$stack_dir"
+  fi
+
+  if [ -n "$json_flag" ]; then
+    printf '%s\n' "$health_output"
   fi
 
   return "$health_rc"
