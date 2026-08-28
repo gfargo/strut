@@ -37,9 +37,33 @@ setup() {
   : > "$SSH_CALL_LOG"
   export SSH_CALL_LOG
   ssh() {
-    echo "${@: -1}" >> "$SSH_CALL_LOG"
-    echo "KEY_A=value_a"
-    echo "KEY_B=value_b"
+    local last_arg="${@: -1}"
+    echo "$last_arg" >> "$SSH_CALL_LOG"
+    # Only emit env-file content for cat/docker-exec commands; test-f / find
+    # / wc commands must not print key values or they will appear in dry-run output.
+    case "$last_arg" in
+      cat\ *)
+        echo "KEY_A=value_a"
+        echo "KEY_B=value_b"
+        ;;
+      "test -f "*)
+        : # silent – file-exists check, no output
+        ;;
+      find\ *)
+        echo "/opt/deploy/.prod.env"
+        ;;
+      wc\ *)
+        echo "2"
+        ;;
+      *"docker exec"*)
+        # simulate 'docker exec <container> env'
+        echo "KEY_A=value_a"
+        echo "KEY_B=value_b"
+        ;;
+      *)
+        : # no output for other commands
+        ;;
+    esac
     return 0
   }
   export -f ssh

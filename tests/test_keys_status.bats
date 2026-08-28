@@ -76,11 +76,13 @@ teardown() {
 
   run keys_status "$STACK" --json
   [ "$status" -eq 0 ]
-  run jq -e '.ssh_keys' <<< "$output"
+  # Save JSON output before subsequent `run` calls clobber $output.
+  local json_out="$output"
+  run jq -e '.ssh_keys' <<< "$json_out"
   [ "$status" -eq 0 ]
-  run jq -e '.api_keys' <<< "$output"
+  run jq -e '.api_keys' <<< "$json_out"
   [ "$status" -eq 0 ]
-  run jq -e '.vps_status' <<< "$output"
+  run jq -e '.vps_status' <<< "$json_out"
   [ "$status" -eq 0 ]
 }
 
@@ -187,6 +189,9 @@ teardown() {
 # ── keys_recent: audit log slicing ───────────────────────────────────────────
 
 @test "keys_recent: returns 1 when no audit log exists" {
+  # setup() calls ensure_keys_dir which creates key-audit.log via 'touch'.
+  # Remove it so we can test the missing-log code path.
+  rm -f "$KEYS_DIR/key-audit.log"
   run keys_recent "$STACK"
   [ "$status" -ne 0 ]
   [[ "$output" == *"No audit log"* ]]
