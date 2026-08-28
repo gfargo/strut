@@ -165,25 +165,64 @@ check_resource_limits() {
   fi
 }
 
+# _posture_resolve_env_file <stack>
+# Uses the entrypoint's stack-aware resolver when available. The fallback keeps
+# direct library/test callers compatible while preferring a stack-level default
+# env over the project-level default.
+_posture_resolve_env_file() {
+  local stack="$1"
+  local stack_dir="$CLI_ROOT/stacks/$stack"
+
+  if declare -F resolve_env_file >/dev/null 2>&1; then
+    resolve_env_file "$stack" ""
+  elif [ -f "$stack_dir/.env" ]; then
+    echo "$stack_dir/.env"
+  else
+    echo "$CLI_ROOT/.env"
+  fi
+}
+
+# _posture_missing_required_vars <stack> <env_file> <required-vars-content>
+# Emits one missing variable per line. The subshell created by the caller keeps
+# each stack's effective env and topology state isolated from every other row;
+# loader diagnostics stay on stderr so they cannot corrupt this output protocol.
+_posture_missing_required_vars() {
+  local stack="$1"
+  local env_file="$2"
+  local req_content="$3"
+  local stack_dir="$CLI_ROOT/stacks/$stack"
+
+  unset VPS_HOST VPS_USER VPS_PORT VPS_SSH_KEY VPS_DEPLOY_DIR _TOPO_ACTIVE_HOST_ALIAS 2>/dev/null || true
+  safe_load_env "$env_file" 2>/dev/null || true
+  if declare -F topology_apply_to_env >/dev/null 2>&1; then
+    topology_apply_to_env "$stack" "$stack_dir"
+  fi
+
+  export CMD_STACK="$stack"
+  export CMD_STACK_DIR="$stack_dir"
+  validate_env_file "$env_file" >&2 || true
+
+  local var val
+  while IFS= read -r var || [ -n "$var" ]; do
+    var="${var#"${var%%[![:space:]]*}"}"
+    var="${var%"${var##*[![:space:]]}"}"
+    [[ -z "$var" || "$var" =~ ^# ]] && continue
+    [[ "$var" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
+    val="${!var:-}"
+    [ -z "$val" ] && printf '%s\n' "$var"
+  done <<< "$req_content"
+  return 0
+}
+
 # check_required_vars <stack>
 #
-# Reads stacks/<stack>/required_vars and verifies each listed variable is
-# defined and non-empty in the env file.
+# Reads stacks/<stack>/required_vars and verifies each listed variable against
+# the stack's effective default env: common, selected base, active topology
+# host layer, then generated stack/host layers.
 check_required_vars() {
   local stack="$1"
   local req_file="$CLI_ROOT/stacks/$stack/required_vars"
   [ -f "$req_file" ] || { posture_emit "pass" "secrets" "$stack" "no required_vars declared"; return; }
-
-  # Use whichever env file is most likely to be loaded
-  local env_file="$CLI_ROOT/.env"
-  [ -f "$env_file" ] || env_file=""
-
-  if [ -z "$env_file" ]; then
-    posture_emit "warn" "secrets" "$stack" \
-      "required_vars declared but no .env file to validate against" \
-      "Create $CLI_ROOT/.env or run 'strut init'"
-    return
-  fi
 
   local req_content
   if ! req_content="$(preprocess_config "$req_file")"; then
@@ -193,18 +232,38 @@ check_required_vars() {
     return
   fi
 
-  local missing=()
-  local var
-  while IFS= read -r var; do
-    # Skip blanks/comments
-    [[ -z "$var" || "$var" =~ ^# ]] && continue
+  local invalid_var="" var
+  while IFS= read -r var || [ -n "$var" ]; do
     var="${var#"${var%%[![:space:]]*}"}"
     var="${var%"${var##*[![:space:]]}"}"
-    [ -z "$var" ] && continue
-    if ! grep -qE "^${var}=.+" "$env_file" 2>/dev/null; then
-      missing+=("$var")
+    [[ -z "$var" || "$var" =~ ^# ]] && continue
+    if ! [[ "$var" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+      invalid_var="$var"
+      break
     fi
   done <<< "$req_content"
+  if [ -n "$invalid_var" ]; then
+    posture_emit "fail" "secrets" "$stack" \
+      "invalid variable name in required_vars: '$invalid_var'" \
+      "Use a valid shell variable name in $req_file"
+    return
+  fi
+
+  local env_file
+  env_file=$(_posture_resolve_env_file "$stack")
+  if [ ! -f "$env_file" ]; then
+    posture_emit "warn" "secrets" "$stack" \
+      "required_vars declared but no .env file to validate against" \
+      "Create $env_file or run 'strut init'"
+    return
+  fi
+
+  local missing_output
+  missing_output=$(_posture_missing_required_vars "$stack" "$env_file" "$req_content")
+  local -a missing=()
+  while IFS= read -r var; do
+    [ -n "$var" ] && missing+=("$var")
+  done <<< "$missing_output"
 
   if [ "${#missing[@]}" -gt 0 ]; then
     local first="${missing[0]}"
