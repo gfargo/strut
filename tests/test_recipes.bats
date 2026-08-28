@@ -328,3 +328,31 @@ EOF
     done < <(grep -E '^[A-Z0-9_]+_PORT=' "$dir/services.conf")
   done
 }
+
+@test "every official recipe: healthcheck command-substitution uses CMD-SHELL, not exec-form CMD (contract check d, issue #404)" {
+  # Docker's exec-form CMD array (["CMD", "..."]) does NOT run a shell, so any
+  # shell syntax inside — $(), $$(cat ...), pipes, etc. — is passed verbatim to
+  # the binary and silently never evaluates. The correct form for a healthcheck
+  # that needs shell expansion is CMD-SHELL (["CMD-SHELL", "..."]) which runs
+  # via /bin/sh -c and evaluates $() correctly.
+  #
+  # This test flags any docker-compose.yml whose healthcheck.test array
+  # starts with "CMD" (exec-form) while also containing a $( or $$( pattern —
+  # the exact combination that produces a broken healthcheck at runtime.
+  for dir in "$CLI_ROOT"/templates/recipes/*/; do
+    local name; name="$(basename "$dir")"
+    [ -f "$dir/docker-compose.yml" ] || continue
+
+    # A line matching CMD-SHELL is fine — the substitution will be evaluated.
+    # A line matching "CMD", (exec-form) with $( or $$(  is the bug.
+    while IFS= read -r line; do
+      # Skip CMD-SHELL lines — those are fine
+      echo "$line" | grep -qE '"CMD-SHELL"' && continue
+      # Flag: exec-form CMD that contains command substitution
+      if echo "$line" | grep -qE '"CMD".*(\$\(|\$\$\()'; then
+        echo "recipe $name: healthcheck uses exec-form CMD with command substitution (\$(...)) — use CMD-SHELL so the shell evaluates it (docker-compose.yml line: $line)" >&2
+        return 1
+      fi
+    done < "$dir/docker-compose.yml"
+  done
+}
