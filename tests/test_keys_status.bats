@@ -11,13 +11,13 @@
 #   generate_recommendations — recommendation strings for known inputs
 
 setup() {
-  export CLI_ROOT
-  CLI_ROOT="$(cd "$(dirname "$BATS_TEST_FILENAME")/.." && pwd)"
+  REPO_ROOT="$(cd "$(dirname "$BATS_TEST_FILENAME")/.." && pwd)"
   TEST_TMP="$(mktemp -d)"
+  export CLI_ROOT="$TEST_TMP"
   STACK="test-keys-status-$$"
   mkdir -p "$CLI_ROOT/stacks/$STACK"
 
-  source "$CLI_ROOT/lib/utils.sh"
+  source "$REPO_ROOT/lib/utils.sh"
   fail()  { echo "$1" >&2; return 1; }
   error() { echo "$1" >&2; }
   warn()  { echo "$1" >&2; }
@@ -25,7 +25,7 @@ setup() {
   log()   { echo "$1"; }
 
   # Source the full keys module (includes status.sh, discovery.sh, pull.sh, etc.)
-  source "$CLI_ROOT/lib/keys.sh"
+  source "$REPO_ROOT/lib/keys.sh"
 
   # Stub network helpers — tests never touch a real host
   validate_vps_connection() { return 1; }  # default: unreachable (overridden per test)
@@ -49,8 +49,6 @@ setup() {
 }
 
 teardown() {
-  rm -rf "$CLI_ROOT/stacks/$STACK"
-  rm -f "$CLI_ROOT/.prod.env"
   rm -rf "$TEST_TMP"
 }
 
