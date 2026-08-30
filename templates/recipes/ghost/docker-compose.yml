@@ -30,7 +30,7 @@ services:
     volumes:
       - mysql_data:/var/lib/mysql
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-p$$(cat /etc/mysql/conf.d/passwd 2>/dev/null || echo)"]
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -uroot -p$$(cat /etc/mysql/conf.d/passwd 2>/dev/null || echo)"]
       interval: 30s
 
 volumes:

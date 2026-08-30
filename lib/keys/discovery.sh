@@ -306,5 +306,12 @@ generate_recommendations() {
     recommendations+=("Large number of secrets in template ($template_secrets) - consider secret management solution")
   fi
 
+  # Return empty JSON array when nothing was added; avoid the blank-line
+  # that printf '%s\n' produces when the array has no elements, which would
+  # cause 'jq -s .' to emit [""] instead of [].
+  if [ ${#recommendations[@]} -eq 0 ]; then
+    echo '[]'
+    return 0
+  fi
   printf '%s\n' "${recommendations[@]}" | jq -R . | jq -s .
 }
