@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.45.6](https://github.com/gfargo/strut/compare/v0.45.5...v0.45.6) (2026-08-30)
+
+
+### Bug Fixes
+
+* **mcp:** preserve remote health JSON ([#527](https://github.com/gfargo/strut/issues/527)) ([b8f831d](https://github.com/gfargo/strut/commit/b8f831dc8d22ffa0b58df0c671d50d4ea3705f98))
+* **posture:** honor effective env layers ([#525](https://github.com/gfargo/strut/issues/525)) ([0332497](https://github.com/gfargo/strut/commit/03324977e0e584f9b7f997e6d9cdf6b9176d0a28))
+
 ## [0.45.5](https://github.com/gfargo/strut/compare/v0.45.4...v0.45.5) (2026-08-27)
 
 
