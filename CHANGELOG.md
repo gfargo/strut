@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.46.0](https://github.com/gfargo/strut/compare/v0.45.6...v0.46.0) (2026-09-17)
+
+
+### Features
+
+* **deploy:** add REQUIRED_HOST_PATHS guard to abort before teardown ([#529](https://github.com/gfargo/strut/issues/529)) ([65a4d9b](https://github.com/gfargo/strut/commit/65a4d9b6e3de887902f5c83617a917dbd1f16ca4))
+
 ## [0.45.6](https://github.com/gfargo/strut/compare/v0.45.5...v0.45.6) (2026-08-30)
 
 
