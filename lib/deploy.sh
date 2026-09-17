@@ -134,6 +134,52 @@ _deploy_guard_project_collision() {
   return 1
 }
 
+# _deploy_guard_required_host_paths
+#
+# Aborts BEFORE touching a running stack if any path listed in the
+# REQUIRED_HOST_PATHS services.conf variable (space-separated) doesn't exist
+# on the host. Mirrors docker_require_images' "check before you tear down"
+# shape for a different failure mode: a stack whose compose file hard-
+# requires a `devices:` mapping (a udev symlink to a USB serial device, most
+# commonly) that might not be present will have its `down` step succeed and
+# its `up` step fail — `down` always runs first (see deploy_stack), so a
+# failure at `up` leaves the stack fully removed with nothing to roll back
+# to, and nothing short of a separate self-heal mechanism ever recreates it.
+#
+# Bit us for real on watch's octoprint-ender3 stack (2026-08-24): a
+# `strut release` ran while the printer was disconnected, `compose down`
+# succeeded, `compose up` failed on the missing `devices:` path, and the
+# container was gone for weeks until a udev-triggered `docker compose up -d`
+# happened to fire on printer reconnect. Checking first means the deploy
+# aborts instead, with the previous, working container left untouched.
+#
+# Opt-in only (REQUIRED_HOST_PATHS unset is a no-op): every existing stack
+# is unaffected unless it declares this.
+_deploy_guard_required_host_paths() {
+  local paths="${REQUIRED_HOST_PATHS:-}"
+  [ -z "$paths" ] && return 0
+
+  local -a missing=()
+  local p
+  for p in $paths; do
+    [ -e "$p" ] || missing+=("$p")
+  done
+
+  [ "${#missing[@]}" -eq 0 ] && return 0
+
+  error "REQUIRED_HOST_PATHS missing — this stack's compose file depends on a host path that isn't present:"
+  local m
+  for m in "${missing[@]}"; do
+    echo "    - $m" >&2
+  done
+  echo "" >&2
+  echo "  Deploying now would stop the current containers (if any) and then" >&2
+  echo "  fail to recreate them, leaving the stack fully down. Reconnect/mount" >&2
+  echo "  the missing path(s) first, or remove REQUIRED_HOST_PATHS from" >&2
+  echo "  services.conf if this dependency is now intentionally optional." >&2
+  return 1
+}
+
 # _deploy_resolve_data_dirs
 #
 # Resolves which data directories deploy_stack should create for the stack
@@ -402,6 +448,10 @@ deploy_stack() {
     _deploy_guard_project_collision "$compose_file" "${dry_project_name:-$stack}" \
       || { fail "[DRY-RUN] Would abort here — see above."; return 1; }
 
+    # Also read-only — see _deploy_guard_required_host_paths.
+    _deploy_guard_required_host_paths \
+      || { fail "[DRY-RUN] Would abort here — see above."; return 1; }
+
     run_cmd "Stop existing containers" $compose_cmd down --remove-orphans
     run_cmd "Start services" $compose_cmd up -d --remove-orphans
     local proxy="${REVERSE_PROXY:-nginx}"
@@ -418,6 +468,16 @@ deploy_stack() {
   # for the registry/build decision below.
   load_services_conf "$stack_dir"
   local build_mode="${BUILD_MODE:-registry}"
+
+  # Abort here, before registry auth, image pulls, or the down/up below —
+  # see _deploy_guard_required_host_paths. Cheapest possible check (no
+  # docker calls), so it runs first. `{ fail ...; return 1; }`, not a bare
+  # `|| fail`, matching _deploy_guard_project_collision's call site below —
+  # fail's `exit 1` doesn't reliably unwind through this call's callers
+  # (cmd_deploy.sh's `deploy_stack ... || _deploy_rc=$?` dispatch) on its
+  # own; the explicit `return 1` is the part that actually does.
+  _deploy_guard_required_host_paths \
+    || { fail "Aborting deploy: the running stack was left untouched (see above)."; return 1; }
 
   # Registry login (dispatches based on REGISTRY_TYPE from config)
   # Skipped when BUILD_MODE=local or BUILD_MODE=none (no registry needed)

@@ -73,3 +73,22 @@
 #                                              # by the container or managed
 #                                              # externally (e.g. a bind mount
 #                                              # the container itself populates)
+#
+# ── Required Host Paths ────────────────────────────
+# `deploy`/`release` always stops the current containers before starting new
+# ones (`compose down` then `compose up`) — if `up` then fails, the stack is
+# left fully DOWN with nothing to roll back to. That's normally fine (Docker
+# images/ports basically never go missing mid-deploy), but a compose file
+# with a `devices:` mapping (a udev symlink to a USB serial device, a bind
+# mount to removable media, etc.) CAN legitimately fail here if that host
+# path isn't present at deploy time. List those paths here and `deploy` will
+# abort BEFORE stopping anything if any is missing — the previous, working
+# containers are left completely untouched instead of torn down for nothing.
+#
+# Space-separated, checked with a plain existence test (`[ -e path ]`):
+#
+# REQUIRED_HOST_PATHS="/dev/3dprinter"
+# REQUIRED_HOST_PATHS="/dev/3dprinter /dev/webcam0"
+#
+# Unset (default) — no check, existing behavior for every stack that doesn't
+# declare this.
