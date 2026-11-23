@@ -83,3 +83,11 @@ Load the relevant reference file for detailed, step-by-step procedures:
 ## Environment Files
 
 Per-environment `.env` files live at the project root (`.prod.env`, `.staging.env`). They contain literal `KEY=VALUE` pairs — shell expansion (`$VAR`, `$(cmd)`) is **not** evaluated (strut reads them with a safe parser, not `source`). Files are written mode `0600`.
+
+## Safety Rules for Agents
+
+- **Never print secrets.** Do not `cat`, `echo` or log `.env` files, SSH private keys, tokens or dump files. Check variable *names* (`cut -d= -f1`), not values.
+- **Never read key files.** Pass SSH keys by path (`<path-to-ssh-key>`); do not open `~/.ssh`.
+- **Secrets go through stdin or a prompt**, never as command-line arguments (they leak into shell history and process lists).
+- **Ask before changing production or removing things.** Show the exact command and wait for the user's go-ahead for deploys, restores, rotations, `sudo` or root commands, firewall changes, `docker prune`, and installing cron jobs. Run `--dry-run` first where it exists.
+- **Prod data is sensitive.** Treat pulled databases and backups as PII: no git, no summarizing contents.

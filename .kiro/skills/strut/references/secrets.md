@@ -57,7 +57,7 @@ strut my-stack health --env prod
 
 ```bash
 strut my-stack keys env:rotate --env prod                    # auto-rotatable secrets
-strut my-stack keys env:set THIRD_PARTY_API_KEY "new-key" --env prod   # rotate in provider first
+strut my-stack secrets set THIRD_PARTY_API_KEY --env prod   # rotate in provider first; the value is read from stdin, never put it on the command line
 ```
 
 ### 5. Rotate API keys

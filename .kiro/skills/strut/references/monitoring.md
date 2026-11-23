@@ -108,11 +108,14 @@ Run Node Exporter + cAdvisor on remote hosts, then reach them from the monitorin
 
 ```bash
 # On the remote VPS:
-docker run -d --name node-exporter --restart unless-stopped -p 9100:9100 prom/node-exporter
-docker run -d --name cadvisor --restart unless-stopped -p 8080:8080 \
+docker run -d --name node-exporter --restart unless-stopped -p 127.0.0.1:9100:9100 prom/node-exporter:v1.8.2
+docker run -d --name cadvisor --restart unless-stopped -p 127.0.0.1:8080:8080 \
   -v /:/rootfs:ro -v /var/run:/var/run:ro -v /sys:/sys:ro -v /var/lib/docker/:/var/lib/docker:ro \
-  gcr.io/cadvisor/cadvisor
+  gcr.io/cadvisor/cadvisor:v0.49.1
 
+# Ports are bound to localhost on purpose. cAdvisor mounts the host filesystem
+# read-only (not privileged) to read container metrics; run it only on hosts you
+# own, and reach it through the SSH tunnel below rather than exposing the ports.
 # Prefer an SSH tunnel over exposing ports publicly:
 autossh -M 0 -f -N -o "ServerAliveInterval 30" \
   -L 9100:localhost:9100 ubuntu@<remote-vps>

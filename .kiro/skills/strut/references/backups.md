@@ -70,6 +70,8 @@ strut my-stack backup retention --env prod
 
 ### Refresh Local Dev
 
+> Production data usually contains customer PII. Pull it only to a machine you control, keep it out of git, and confirm with the user before running `db:pull`. Do not open or print dump contents in the session.
+
 ```bash
 strut my-stack db:pull --env prod
 ```
