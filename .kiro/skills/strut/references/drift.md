@@ -93,7 +93,7 @@ dos2unix stacks/<stack>/docker-compose.yml
 ### Drift Not Detected
 
 ```bash
-crontab -l | grep drift          # is the cron installed?
+crontab -l | grep drift          # is the cron installed? (it persists after the session ends, so install it only with the user's approval)
 strut my-stack drift detect --env prod
 strut my-stack shell --env prod   # SSH reachable?
 ```

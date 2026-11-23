@@ -31,7 +31,7 @@ strut my-stack deploy --env prod              # Redeploy
 
 ```bash
 strut my-stack logs my-service --tail 100 --env prod
-strut my-stack exec "docker compose exec my-service env" --env prod
+strut my-stack exec "docker compose exec my-service env | cut -d= -f1" --env prod   # names only: values are secrets
 ```
 
 Common causes: missing env vars, DB connection issues, port conflicts, disk full.
@@ -48,7 +48,13 @@ strut my-stack exec "docker compose exec redis redis-cli ping" --env prod
 ```bash
 strut my-stack exec "df -h /" --env prod
 strut my-stack exec "docker system df" --env prod
-strut my-stack exec "docker image prune -f" --env prod
+```
+
+Reclaiming space deletes unused Docker images and cannot be undone. Show the user what will go, and get their go-ahead first:
+
+```bash
+strut my-stack exec "docker image ls" --env prod            # review first
+strut my-stack exec "docker image prune -f" --env prod      # removes dangling images only
 ```
 
 ## Advanced
@@ -56,7 +62,7 @@ strut my-stack exec "docker image prune -f" --env prod
 ```bash
 strut my-stack shell --env prod                            # Interactive SSH
 strut my-stack exec "docker stats --no-stream" --env prod  # Resource usage
-strut my-stack exec "docker inspect <container>" --env prod
+strut my-stack exec "docker inspect --format '{{.State.Status}} {{.Config.Image}} {{.HostConfig.RestartPolicy.Name}}' <container>" --env prod   # plain inspect also dumps env vars (secrets)
 ```
 
 ## exec vs shell

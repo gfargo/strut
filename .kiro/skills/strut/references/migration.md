@@ -8,7 +8,7 @@ Auditing existing VPS Docker setups and migrating them to strut management.
 # Audit a VPS (discover what's running)
 strut audit <vps-host> [vps-user] [ssh-key]
 strut audit 192.168.1.100 ubuntu
-strut audit example-host deploy 2222 ~/.ssh/my-key
+strut audit example-host deploy 2222 <path-to-ssh-key>
 
 # Migration wizard
 strut migrate <vps-host> [vps-user] [ssh-port] [ssh-key]           # interactive
@@ -90,11 +90,13 @@ strut my-app deploy --env my-app-prod
 strut my-app health --env my-app-prod
 ```
 
-### Extract Keys from Running Containers
+### Find Which Env Vars a Container Uses
+
+List variable **names only**. Do not print values: they are secrets and would land in the session transcript. Copy the values into your `.env` file yourself.
 
 ```bash
 ssh ubuntu@<vps-host>
-docker exec <container-name> env | grep -E '(DATABASE|API|SECRET|SMTP)'
+docker exec <container-name> env | cut -d= -f1 | grep -E '(DATABASE|API|SECRET|SMTP)'
 ```
 
 ## Troubleshooting
@@ -103,7 +105,7 @@ docker exec <container-name> env | grep -E '(DATABASE|API|SECRET|SMTP)'
 
 ```bash
 ssh -o ConnectTimeout=10 ubuntu@<vps-host>
-ssh-add ~/.ssh/id_rsa
+ssh-add <path-to-ssh-key>    # the key you already use for this VPS; never print or paste its contents
 ```
 
 ### Docker not found

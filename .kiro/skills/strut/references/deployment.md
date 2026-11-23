@@ -90,7 +90,7 @@ Before a `PLATFORMS` build runs, strut warns (but doesn't block) if the target h
 
 ```ini
 [hosts]
-pi-ops = pi@pi-ops.local:22 ~/.ssh/pi_key arch=arm64
+pi-ops = pi@pi-ops.local:22 <path-to-ssh-key> arch=arm64
 ```
 
 ## Deploy History / Releases

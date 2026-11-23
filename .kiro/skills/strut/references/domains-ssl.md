@@ -2,6 +2,8 @@
 
 Configuring custom domains and SSL/TLS certificates for strut stacks.
 
+> The `sudo` commands below run **on the VPS** (via `strut <stack> shell` or `exec`) and change certificates or firewall state. Show the exact command to the user and wait for their go-ahead before running any of them. The read-only ones (`journalctl`, `ls`, `ufw status`, `certbot renew --dry-run`) are safe to run to diagnose.
+
 ## Quick Reference
 
 ```bash
