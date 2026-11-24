@@ -10,8 +10,7 @@ strut monitoring add-target my-stack             # add a stack to monitoring
 strut monitoring remove-target my-stack          # remove a stack
 strut monitoring alert-channel add email \
   --to alerts@example.com \
-  --from monitoring@example.com \
-  --resend-api-key re_xxx
+  --from monitoring@example.com       # prompts for the Resend API key
 strut monitoring alert-channel test email        # test alert delivery
 strut monitoring status --json                   # monitoring status
 ```
@@ -50,17 +49,21 @@ strut monitoring add-target another-stack
 
 ## Alert Channels
 
+Alerts leave your VPS for whichever channel you configure. Each one carries the alert name, severity, the instance and VPS labels, and the summary and description text, so hostnames and failure details reach the provider (Resend, Slack, or your webhook host) and every recipient. Use channels and recipients you control or trust, and keep secrets out of any custom alert text.
+
 ### Email (SMTP via Resend)
 
 1. Create an API key at your SMTP provider (Resend free tier: 100 emails/day).
-2. Configure:
+2. Configure. Leave out `--resend-api-key` and strut prompts for it, which keeps the key out of shell history; it is stored as `RESEND_API_KEY` in the monitoring `.env` file:
    ```bash
    strut monitoring alert-channel add email \
-     --to alerts@example.com --from monitoring@example.com --resend-api-key re_xxx
+     --to alerts@example.com --from monitoring@example.com
    ```
 3. Test: `strut monitoring alert-channel test email`
 
 ### Slack
+
+Treat the webhook URL as a secret: anyone who has it can post to that channel.
 
 ```bash
 strut monitoring alert-channel add slack --webhook-url https://hooks.slack.com/services/xxx
