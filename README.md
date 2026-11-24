@@ -60,6 +60,16 @@ Already installed? `strut upgrade` pulls the latest release in place.
 
 See [Installation](https://github.com/gfargo/strut/wiki/Installation) for upgrade, uninstall, and configuration options.
 
+### Agent skill
+
+strut ships an [Agent Skill](https://agentskills.io/specification) so coding agents such as Claude Code, Cursor, and Codex know how to deploy, back up, and debug stacks with it:
+
+```bash
+npx skills add gfargo/strut
+```
+
+Already using strut in a project? `strut skills install --format claude` (or `kiro`, `cursor`, and more; run `strut skills help` for the list) copies the bundled skill into that agent's skills directory. The skill lives at [`skills/strut`](./skills/strut/SKILL.md).
+
 ## Quick Start
 
 ```bash
