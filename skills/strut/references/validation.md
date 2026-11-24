@@ -51,7 +51,7 @@ diff \
   <(grep -E '^[A-Z_]+=?' .prod.env | cut -d= -f1 | sort)
 
 # Check for unfilled placeholders
-grep -E '(your-|change-me|xxxx|placeholder|TODO)' .prod.env
+grep -E '(your-|change-me|xxxx|placeholder|TODO)' .prod.env | cut -d= -f1   # names only, never values
 ```
 
 Common required variables:

@@ -110,11 +110,7 @@ ssh-add <path-to-ssh-key>    # the key you already use for this VPS; never print
 
 ### Docker not found
 
-The wizard offers to install Docker. Manual fallback:
-
-```bash
-ssh ubuntu@<vps-host> "curl -fsSL https://get.docker.com | bash"
-```
+The wizard offers to install Docker. Manual fallback: install Docker Engine on the VPS by following Docker's official instructions for its distribution (https://docs.docker.com/engine/install/). Do not pipe a downloaded script into a shell on the VPS; if you use a convenience script, download it, read it, then run it.
 
 ### Generated stack doesn't work
 
