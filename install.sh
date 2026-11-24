@@ -135,16 +135,16 @@ fi
 # ── Provision Kiro skills to user project ─────────────────────────────────────
 if ! $SKIP_SKILLS; then
   echo ""
-  log "Kiro skills available in $STRUT_HOME/.kiro/skills/"
+  log "Kiro skills available in $STRUT_HOME/skills/"
   echo ""
   echo "  To use strut skills in your project, copy them to your workspace:"
   echo ""
-  echo "    cp -r $STRUT_HOME/.kiro/skills/ <your-project>/.kiro/skills/strut/"
+  echo "    cp -r $STRUT_HOME/skills/ <your-project>/.kiro/skills/strut/"
   echo ""
   echo "  Or symlink them (auto-updates with strut upgrade):"
   echo ""
   echo "    mkdir -p <your-project>/.kiro/skills"
-  echo "    ln -s $STRUT_HOME/.kiro/skills <your-project>/.kiro/skills/strut"
+  echo "    ln -s $STRUT_HOME/skills <your-project>/.kiro/skills/strut"
   echo ""
 fi
 
