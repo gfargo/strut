@@ -107,22 +107,19 @@ Custom rules: add YAML under `stacks/monitoring/prometheus/alerts/`.
 
 ## Cross-VPS Monitoring
 
-Run Node Exporter + cAdvisor on remote hosts, then reach them from the monitoring VPS.
+Run Node Exporter on remote hosts, then reach it from the monitoring VPS.
 
 ```bash
 # On the remote VPS:
 docker run -d --name node-exporter --restart unless-stopped -p 127.0.0.1:9100:9100 prom/node-exporter:v1.8.2
-docker run -d --name cadvisor --restart unless-stopped -p 127.0.0.1:8080:8080 \
-  -v /:/rootfs:ro -v /var/run:/var/run:ro -v /sys:/sys:ro -v /var/lib/docker/:/var/lib/docker:ro \
-  gcr.io/cadvisor/cadvisor:v0.49.1
 
-# Ports are bound to localhost on purpose. cAdvisor mounts the host filesystem
-# read-only (not privileged) to read container metrics; run it only on hosts you
-# own, and reach it through the SSH tunnel below rather than exposing the ports.
-# Prefer an SSH tunnel over exposing ports publicly:
+# The port is bound to localhost on purpose. Reach it through an SSH tunnel
+# rather than exposing it publicly:
 autossh -M 0 -f -N -o "ServerAliveInterval 30" \
   -L 9100:localhost:9100 ubuntu@<remote-vps>
 ```
+
+Per-container metrics need cAdvisor, which is optional. It must read the host root filesystem and the Docker runtime directory, which on most hosts includes the Docker socket, so a compromised cAdvisor container can control Docker on that host. Run it only on hosts you own, bind it to `127.0.0.1`, and use the run command from the cAdvisor project's own documentation, pinned to a version you have checked.
 
 ## Troubleshooting
 
