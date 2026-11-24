@@ -88,4 +88,4 @@ Test: `strut <stack-name> backup all --env prod`.
 - **compose syntax error** — tabs instead of spaces, missing quotes, undefined `${VAR}` references.
 - **missing required env vars** — use the diff command above.
 - **service fails healthcheck** — `strut <stack> logs <service> --tail 50 --env prod`.
-- **drift detected after first deploy** — add runtime files to `.drift-ignore`, or fix real changes with `drift fix`.
+- **drift detected after first deploy** — add runtime files to `.drift-ignore`. Validation only reports drift; do not fix it as part of validation. To bring real changes back to git, run `strut <stack> drift report --env prod` and tell the user. `drift fix` overwrites drifted files with git `HEAD`, so run it only after the user has seen the `--dry-run` output and approved it (see [drift.md](drift.md)).
