@@ -22,7 +22,10 @@ strut my-stack exec "docker compose exec nginx nginx -s reload" --env prod
 
 ### Port Already Allocated
 
+This stops the stack, so production goes down until the redeploy finishes. Tell the user and get their go-ahead before running it with `--env prod`.
+
 ```bash
+strut my-stack stop --env prod --dry-run      # Preview
 strut my-stack stop --env prod                # Stop everything cleanly
 strut my-stack deploy --env prod              # Redeploy
 ```

@@ -74,6 +74,7 @@ Load the relevant reference file for detailed, step-by-step procedures:
 ## Core Principles
 
 1. **Always `--dry-run` first** for destructive commands (deploy, restore, drift fix, stop).
+   On `--env prod`, `stop`, `rollback`, `migrate --down`, `restore` and `drift fix` cause downtime or lose data: show the user the dry run (and the backup, for anything touching a database) and get their approval before running them.
 2. **Back up before major changes:** `strut <stack> backup all --env prod`.
 3. **`deploy` picks its own target** from the stack's topology — a VPS-mapped stack gets the full pipeline on that host, anything else deploys locally. Never choose a command name to choose a target. Use `--require-remote` in CI/automation so an unresolved host fails instead of silently deploying to the runner; `--local` is the explicit opt-out.
 4. **Make changes in git, not on the VPS** — let deployments propagate; drift detection catches manual edits.

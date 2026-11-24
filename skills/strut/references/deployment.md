@@ -21,10 +21,12 @@ strut my-stack health --env prod --json       # Verify
 
 ## Stop Containers
 
+Stopping a production stack takes it offline. `--volumes` also deletes the stack's Docker volumes, which holds database data, so use it only after a verified backup and the user's approval. Run `--dry-run` first and confirm with the user before stopping `--env prod`.
+
 ```bash
-strut my-stack stop --env prod                # Stop containers
-strut my-stack stop --env prod --volumes      # Stop + remove volumes
 strut my-stack stop --env prod --dry-run      # Preview
+strut my-stack stop --env prod                # Stop containers
+strut my-stack stop --env prod --volumes      # Stop + remove volumes (deletes data)
 ```
 
 ## Service Profiles
@@ -53,14 +55,18 @@ strut my-stack deploy --env prod --blue-green    # stand up green, health-gate, 
 ```bash
 strut my-stack migrate postgres --status --env prod   # Check
 strut my-stack migrate postgres --up --env prod       # Apply
-strut my-stack migrate neo4j --down 1 --env prod      # Rollback one
+strut my-stack migrate neo4j --down 1 --env prod      # Rollback one (can discard data)
 ```
+
+`--down` can remove schema objects and the data in them. Back up that database first (`strut my-stack backup neo4j --env prod`) and get the user's approval before running it on production.
 
 ## Rollback
 
 ```bash
 strut my-stack rollback --env prod            # Restore previous deploy snapshot
 ```
+
+A rollback restarts services on the previous snapshot, so expect a brief interruption. Confirm with the user before running it on production. It is separate from database migrations: if the schema also has to change back, that is a `migrate --down` with the backup and approval described above.
 
 ## Ship and Rebuild
 

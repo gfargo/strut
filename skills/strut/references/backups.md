@@ -78,11 +78,17 @@ strut my-stack db:pull --env prod
 
 ### Recover from a Bad Migration
 
+A down migration can drop tables, indexes or other schema objects, and any data in them is gone for good. Do not run one on production until the user has approved it, having seen the dry run and the backup below.
+
 ```bash
-strut my-stack db:pull postgres --env prod --file postgres-20260303-143022.sql
-strut my-stack migrate neo4j --down 1 --env prod
+strut my-stack backup neo4j --env prod            # back up the database you are about to roll back
+strut my-stack backup list neo4j --env prod        # confirm the new backup exists
+strut my-stack migrate neo4j --status --env prod  # see which migration is current
+strut my-stack migrate neo4j --down 1 --env prod  # only after the user approves
 strut my-stack health --env prod
 ```
+
+Back up the same database that the migration touches (here `neo4j`; use `postgres` for a Postgres migration). A backup of a different database does not protect this one. `db:pull` copies production data to your machine and is not a backup of the VPS.
 
 ## Notes
 
