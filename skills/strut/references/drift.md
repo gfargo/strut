@@ -9,7 +9,7 @@ strut my-stack drift detect --env prod        # detect config-file drift
 strut my-stack drift report --env prod         # detailed diff report
 strut my-stack drift report --env prod --json  # machine-readable
 strut my-stack drift images --env prod         # stale container image digests
-strut my-stack drift fix --env prod            # apply git-tracked config to VPS
+strut my-stack drift fix --env prod            # overwrite drifted files with git HEAD (--dry-run first)
 strut my-stack drift fix --dry-run --env prod  # preview fix
 strut my-stack drift history --env prod        # detection history
 strut my-stack drift auto-fix enable --env prod
@@ -33,7 +33,7 @@ strut my-stack drift fix --env prod
 
 Fix process: backs up current VPS config → applies git-tracked config → runs health checks → restores backup if checks fail → logs and notifies.
 
-Preview with `--dry-run` to see files to update, services to restart, estimated downtime.
+**This changes the stack's configuration files.** `drift fix` replaces each drifted file with the version in git `HEAD`, so edits that were never committed are overwritten. The overwritten files are saved first to `stacks/<stack>/drift-backups/pre-fix-<timestamp>.tar.gz`, and they are restored if the health checks fail afterwards, but a config change can still interrupt a running service. Always run `--dry-run` first, which lists the files it would update. Run the real fix on `--env prod` only after the user has seen that list and approved it.
 
 ## Auto-Fix
 
@@ -42,6 +42,8 @@ strut my-stack drift auto-fix enable --env prod
 ```
 
 When enabled: drift detected on a schedule → git config applied automatically → backup before each fix → health checks after → rolls back on failure → alerts. Disable before intentional experiments.
+
+Auto-fix applies changes without asking and keeps running after the session ends. Enable it only when the user has asked for it.
 
 ## .drift-ignore
 
@@ -101,7 +103,7 @@ strut my-stack shell --env prod   # SSH reachable?
 ## Best Practices
 
 1. Use `.drift-ignore` for runtime-generated files.
-2. Enable auto-fix on production stacks.
+2. Consider auto-fix on production stacks once the git config is trusted, and only with the user's approval.
 3. Review drift history periodically.
 4. Always commit emergency hotfixes back to git.
 5. Disable auto-fix before intentional experiments.
