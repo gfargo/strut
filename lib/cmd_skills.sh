@@ -40,7 +40,7 @@ _skills_install() {
   done
 
   local strut_home="${STRUT_HOME:-$CLI_ROOT}"
-  local skills_src="$strut_home/.kiro/skills"
+  local skills_src="$strut_home/skills"
   local steering_src="$strut_home/.kiro/steering"
   local project_root="${PROJECT_ROOT:-$PWD}"
 
@@ -101,7 +101,7 @@ _build_steering_content() {
 # disclosure, so we inline the skill's SKILL.md body plus every reference file.
 _build_skills_content() {
   local strut_home="$1"
-  local skills_dir="$strut_home/.kiro/skills"
+  local skills_dir="$strut_home/skills"
 
   echo "## Operational Procedures"
   echo ""
@@ -162,7 +162,7 @@ _backup_if_exists() {
 
 # _agent_add_install_skills <strut_home> <host_id> <label>
 #
-# Installs every strut skill directory (anything under .kiro/skills/ with a
+# Installs every strut skill directory (anything under skills/ with a
 # SKILL.md) to the given agent-add host in one invocation. Echoes the number
 # of skills installed and returns 0 on success; returns 1 (no output on
 # stdout) if npx can't be resolved, there are no skills to install, or
@@ -185,7 +185,7 @@ _agent_add_install_skills() {
 
   local -a skill_args=()
   local skill_dir
-  for skill_dir in "$strut_home/.kiro/skills"/*/; do
+  for skill_dir in "$strut_home/skills"/*/; do
     [ -f "$skill_dir/SKILL.md" ] || continue
     skill_args+=(--skill "$skill_dir")
   done
@@ -219,7 +219,7 @@ _install_kiro() {
     mkdir -p "$skills_target"
 
     skill_count=0
-    for skill_dir in "$strut_home/.kiro/skills"/*/; do
+    for skill_dir in "$strut_home/skills"/*/; do
       [ -d "$skill_dir" ] || continue
       local skill_name
       skill_name=$(basename "$skill_dir")
@@ -277,7 +277,7 @@ _install_claude() {
     mkdir -p "$skills_target"
 
     skill_count=0
-    for skill_dir in "$strut_home/.kiro/skills"/*/; do
+    for skill_dir in "$strut_home/skills"/*/; do
       [ -d "$skill_dir" ] || continue
       [ -f "$skill_dir/SKILL.md" ] || continue
       local name
@@ -409,7 +409,7 @@ _install_all() {
 # ── List ──────────────────────────────────────────────────────────────────────
 _skills_list() {
   local strut_home="${STRUT_HOME:-$CLI_ROOT}"
-  local skills_dir="$strut_home/.kiro/skills"
+  local skills_dir="$strut_home/skills"
   local steering_dir="$strut_home/.kiro/steering"
 
   echo ""

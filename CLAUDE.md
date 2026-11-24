@@ -142,6 +142,6 @@ BATS test suite with property-based tests (100-iteration randomized loops). Key 
 
 - **Do not** add `Co-Authored-By: Claude …` (or any AI/tool attribution) trailers to commits or PR bodies in this repo. History was filter-repo'd to remove them; don't reintroduce.
 
-## Skills (`.kiro/skills/`)
+## Skills (`skills/`)
 
-9 procedural skills for operational workflows: `vps-deployment`, `vps-debugging`, `database-backups`, `key-rotation`, `stack-validation`, `drift-detection`, `monitoring-setup`, `domain-ssl`, `vps-audit-migration`.
+One [Agent Skill](https://agentskills.io/specification), `skills/strut/`, whose `SKILL.md` routes to nine reference files (deployment, debugging, backups, drift, secrets, monitoring, domains-ssl, validation, migration). It lives at the repo root, not under `.kiro/`, so registries that scan a repo for `SKILL.md` (ClawHub, `npx skills add gfargo/strut`) can find it. `strut skills install` still copies it into a project's `.kiro/skills/`.

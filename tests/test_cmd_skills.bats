@@ -20,8 +20,8 @@ setup() {
   export -f _install_kiro _install_claude _install_rules_file \
             _install_copilot _install_generic _install_all _skills_list
 
-  # cmd_skills expects .kiro/skills to exist (that's the source tree)
-  mkdir -p "$TEST_TMP/.kiro/skills"
+  # cmd_skills expects skills/ to exist (that's the source tree)
+  mkdir -p "$TEST_TMP/skills"
   mkdir -p "$TEST_TMP/.kiro/steering"
   export STRUT_HOME="$TEST_TMP"
   export PROJECT_ROOT="$TEST_TMP/project"
@@ -121,10 +121,10 @@ teardown() {
   _agent_add_install_skills() { return 1; }
 
   # Build a fake single-skill source tree
-  mkdir -p "$STRUT_HOME/.kiro/skills/strut/references"
+  mkdir -p "$STRUT_HOME/skills/strut/references"
   printf -- '---\nname: strut\ndescription: test skill\n---\n# strut\n' \
-    > "$STRUT_HOME/.kiro/skills/strut/SKILL.md"
-  echo "# deploy ref" > "$STRUT_HOME/.kiro/skills/strut/references/deployment.md"
+    > "$STRUT_HOME/skills/strut/SKILL.md"
+  echo "# deploy ref" > "$STRUT_HOME/skills/strut/references/deployment.md"
 
   run _install_kiro "$STRUT_HOME" "$PROJECT_ROOT"
   [ "$status" -eq 0 ]
@@ -140,9 +140,9 @@ teardown() {
   source "$CLI_ROOT/lib/cmd_skills.sh"
   _agent_add_install_skills() { return 1; }
 
-  mkdir -p "$STRUT_HOME/.kiro/skills/strut"
+  mkdir -p "$STRUT_HOME/skills/strut"
   printf -- '---\nname: strut\ndescription: test\n---\n' \
-    > "$STRUT_HOME/.kiro/skills/strut/SKILL.md"
+    > "$STRUT_HOME/skills/strut/SKILL.md"
 
   _install_kiro "$STRUT_HOME" "$PROJECT_ROOT" >/dev/null
 
@@ -156,10 +156,10 @@ teardown() {
   source "$CLI_ROOT/lib/cmd_skills.sh"
   _agent_add_install_skills() { return 1; }
 
-  mkdir -p "$STRUT_HOME/.kiro/skills/strut/references"
+  mkdir -p "$STRUT_HOME/skills/strut/references"
   printf -- '---\nname: strut\ndescription: test\n---\n' \
-    > "$STRUT_HOME/.kiro/skills/strut/SKILL.md"
-  echo "# ref" > "$STRUT_HOME/.kiro/skills/strut/references/backups.md"
+    > "$STRUT_HOME/skills/strut/SKILL.md"
+  echo "# ref" > "$STRUT_HOME/skills/strut/references/backups.md"
 
   run _install_claude "$STRUT_HOME" "$PROJECT_ROOT"
   [ "$status" -eq 0 ]
@@ -175,8 +175,8 @@ teardown() {
   source "$CLI_ROOT/lib/cmd_skills.sh"
   resolve_npx_bin() { return 1; }
 
-  mkdir -p "$STRUT_HOME/.kiro/skills/strut"
-  printf -- '---\nname: strut\ndescription: test\n---\n' > "$STRUT_HOME/.kiro/skills/strut/SKILL.md"
+  mkdir -p "$STRUT_HOME/skills/strut"
+  printf -- '---\nname: strut\ndescription: test\n---\n' > "$STRUT_HOME/skills/strut/SKILL.md"
 
   run _agent_add_install_skills "$STRUT_HOME" "kiro" "Kiro"
   [ "$status" -eq 1 ]
@@ -186,7 +186,7 @@ teardown() {
 @test "_agent_add_install_skills: returns 1 when there are no skills to install" {
   source "$CLI_ROOT/lib/cmd_skills.sh"
   resolve_npx_bin() { RESOLVED_NPX_BIN="/fake/npx"; return 0; }
-  # No SKILL.md anywhere under $STRUT_HOME/.kiro/skills
+  # No SKILL.md anywhere under $STRUT_HOME/skills
 
   run _agent_add_install_skills "$STRUT_HOME" "kiro" "Kiro"
   [ "$status" -eq 1 ]
@@ -195,9 +195,9 @@ teardown() {
 @test "_agent_add_install_skills: on success, echoes the skill count and passes --skill per skill dir" {
   source "$CLI_ROOT/lib/cmd_skills.sh"
 
-  mkdir -p "$STRUT_HOME/.kiro/skills/strut" "$STRUT_HOME/.kiro/skills/second"
-  printf -- '---\nname: strut\ndescription: test\n---\n' > "$STRUT_HOME/.kiro/skills/strut/SKILL.md"
-  printf -- '---\nname: second\ndescription: test\n---\n' > "$STRUT_HOME/.kiro/skills/second/SKILL.md"
+  mkdir -p "$STRUT_HOME/skills/strut" "$STRUT_HOME/skills/second"
+  printf -- '---\nname: strut\ndescription: test\n---\n' > "$STRUT_HOME/skills/strut/SKILL.md"
+  printf -- '---\nname: second\ndescription: test\n---\n' > "$STRUT_HOME/skills/second/SKILL.md"
 
   local calls_file="$TEST_TMP/npx-calls"
   local fake_npx="$TEST_TMP/fake-npx"
@@ -218,15 +218,15 @@ EOF
 
   run cat "$calls_file"
   [[ "$output" == *"-y agent-add --host kiro"* ]]
-  [[ "$output" == *"--skill $STRUT_HOME/.kiro/skills/strut/"* ]]
-  [[ "$output" == *"--skill $STRUT_HOME/.kiro/skills/second/"* ]]
+  [[ "$output" == *"--skill $STRUT_HOME/skills/strut/"* ]]
+  [[ "$output" == *"--skill $STRUT_HOME/skills/second/"* ]]
 }
 
 @test "_agent_add_install_skills: returns 1 and warns on stderr (not swallowed) when agent-add fails" {
   source "$CLI_ROOT/lib/cmd_skills.sh"
 
-  mkdir -p "$STRUT_HOME/.kiro/skills/strut"
-  printf -- '---\nname: strut\ndescription: test\n---\n' > "$STRUT_HOME/.kiro/skills/strut/SKILL.md"
+  mkdir -p "$STRUT_HOME/skills/strut"
+  printf -- '---\nname: strut\ndescription: test\n---\n' > "$STRUT_HOME/skills/strut/SKILL.md"
 
   local fake_npx="$TEST_TMP/fake-npx-fail"
   printf '#!/usr/bin/env bash\nexit 1\n' > "$fake_npx"
@@ -250,8 +250,8 @@ EOF
   local agent_add_called=0
   _agent_add_install_skills() { agent_add_called=1; echo "1"; return 0; }
 
-  mkdir -p "$STRUT_HOME/.kiro/skills/strut"
-  printf -- '---\nname: strut\ndescription: test\n---\n' > "$STRUT_HOME/.kiro/skills/strut/SKILL.md"
+  mkdir -p "$STRUT_HOME/skills/strut"
+  printf -- '---\nname: strut\ndescription: test\n---\n' > "$STRUT_HOME/skills/strut/SKILL.md"
 
   run _install_kiro "$STRUT_HOME" "$PROJECT_ROOT"
   [ "$status" -eq 0 ]
@@ -264,8 +264,8 @@ EOF
   source "$CLI_ROOT/lib/cmd_skills.sh"
   _agent_add_install_skills() { echo "1"; return 0; }
 
-  mkdir -p "$STRUT_HOME/.kiro/skills/strut"
-  printf -- '---\nname: strut\ndescription: test\n---\n' > "$STRUT_HOME/.kiro/skills/strut/SKILL.md"
+  mkdir -p "$STRUT_HOME/skills/strut"
+  printf -- '---\nname: strut\ndescription: test\n---\n' > "$STRUT_HOME/skills/strut/SKILL.md"
 
   run _install_claude "$STRUT_HOME" "$PROJECT_ROOT"
   [ "$status" -eq 0 ]

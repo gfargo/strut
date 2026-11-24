@@ -18,7 +18,7 @@ jobs:
 
       - name: Package skill
         run: |
-          cd .kiro/skills/strut
+          cd skills/strut
           zip -r /tmp/strut.skill . -x '*.DS_Store'
           echo "Packaged skill: $(du -h /tmp/strut.skill | cut -f1)"
 
