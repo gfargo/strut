@@ -95,5 +95,5 @@ strut my-stack health --env prod
 strut my-stack exec "df -h /" --env prod                      # disk space
 strut my-stack exec "docker compose exec postgres pg_isready" --env prod
 strut my-stack shell --env prod                                # check SSH access
-grep VPS_HOST .prod.env                                        # check VPS_HOST
+grep -c '^VPS_HOST=' .prod.env                                # 1 if VPS_HOST is set
 ```
