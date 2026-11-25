@@ -81,7 +81,7 @@ BACKUP_RETAIN_COUNT=10
 BACKUP_POSTGRES=true
 ```
 
-Test: `strut <stack-name> backup all --env prod`.
+Preview it with `strut <stack-name> backup all --env prod --dry-run`. A real backup writes a copy of production data, which can include customer records and secrets, to the backup location and uses disk space there. Run it for real only after the user approves.
 
 ## Common Validation Failures
 
